@@ -1,0 +1,54 @@
+{
+  "name": "@ayulab/pi-undoredo",
+  "version": "0.1.0",
+  "description": "Pi extension providing /undo and /redo commands",
+  "keywords": [
+    "checkpoint",
+    "extension",
+    "pi",
+    "pi-package",
+    "redo",
+    "undo"
+  ],
+  "license": "GPL-3.0",
+  "author": "ayu",
+  "files": [
+    "src",
+    "index.ts"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vitest",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ayulab/pi-checkpoint": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.7",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

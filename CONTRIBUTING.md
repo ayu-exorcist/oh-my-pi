@@ -1,0 +1,160 @@
+# Contributing
+
+## Repository Overview
+
+This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@ayulab/oh-my-pi`, containing extensions, skills, prompts, and themes.
+
+- `extensions/` — Pi extensions (`index.ts` entry point)
+- `skills/` / `prompts/` / `themes/` — Content-only directories
+- `sdk/` — Shared libraries consumed by extensions
+- `scripts/` — Development and release automation
+
+## Environment Setup
+
+**pnpm is required:**
+
+```bash
+cd ~/ayu-pi
+pnpm install
+```
+
+## Scripts
+
+| Script                       | Description                                        |
+| ---------------------------- | -------------------------------------------------- |
+| `pnpm run dev`               | vitest watch mode                                  |
+| `pnpm test`                  | Run all tests once                                 |
+| `pnpm run coverage`          | Tests + 100% coverage enforcement                  |
+| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876` |
+| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                          |
+| `pnpm run lint` / `lint:fix` | oxlint                                             |
+| `pnpm run fmt` / `fmt:check` | oxfmt                                              |
+| `pnpm run check`             | Local full check (type + lint + fmt + test)        |
+| `pnpm run ci`                | CI gate (type + lint + fmt + coverage)             |
+| `pnpm run setup`             | Symlink to `~/.pi/agent/` (global, default)        |
+| `pnpm run setup:local`       | Symlink to `./.pi/` (project-local)                |
+| `pnpm run teardown`          | Remove global symlinks                             |
+| `pnpm run teardown:local`    | Remove local symlinks                              |
+| `pnpm run release`           | Topological publish + auto CHANGELOG               |
+| `pnpm run release --dry-run` | Dry-run preview of publish                         |
+| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo           |
+
+## Quality Gate
+
+Every `git commit` triggers `pnpm run ci` via [simple-git-hooks](https://github.com/toplenboren/simple-git-hooks):
+
+- `tsc --noEmit` — zero errors
+- `oxlint .` — zero errors
+- `oxfmt . --check` — clean
+- `vitest run --coverage` — 100% threshold
+
+Skip hooks (not recommended): `git commit -m "xxx" --no-verify`
+
+## Directory Conventions
+
+### Adding an Extension
+
+```
+extensions/
+└── <name>/
+    ├── index.ts          # Pi extension entry (exports default function)
+    ├── package.json      # Extension package config
+    ├── vitest.config.ts  # Optional
+    └── src/
+        ├── index.ts      # Extension logic
+        └── ...           # Source + tests
+```
+
+Entry `index.ts` example:
+
+```typescript
+export { default } from "./src/index";
+```
+
+If the extension depends on `@ayulab/pi-checkpoint`:
+
+```json
+{
+  "dependencies": {
+    "@ayulab/pi-checkpoint": "workspace:*"
+  }
+}
+```
+
+### Adding a Sub-package to `sdk/`
+
+```
+sdk/
+└── <name>/
+    ├── package.json
+    ├── vitest.config.ts  # Optional
+    └── src/
+        ├── index.ts
+        └── ...
+```
+
+### Adding a Theme
+
+Drop a `.json` file directly into `themes/`:
+
+```
+themes/
+└── <name>.json
+```
+
+Pi auto-loads all `.json` files from `pi.themes` directories declared in `package.json`.
+
+### Adding a Skill / Prompt
+
+```
+skills/
+└── <name>/
+    └── SKILL.md
+
+prompts/
+└── <name>/
+    └── prompt.md
+```
+
+## Code Standards
+
+### Extract Shared Logic into `sdk/`
+
+If multiple extensions need the same logic, do not duplicate it. Extract shared code into `sdk/<name>/` and reference it via `dependencies`.
+
+Examples:
+
+- `pi-rewind` and `pi-undoredo` both read checkpoint entries from sessions → `extractCheckpointData()` lives in `@ayulab/pi-checkpoint`.
+- If a third extension needs a parser from `pi-rewind`, consider promoting it to `sdk/`.
+
+### Cross-platform Path Handling
+
+The project supports Linux, macOS, and Windows.
+
+**Do:**
+
+- Use `node:path` for all filesystem paths (`path.join`, `path.resolve`, `path.relative`).
+- Use `path.relative` for path-string comparisons instead of `startsWith`.
+
+**Don't:**
+
+- Hard-code `/` separators: `path.split("/")` ❌
+- Manually replace `\\` for comparisons: `.replace(/\\\\/g, "/")` ❌
+
+Exception: when normalizing paths returned by external systems (e.g., CodeGraph native bindings), use `/[\/\\\\]/` to match both separators.
+
+### Type Safety
+
+- Prefer `unknown` over `any`.
+- Use `interface` for object shapes; use `type` for unions and complex types.
+- Leverage type inference when possible.
+- Use const assertions (`as const`) to preserve literal types.
+- Avoid type assertions (`as`) and non-null assertions (`!`) in production code; use type guards instead.
+- Document complex types with JSDoc.
+
+### Commit Rules
+
+- One behavior per commit.
+- TDD: write tests before implementation.
+- No `any` / `as` / `!` in production code.
+- No `console.log` in production code (use `ctx.ui.notify`).

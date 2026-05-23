@@ -1,0 +1,5 @@
+[tools]
+node = "24"
+"npm:@colbymchenry/codegraph" = "latest"
+pi = "latest"
+pnpm = "11"

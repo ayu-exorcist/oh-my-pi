@@ -1,0 +1,50 @@
+{
+  "name": "@ayulab/pi-checkpoint",
+  "version": "0.1.0",
+  "description": "File-level checkpoint engine using git bare repos",
+  "keywords": [
+    "checkpoint",
+    "git",
+    "pi",
+    "pi-package",
+    "snapshot",
+    "undo"
+  ],
+  "license": "GPL-3.0",
+  "author": "ayu",
+  "files": [
+    "src"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config": "./src/config.ts",
+    "./repo-manager": "./src/repo-manager.ts",
+    "./repo-provider": "./src/repo-provider.ts",
+    "./testing": "./src/testing/index.ts",
+    "./resolver": "./src/resolver.ts",
+    "./exec": "./src/exec.ts",
+    "./diff-parser": "./src/diff-parser.ts",
+    "./guards": "./src/guards.ts",
+    "./types": "./src/types.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vitest",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

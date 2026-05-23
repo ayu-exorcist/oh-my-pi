@@ -1,0 +1,47 @@
+# pi CLI agent
+.pi/*
+!.pi/settings.json
+!.pi/AGENTS.md
+
+# Claude
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Common build artifacts
+node_modules/
+dist/
+build/
+
+# TypeScript
+*.tsbuildinfo
+
+# Lock files
+*-lock*
+*.lock
+
+# Vitest
+coverage/
+
+# oxc / oxlint / oxfmt
+.oxlintcache/
+.oxfmtcache/

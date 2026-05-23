@@ -1,0 +1,53 @@
+{
+  "name": "@ayulab/pi-rewind",
+  "version": "0.1.0",
+  "description": "Pi extension providing /rewind checkpoint navigation",
+  "keywords": [
+    "checkpoint",
+    "extension",
+    "pi",
+    "pi-package",
+    "rewind"
+  ],
+  "license": "GPL-3.0",
+  "author": "ayu",
+  "files": [
+    "src",
+    "index.ts"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./commands/rewind": "./src/commands/rewind.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vitest",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ayulab/pi-checkpoint": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

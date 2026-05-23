@@ -1,0 +1,269 @@
+import path from "node:path";
+import { writeFile, mkdir } from "node:fs/promises";
+import { exec, type ExecEnv } from "./exec";
+import { withRepoLock } from "./lock";
+
+/**
+ * Outcome of {@link RepoManager.safeCheckout}.
+ *
+ * Discriminated union so callers handle every path at the type level.
+ */
+export type SafeCheckoutResult =
+  | { readonly ok: true; readonly safetyHash?: string }
+  | { readonly ok: false; readonly reason: "dirty" }
+  | {
+      readonly ok: false;
+      readonly reason: "checkout-failed";
+      readonly error: string;
+      readonly rollbackError?: string;
+    };
+
+/**
+ * Manages a git bare repository used for file-level checkpoints.
+ *
+ * Each session gets its own bare repo under `~/.pi/agent/checkpoints/sessions/`.
+ * The work tree points to the user's project directory so that `git add/checkout`
+ * operate directly on the project files.
+ */
+export class RepoManager {
+  private env: ExecEnv;
+
+  private repoDir: string;
+
+  constructor(
+    /** Absolute path to the bare `.git` directory. */
+    private gitDir: string,
+    /** Absolute path to the git index file (outside the work tree). */
+    indexFile: string,
+    /** Absolute path to the project working directory. */
+    private workTree: string,
+  ) {
+    this.repoDir = path.dirname(gitDir);
+    this.env = {
+      GIT_DIR: gitDir,
+      GIT_WORK_TREE: workTree,
+      GIT_INDEX_FILE: indexFile,
+    };
+  }
+
+  /**
+   * Execute `fn` while holding an exclusive filesystem lock on this repo.
+   *
+   * Serialises concurrent access across processes and separate package installs.
+   */
+  async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    return withRepoLock(this.repoDir, fn);
+  }
+
+  private gitArgs(): string[] {
+    return [
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.safecrlf=false",
+      "-c",
+      "core.filemode=false",
+      "-c",
+      "core.quotepath=false",
+      `--git-dir=${this.gitDir}`,
+      `--work-tree=${this.workTree}`,
+    ];
+  }
+
+  /** Initialize a fresh bare repo and set default git config. */
+  async init(): Promise<void> {
+    await mkdir(path.dirname(this.gitDir), { recursive: true });
+    await exec("git", ["init", "--bare", this.gitDir]);
+    await exec(
+      "git",
+      [...this.gitArgs(), "config", "user.email", "pi@checkpoint.local"],
+      this.env,
+      this.workTree,
+    );
+    await exec(
+      "git",
+      [...this.gitArgs(), "config", "user.name", "Pi Checkpoint"],
+      this.env,
+      this.workTree,
+    );
+  }
+
+  /** Write exclude patterns to `info/exclude` inside the bare repo. */
+  async setExclude(patterns: readonly string[]): Promise<void> {
+    const excludePath = path.join(this.gitDir, "info", "exclude");
+    await mkdir(path.dirname(excludePath), { recursive: true });
+    await writeFile(excludePath, patterns.join("\n") + "\n", "utf8");
+  }
+
+  /**
+   * Stage all files and create a checkpoint commit.
+   *
+   * @param entryId - Session entry id to embed in the commit message.
+   * @returns The 40-character commit hash.
+   */
+  async checkpoint(entryId: string): Promise<string> {
+    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+    await exec(
+      "git",
+      [...this.gitArgs(), "commit", "-m", `[pi] entry:${entryId}`, "--allow-empty"],
+      this.env,
+      this.workTree,
+    );
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "rev-parse", "HEAD"],
+      this.env,
+      this.workTree,
+    );
+    return stdout.trim();
+  }
+
+  /** Hard-reset the work tree to `commitHash` and remove untracked files. */
+  async checkoutCommit(commitHash: string): Promise<void> {
+    await exec("git", [...this.gitArgs(), "reset", "--hard", commitHash], this.env, this.workTree);
+    await exec("git", [...this.gitArgs(), "clean", "-fd"], this.env, this.workTree);
+  }
+
+  /**
+   * Create a temporary safety commit capturing the current work tree state.
+   *
+   * Used before destructive operations so we can roll back on failure.
+   * @returns The safety commit hash.
+   */
+  async createSafetyCommit(): Promise<string> {
+    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+    await exec("git", [...this.gitArgs(), "commit", "-m", "[pi] safety"], this.env, this.workTree);
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "rev-parse", "HEAD"],
+      this.env,
+      this.workTree,
+    );
+    return stdout.trim();
+  }
+
+  /** Clone a bare repo (used when forking/cloning a session). */
+  static async cloneFrom(srcGitDir: string, dstGitDir: string): Promise<void> {
+    await exec("git", ["clone", "--local", "--bare", srcGitDir, dstGitDir]);
+  }
+
+  /** Update a git ref to point at `commitHash`. */
+  async updateRef(ref: string, commitHash: string): Promise<void> {
+    await exec("git", [...this.gitArgs(), "update-ref", ref, commitHash], this.env, this.workTree);
+  }
+
+  /**
+   * Return `--numstat` diff between the commit's parent and the commit itself.
+   *
+   * Falls back to `git show --numstat` for the first commit (no parent).
+   */
+  async diffStats(commitHash: string): Promise<string> {
+    try {
+      const { stdout } = await exec(
+        "git",
+        [...this.gitArgs(), "diff", "--numstat", `${commitHash}~1`, commitHash],
+        this.env,
+        this.workTree,
+      );
+      return stdout;
+    } catch {
+      const { stdout } = await exec(
+        "git",
+        [...this.gitArgs(), "show", "--numstat", "--format=", commitHash],
+        this.env,
+        this.workTree,
+      );
+      return stdout;
+    }
+  }
+
+  /** Return `--numstat` diff between `commitHash` and the current working tree. */
+  async diffWorkingTree(commitHash: string): Promise<string> {
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "diff", "--numstat", commitHash],
+      this.env,
+      this.workTree,
+    );
+    return stdout;
+  }
+
+  /** Stage all changes in the working tree. */
+  async stageAll(): Promise<void> {
+    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+  }
+
+  /** Return `--numstat` diff between the staged index and `commitHash`. */
+  async diffAgainst(commitHash: string): Promise<string> {
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "diff", "--numstat", "--cached", commitHash],
+      this.env,
+      this.workTree,
+    );
+    return stdout;
+  }
+
+  /**
+   * Safely check out `targetCommit` with dirty-guard, safety-commit, and
+   * automatic rollback on failure.
+   *
+   * The entire sequence runs inside {@link withLock} so concurrent callers
+   * are serialised.
+   *
+   * @param targetCommit - The commit hash to check out.
+   * @param dirtyBaseCommit - If provided, compare the working tree against
+   *   this commit to detect unsnapshotted changes. When dirty, returns
+   *   `{ ok: false, reason: "dirty" }`.
+   */
+  async safeCheckout(targetCommit: string, dirtyBaseCommit?: string): Promise<SafeCheckoutResult> {
+    return this.withLock(async () => {
+      // 1. Dirty guard
+      if (dirtyBaseCommit) {
+        try {
+          await this.stageAll();
+          const dirtyStdout = await this.diffAgainst(dirtyBaseCommit);
+          if (dirtyStdout.trim().length > 0) {
+            return { ok: false, reason: "dirty" };
+          }
+        } catch {
+          // Skip dirty check if diff fails
+        }
+      }
+
+      // 2. Safety commit
+      let safetyHash: string | undefined;
+      try {
+        safetyHash = await this.createSafetyCommit();
+      } catch {
+        // Proceed without safety commit
+      }
+
+      // 3. Checkout
+      try {
+        await this.checkoutCommit(targetCommit);
+        return { ok: true, safetyHash };
+      } catch (err) {
+        // 4. Rollback on failure
+        if (safetyHash) {
+          try {
+            await this.checkoutCommit(safetyHash);
+          } catch (rollbackErr) {
+            return {
+              ok: false,
+              reason: "checkout-failed",
+              error: err instanceof Error ? err.message : String(err),
+              rollbackError:
+                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+            };
+          }
+        }
+        return {
+          ok: false,
+          reason: "checkout-failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    });
+  }
+}
