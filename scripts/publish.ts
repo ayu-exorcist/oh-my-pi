@@ -402,12 +402,23 @@ async function main(): Promise<void> {
         cwd: pkg.path,
         stdio: "inherit",
         env,
+        timeout: 120_000,
       });
       console.log(`✅ Published ${name}@${pkg.version}\n`);
       publishedVersions.set(name, pkg.version);
     } catch {
-      console.error(`❌ Failed to publish ${name}`);
-      process.exit(1);
+      // Network timeout can occur after the registry has already accepted the
+      // package. Verify before treating it as a real failure.
+      const afterVersion = getRegistryVersion(name);
+      if (afterVersion === pkg.version) {
+        console.log(
+          `⚠️ Publish timed out but ${name}@${pkg.version} is already on registry. Continuing...\n`,
+        );
+        publishedVersions.set(name, pkg.version);
+      } else {
+        console.error(`❌ Failed to publish ${name}`);
+        process.exit(1);
+      }
     }
   }
 

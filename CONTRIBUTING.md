@@ -18,6 +18,17 @@ cd ~/ayu-pi
 pnpm install
 ```
 
+### Register as a Pi Package (optional)
+
+To make Pi aware of this repository's extensions, skills, prompts, and themes from outside the project directory:
+
+```bash
+pnpm run setup      # register in ~/.pi/agent/settings.json
+pnpm run teardown   # unregister
+```
+
+These scripts modify the user-level Pi settings so the package is available globally in your Pi environment. They are safe to run multiple times (idempotent).
+
 ## Scripts
 
 | Script                       | Description                                        |
@@ -31,6 +42,8 @@ pnpm install
 | `pnpm run fmt` / `fmt:check` | oxfmt                                              |
 | `pnpm run check`             | Local full check (type + lint + fmt + test)        |
 | `pnpm run ci`                | CI gate (type + lint + fmt + coverage)             |
+| `pnpm run setup`             | Register repo in user-level Pi settings            |
+| `pnpm run teardown`          | Unregister repo from user-level Pi settings        |
 | `pnpm run release`           | Topological publish + auto CHANGELOG               |
 | `pnpm run release --dry-run` | Dry-run preview of publish                         |
 | `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo           |

@@ -38,6 +38,8 @@
     "fmt:check": "oxfmt . --check",
     "check": "tsc --noEmit && pnpm run lint && pnpm run fmt:check && pnpm run test",
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check && pnpm run coverage",
+    "setup": "oxnode scripts/setup.ts",
+    "teardown": "oxnode scripts/teardown.ts",
     "release": "oxnode scripts/publish.ts",
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
