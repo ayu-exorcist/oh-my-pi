@@ -461,6 +461,19 @@ async function main(): Promise<void> {
     }
   }
 
+  // Create GitHub Releases for new tags
+  for (const tag of newTags) {
+    try {
+      execSync(`gh release create "${tag}" --title "${tag}" --generate-notes`, {
+        cwd: root,
+        stdio: "pipe",
+      });
+      console.log(`📋 Created GitHub Release ${tag}`);
+    } catch (err) {
+      console.warn(`⚠️ Failed to create GitHub Release ${tag}:`, err);
+    }
+  }
+
   console.log("🎉 All packages published successfully!");
 }
 

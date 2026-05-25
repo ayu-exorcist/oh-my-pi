@@ -74,11 +74,12 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── themes/               # Themes
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
-│   ├── publish.ts        # Topological publish + auto CHANGELOG
+│   ├── publish.ts        # Topological publish + auto CHANGELOG + tag + release
 │   ├── setup.ts          # Symlink sync for local development
 │   └── teardown.ts       # Remove symlinks created by setup
 ├── package.json          # Pi Package manifest (curated meta package)
 ├── CHANGELOG.md          # Curated release log
+├── .npmrc                # npm provenance config
 ├── LICENSE               # GPL-3.0
 ├── pnpm-workspace.yaml
 └── vitest.config.ts
@@ -335,17 +336,24 @@ This repository is configured as a [Pi Package](https://pi.dev/docs/latest/packa
 - `pi.themes` — theme paths
 - Convention directories `skills/` and `prompts/` — auto-discovered
 
+**Release checklist** (handled automatically by `scripts/publish.ts`):
+
+1. `files` array in every `package.json` must include `"README.md"` — npm shows the description.
+2. `repository`, `homepage`, and `bugs` fields should be set — links on npm / pi.dev.
+3. `.npmrc` sets `provenance=true` — npm registry shows "Published with provenance".
+4. `pnpm run release` publishes, auto-generates `CHANGELOG.md`, creates git tags, and opens GitHub Releases.
+
 Publish to npm:
 
 ```bash
 # Log in to npm
 npm login
 
-# Publish SDK
-pnpm publish --filter @ayulab/pi-checkpoint
+# Publish all changed packages (topological order + CHANGELOG + tags + releases)
+pnpm run release
 
-# Publish extension
-pnpm publish --filter @ayulab/pi-rewind
+# Dry-run preview
+pnpm run release:dry
 ```
 
 Gallery inclusion requires `pi-package` in `keywords` — already configured.

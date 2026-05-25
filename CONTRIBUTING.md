@@ -31,22 +31,22 @@ These scripts modify the user-level Pi settings so the package is available glob
 
 ## Scripts
 
-| Script                       | Description                                        |
-| ---------------------------- | -------------------------------------------------- |
-| `pnpm run dev`               | vitest watch mode                                  |
-| `pnpm test`                  | Run all tests once                                 |
-| `pnpm run coverage`          | Tests + 100% coverage enforcement                  |
-| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876` |
-| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                          |
-| `pnpm run lint` / `lint:fix` | oxlint                                             |
-| `pnpm run fmt` / `fmt:check` | oxfmt                                              |
-| `pnpm run check`             | Local full check (type + lint + fmt + test)        |
-| `pnpm run ci`                | CI gate (type + lint + fmt + coverage)             |
-| `pnpm run setup`             | Register repo in user-level Pi settings            |
-| `pnpm run teardown`          | Unregister repo from user-level Pi settings        |
-| `pnpm run release`           | Topological publish + auto CHANGELOG               |
-| `pnpm run release --dry-run` | Dry-run preview of publish                         |
-| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo           |
+| Script                       | Description                                                     |
+| ---------------------------- | --------------------------------------------------------------- |
+| `pnpm run dev`               | vitest watch mode                                               |
+| `pnpm test`                  | Run all tests once                                              |
+| `pnpm run coverage`          | Tests + 100% coverage enforcement                               |
+| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`              |
+| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                                       |
+| `pnpm run lint` / `lint:fix` | oxlint                                                          |
+| `pnpm run fmt` / `fmt:check` | oxfmt                                                           |
+| `pnpm run check`             | Local full check (type + lint + fmt + test)                     |
+| `pnpm run ci`                | CI gate (type + lint + fmt + coverage)                          |
+| `pnpm run setup`             | Register repo in user-level Pi settings                         |
+| `pnpm run teardown`          | Unregister repo from user-level Pi settings                     |
+| `pnpm run release`           | Topological publish + auto CHANGELOG + git tag + GitHub Release |
+| `pnpm run release --dry-run` | Dry-run preview of publish                                      |
+| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo                        |
 
 ## Quality Gate
 
@@ -68,6 +68,7 @@ extensions/
 └── <name>/
     ├── index.ts          # Pi extension entry (exports default function)
     ├── package.json      # Extension package config
+    ├── README.md         # Shown on npm and pi.dev/packages
     ├── vitest.config.ts  # Optional
     └── src/
         ├── index.ts      # Extension logic
@@ -78,6 +79,23 @@ Entry `index.ts` example:
 
 ```typescript
 export { default } from "./src/index";
+```
+
+Every `package.json` must include:
+
+```json
+{
+  "files": ["src", "index.ts", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayu-exorcist/oh-my-pi.git",
+    "directory": "extensions/<name>"
+  },
+  "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/extensions/<name>#readme",
+  "bugs": {
+    "url": "https://github.com/ayu-exorcist/oh-my-pi/issues"
+  }
+}
 ```
 
 If the extension depends on `@ayulab/pi-checkpoint`:
@@ -96,10 +114,28 @@ If the extension depends on `@ayulab/pi-checkpoint`:
 sdk/
 └── <name>/
     ├── package.json
+    ├── README.md         # Shown on npm
     ├── vitest.config.ts  # Optional
     └── src/
         ├── index.ts
         └── ...
+```
+
+Package config (do **not** include `"pi-package"` in `keywords` for SDK-only libraries):
+
+```json
+{
+  "files": ["src", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayu-exorcist/oh-my-pi.git",
+    "directory": "sdk/<name>"
+  },
+  "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/sdk/<name>#readme",
+  "bugs": {
+    "url": "https://github.com/ayu-exorcist/oh-my-pi/issues"
+  }
+}
 ```
 
 ### Adding a Theme
@@ -160,6 +196,24 @@ Exception: when normalizing paths returned by external systems (e.g., CodeGraph 
 - Use const assertions (`as const`) to preserve literal types.
 - Avoid type assertions (`as`) and non-null assertions (`!`) in production code; use type guards instead.
 - Document complex types with JSDoc.
+
+### Release Configuration
+
+**`.npmrc`** — root only, enables npm provenance (supply-chain attestation):
+
+```
+provenance=true
+```
+
+**`CHANGELOG.md`** — auto-generated by `scripts/publish.ts`. Do not edit manually; each curated release prepends a new entry.
+
+**GitHub Releases** — `pnpm run release` auto-creates a GitHub Release for every published package via the `gh` CLI. Make sure `gh` is installed and authenticated:
+
+```bash
+gh auth status
+```
+
+**Git tags** — also created automatically. Format: `@scope/name@version`. Existing tags are skipped.
 
 ### Commit Rules
 
