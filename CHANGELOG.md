@@ -1,5 +1,11 @@
 # Changelog
 
+## @ayulab/oh-my-pi@0.2.1 (2026-05-25)
+
+- @ayulab/pi-rewind@workspace:\*
+- @ayulab/pi-undoredo@workspace:\*
+- pi-mcp-adapter@2.6.1
+
 ## @ayulab/oh-my-pi@0.2.0 (2026-05-25)
 
 - @ayulab/pi-checkpoint@0.2.0

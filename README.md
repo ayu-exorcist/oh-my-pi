@@ -85,94 +85,24 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 └── vitest.config.ts
 ```
 
-## Included Extensions
+## What's Included
 
-### @ayulab/pi-checkpoint
-
-File-level checkpoint engine powered by git bare repos:
-
-- Auto-create checkpoint on every user turn
-- Metadata stored as Pi session custom entries
-- Fork / clone / restore support
-- Zero runtime dependencies; usable standalone
-
-Key exports:
-
-```typescript
-export { loadConfig, loadConfigFromFile } from "@ayulab/pi-checkpoint";
-export { RepoManager } from "@ayulab/pi-checkpoint";
-export { getRepoDir, getGitDir, getIndexPath } from "@ayulab/pi-checkpoint";
-export { exec, type ExecEnv } from "@ayulab/pi-checkpoint";
-export { extractCheckpointData } from "@ayulab/pi-checkpoint";
-export type { CheckpointConfig, FileChange } from "@ayulab/pi-checkpoint";
-```
-
-### @ayulab/pi-rewind
-
-Pi extension providing the `/rewind` command:
-
-- Interactive checkpoint list with file-change stats
-- Four restore modes (code / conversation / both / summarize)
-- File-change counters (`+n -m`)
-- Auto-copy checkpoint repo on fork / clone
-
-### @ayulab/pi-undoredo
-
-Pi extension providing `/undo` and `/redo` commands:
-
-- Checkpoint-based undo / redo
-- Undo/redo at both conversation and code level
-
-## Curated Release Strategy
-
-`@ayulab/oh-my-pi` follows a **curated release** model:
-
-- Sub-extensions iterate independently and are published to npm individually.
-- `@ayulab/oh-my-pi` curates releases manually: the maintainer decides which sub-extension versions to include.
-- All dependency versions are **pinned exactly** — every curated release is a reproducible snapshot.
-- Curated releases auto-generate `CHANGELOG.md` listing all bundled dependency versions.
-- Experimental features are published standalone for several releases; only stable features are considered for curation.
-
-Publish workflow (handled by `scripts/publish.ts`):
-
-```bash
-# Publish all changed sub-packages (topological order)
-pnpm run release
-
-# Dry-run preview
-pnpm run release:dry
-```
+| Package                                         | Description                                         |
+| ----------------------------------------------- | --------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)    | Git bare-repo checkpoint engine. Zero deps.         |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)     | `/rewind` command — interactive checkpoint restore. |
+| [`@ayulab/pi-undoredo`](extensions/pi-undoredo) | `/undo` and `/redo` commands.                       |
+| [`Purple Dream`](themes/purple-dream.json)      | Dark purple theme for long coding sessions.         |
 
 ## Extension Management
 
-After installing the curated collection, all extensions are enabled by default. Control them via:
+After installation, all extensions are enabled by default. Toggle interactively:
 
 ```bash
-# Interactive toggle for extensions, skills, and themes
 pi config
-
-# Or filter precisely in settings.json
-{
-  "packages": [
-    {
-      "source": "npm:@ayulab/oh-my-pi",
-      "extensions": ["!node_modules/@ayulab/pi-undoredo/index.ts"]
-    }
-  ]
-}
 ```
 
-## Included Themes
-
-### Purple Dream
-
-Dark purple theme with soft contrast, ideal for long coding sessions.
-
-- Background: `#15101e`
-- Accents: `#c084fc` / `#e879f9`
-- Syntax: purple keywords, green strings, orange numbers
-
-Select **Purple Dream** in Pi settings to activate.
+Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering) in `settings.json` for fine-grained control.
 
 ## Using /rewind
 
@@ -204,159 +134,13 @@ Select mode: 1
 
 ## Development
 
-### Clone
-
 ```bash
-git clone https://github.com/your-org/ayu-pi.git ~/ayu-pi
-cd ~/ayu-pi
-pnpm install
+git clone https://github.com/ayu-exorcist/oh-my-pi.git
+cd oh-my-pi
+mise install && pnpm install
 ```
 
-### Local Dev with Pi
-
-Use the project as a local Pi package:
-
-```bash
-pi install /path/to/oh-my-pi
-```
-
-Or configure it in your project's `.pi/settings.json`:
-
-```json
-{
-  "packages": ["/path/to/oh-my-pi"]
-}
-```
-
-Source changes take effect immediately in Pi (extensions support `/reload` hot-reload).
-
-### Scripts
-
-```bash
-# Watch mode
-pnpm run dev
-
-# Single test run
-pnpm test
-
-# Coverage (100% threshold enforced)
-pnpm run coverage
-
-# Coverage + open in browser
-pnpm run coverage:open
-
-# Type check
-pnpm run typecheck
-
-# Lint (oxlint)
-pnpm run lint
-pnpm run lint:fix
-
-# Format (oxfmt)
-pnpm run fmt
-pnpm run fmt:check
-
-# Local full check (type + lint + fmt + test)
-pnpm run check
-
-# CI gate (type + lint + fmt + coverage)
-pnpm run ci
-```
-
-## Adding New Content
-
-### Add an Extension
-
-Create a new directory under `extensions/`:
-
-```
-extensions/
-└── my-ext/
-    ├── index.ts          # Pi extension entry (exports default function)
-    ├── package.json      # Extension package config
-    ├── vitest.config.ts  # Optional
-    └── src/
-        ├── index.ts      # Extension logic
-        └── ...           # Source + tests
-```
-
-Entry `index.ts` example:
-
-```typescript
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.notify("My extension loaded!", "info");
-  });
-}
-```
-
-If the extension depends on `@ayulab/pi-checkpoint`, declare it in `package.json`:
-
-```json
-{
-  "dependencies": {
-    "@ayulab/pi-checkpoint": "workspace:*"
-  }
-}
-```
-
-### Add a Theme
-
-Drop a `.json` theme file into `themes/`:
-
-```
-themes/
-└── my-theme.json
-```
-
-Pi loads all `.json` files from the `pi.themes` directories configured in `package.json`.
-
-### Add Skills / Prompts
-
-```
-skills/
-└── my-skill/
-    └── SKILL.md
-
-prompts/
-└── my-prompt/
-    └── prompt.md
-```
-
-No `package.json` needed — Pi reads the content files directly.
-
-## Publishing to Pi Gallery
-
-This repository is configured as a [Pi Package](https://pi.dev/docs/latest/packages):
-
-- `keywords` includes `pi-package` — gallery inclusion
-- `pi.extensions` — extension paths
-- `pi.themes` — theme paths
-- Convention directories `skills/` and `prompts/` — auto-discovered
-
-**Release checklist** (handled automatically by `scripts/publish.ts`):
-
-1. `files` array in every `package.json` must include `"README.md"` — npm shows the description.
-2. `repository`, `homepage`, and `bugs` fields should be set — links on npm / pi.dev.
-3. `.npmrc` sets `provenance=true` — npm registry shows "Published with provenance".
-4. `pnpm run release` publishes, auto-generates `CHANGELOG.md`, creates git tags, and opens GitHub Releases.
-
-Publish to npm:
-
-```bash
-# Log in to npm
-npm login
-
-# Publish all changed packages (topological order + CHANGELOG + tags + releases)
-pnpm run release
-
-# Dry-run preview
-pnpm run release:dry
-```
-
-Gallery inclusion requires `pi-package` in `keywords` — already configured.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full development guide — mise setup, scripts, quality gate, adding extensions, and release workflow.
 
 ## License
 
