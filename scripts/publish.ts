@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseCLI } from "./lib/cli";
@@ -10,6 +11,7 @@ import { updateChangelog } from "./lib/changelog";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
 import { tagAndRelease } from "./lib/git";
 import { isStringArray } from "./lib/guards";
+import type { PackageInfo } from "./lib/types";
 
 /** Repository root absolute path. */
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
@@ -45,13 +47,75 @@ function shouldPublish(version: string, registryVersion: string | null): boolean
 }
 
 /**
+ * Temporarily replace `workspace:*` dependencies in a package's
+ * `package.json` with concrete versions from the workspace.
+ * Returns a restore function that reverts the file to its original
+ * content, or `undefined` when no changes were necessary.
+ */
+function rewriteWorkspaceDeps(
+  pkg: PackageInfo,
+  nameMap: Map<string, PackageInfo>,
+): (() => void) | undefined {
+  const deps = pkg.pkg.dependencies;
+  if (!deps) return;
+
+  const replacements: Record<string, string> = {};
+  for (const [depName, version] of Object.entries(deps)) {
+    if (version !== "workspace:*") continue;
+    const depPkg = nameMap.get(depName);
+    if (depPkg) {
+      replacements[depName] = depPkg.version;
+    }
+  }
+
+  if (Object.keys(replacements).length === 0) return;
+
+  const pkgJsonPath = join(pkg.path, "package.json");
+  const original = readFileSync(pkgJsonPath, "utf8");
+  const parsed = JSON.parse(original);
+
+  for (const [depName, realVersion] of Object.entries(replacements)) {
+    parsed.dependencies[depName] = `^${realVersion}`;
+  }
+
+  writeFileSync(pkgJsonPath, JSON.stringify(parsed, null, 2) + "\n");
+  return () => {
+    writeFileSync(pkgJsonPath, original);
+  };
+}
+
+/**
  * Publish a single package. On success, record the version and immediately
  * create a git tag + GitHub Release so metadata is never left behind.
+ *
+ * Workspace `package.json` files are temporarily rewritten so that nested
+ * bundled dependencies do not contain `workspace:*` in the published tarball.
  */
 function publishOne(
-  pkg: import("./lib/types").PackageInfo,
+  pkg: PackageInfo,
   publishedVersions: Map<string, string>,
+  nameMap: Map<string, PackageInfo>,
 ): void {
+  const restores: (() => void)[] = [];
+
+  // Rewrite this package's own workspace deps.
+  const restoreSelf = rewriteWorkspaceDeps(pkg, nameMap);
+  if (restoreSelf) restores.push(restoreSelf);
+
+  // If this is the root package, also rewrite any bundled workspace deps so
+  // they are packed with concrete versions instead of `workspace:*`.
+  if (pkg.isRoot) {
+    const bundled: string[] = isStringArray(pkg.pkg.bundledDependencies)
+      ? pkg.pkg.bundledDependencies
+      : [];
+    for (const depName of bundled) {
+      const depPkg = nameMap.get(depName);
+      if (!depPkg) continue;
+      const restoreBundled = rewriteWorkspaceDeps(depPkg, nameMap);
+      if (restoreBundled) restores.push(restoreBundled);
+    }
+  }
+
   if (pkg.isRoot) {
     console.log(`🚀 Publishing root package ${pkg.name}@${pkg.version}...`);
   } else {
@@ -84,6 +148,10 @@ function publishOne(
       console.error(`❌ Failed to publish ${pkg.name}`);
       process.exit(1);
     }
+  } finally {
+    for (const restore of restores) {
+      restore();
+    }
   }
 }
 
@@ -93,7 +161,7 @@ function publishOne(
  * so the CHANGELOG never shows `workspace:*`.
  */
 function resolveBundledVersions(
-  rootPkg: import("./lib/types").PackageInfo,
+  rootPkg: PackageInfo,
   publishedVersions: Map<string, string>,
 ): void {
   const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
@@ -212,7 +280,7 @@ async function main(): Promise<void> {
   for (const name of sortedToPublish) {
     const pkg = nameMap.get(name);
     if (!pkg) continue;
-    publishOne(pkg, publishedVersions);
+    publishOne(pkg, publishedVersions, nameMap);
   }
 
   // Generate changelog after root package is published

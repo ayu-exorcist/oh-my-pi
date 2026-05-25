@@ -76,8 +76,8 @@
   },
   "pi": {
     "extensions": [
-      "node_modules/@ayulab/pi-rewind/index.ts",
-      "node_modules/@ayulab/pi-undoredo/index.ts",
+      "!node_modules/@ayulab/pi-rewind/index.ts",
+      "!node_modules/@ayulab/pi-undoredo/index.ts",
       "node_modules/pi-mcp-adapter/index.ts"
     ],
     "skills": [
