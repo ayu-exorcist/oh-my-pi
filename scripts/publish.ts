@@ -8,7 +8,7 @@ import { getPackages } from "./lib/packages";
 import { buildDepGraph, topoSort, collectDependencies } from "./lib/deps";
 import { updateChangelog } from "./lib/changelog";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
-import { createTags, pushTags, createReleases } from "./lib/git";
+import { tagAndRelease } from "./lib/git";
 import { isStringArray } from "./lib/guards";
 
 /** Repository root absolute path. */
@@ -45,15 +45,78 @@ function shouldPublish(version: string, registryVersion: string | null): boolean
 }
 
 /**
+ * Publish a single package. On success, record the version and immediately
+ * create a git tag + GitHub Release so metadata is never left behind.
+ */
+function publishOne(
+  pkg: import("./lib/types").PackageInfo,
+  publishedVersions: Map<string, string>,
+): void {
+  if (pkg.isRoot) {
+    console.log(`🚀 Publishing root package ${pkg.name}@${pkg.version}...`);
+  } else {
+    console.log(`🚀 Publishing ${pkg.name}@${pkg.version}...`);
+  }
+
+  try {
+    const otpFlag = OTP ? ` --otp ${OTP}` : "";
+    const env = OTP ? { ...process.env, PNPM_CONFIG_OTP: OTP } : undefined;
+    execSync(`pnpm publish --access ${ACCESS}${otpFlag}`, {
+      cwd: pkg.path,
+      stdio: "inherit",
+      env,
+      timeout: 120_000,
+    });
+    console.log(`✅ Published ${pkg.name}@${pkg.version}\n`);
+    publishedVersions.set(pkg.name, pkg.version);
+    tagAndRelease(root, pkg.name, pkg.version);
+  } catch {
+    // Network timeout can occur after the registry has already accepted the
+    // package. Verify before treating it as a real failure.
+    const afterVersion = getRegistryVersion(pkg.name);
+    if (afterVersion === pkg.version) {
+      console.log(
+        `⚠️ Publish timed out but ${pkg.name}@${pkg.version} is already on registry. Continuing...\n`,
+      );
+      publishedVersions.set(pkg.name, pkg.version);
+      tagAndRelease(root, pkg.name, pkg.version);
+    } else {
+      console.error(`❌ Failed to publish ${pkg.name}`);
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Ensure every bundled dependency has a concrete version in
+ * `publishedVersions`. Queries the npm registry for any missing entries
+ * so the CHANGELOG never shows `workspace:*`.
+ */
+function resolveBundledVersions(
+  rootPkg: import("./lib/types").PackageInfo,
+  publishedVersions: Map<string, string>,
+): void {
+  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
+    ? rootPkg.pkg.bundledDependencies
+    : [];
+  for (const dep of bundled) {
+    if (publishedVersions.has(dep)) continue;
+    const registryVersion = getRegistryVersion(dep);
+    if (registryVersion) {
+      publishedVersions.set(dep, registryVersion);
+    }
+  }
+}
+
+/**
  * Orchestrate the release:
  *
  *   1. Detect packages whose local version differs from the registry.
  *   2. If explicit targets were given, narrow to their dependency closure.
  *   3. Validate every package's manifest before publishing.
  *   4. Topologically sort so dependencies publish first.
- *   5. Run `pnpm publish` for each package.
+ *   5. Publish each package and immediately tag + release it.
  *   6. Update `CHANGELOG.md` after the root package is published.
- *   7. Create and push git tags, then open GitHub Releases.
  */
 async function main(): Promise<void> {
   const packages = getPackages(root);
@@ -149,42 +212,12 @@ async function main(): Promise<void> {
   for (const name of sortedToPublish) {
     const pkg = nameMap.get(name);
     if (!pkg) continue;
-
-    if (pkg.isRoot) {
-      console.log(`🚀 Publishing root package ${name}@${pkg.version}...`);
-    } else {
-      console.log(`🚀 Publishing ${name}@${pkg.version}...`);
-    }
-
-    try {
-      const otpFlag = OTP ? ` --otp ${OTP}` : "";
-      const env = OTP ? { ...process.env, PNPM_CONFIG_OTP: OTP } : undefined;
-      execSync(`pnpm publish --access ${ACCESS}${otpFlag}`, {
-        cwd: pkg.path,
-        stdio: "inherit",
-        env,
-        timeout: 120_000,
-      });
-      console.log(`✅ Published ${name}@${pkg.version}\n`);
-      publishedVersions.set(name, pkg.version);
-    } catch {
-      // Network timeout can occur after the registry has already accepted the
-      // package. Verify before treating it as a real failure.
-      const afterVersion = getRegistryVersion(name);
-      if (afterVersion === pkg.version) {
-        console.log(
-          `⚠️ Publish timed out but ${name}@${pkg.version} is already on registry. Continuing...\n`,
-        );
-        publishedVersions.set(name, pkg.version);
-      } else {
-        console.error(`❌ Failed to publish ${name}`);
-        process.exit(1);
-      }
-    }
+    publishOne(pkg, publishedVersions);
   }
 
   // Generate changelog after root package is published
   if (rootPkg && publishedVersions.has(rootPkg.name)) {
+    resolveBundledVersions(rootPkg, publishedVersions);
     updateChangelog(root, rootPkg, publishedVersions);
   } else if (rootPkg) {
     const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
@@ -198,11 +231,6 @@ async function main(): Promise<void> {
       console.log(`   Published: ${publishedBundled.join(", ")}\n`);
     }
   }
-
-  // Tags + Releases
-  const newTags = createTags(root, publishedVersions);
-  pushTags(root, newTags);
-  createReleases(root, newTags);
 
   console.log("🎉 All packages published successfully!");
 }

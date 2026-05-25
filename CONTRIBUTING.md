@@ -221,6 +221,16 @@ Exception: when normalizing paths returned by external systems (e.g., CodeGraph 
 
 ### Release Configuration
 
+**Always use `pnpm` to publish.** This monorepo uses pnpm workspaces with `workspace:*` dependency references. Only `pnpm publish` resolves `workspace:*` to concrete version numbers during tarball generation. Using `npm publish` will ship the literal string `workspace:*` to the registry, breaking installation for consumers.
+
+```bash
+# Correct — pnpm resolves workspace:* to real versions
+pnpm run release
+
+# Wrong — npm does not understand workspace:*
+npm publish
+```
+
 **`.npmrc`** — root only, enables npm provenance (supply-chain attestation):
 
 ```
