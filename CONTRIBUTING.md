@@ -11,23 +11,45 @@ This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@a
 
 ## Environment Setup
 
-**pnpm is required:**
+### 1. Install mise
+
+This project uses [mise](https://mise.jdx.dev/) to manage development tools. Install it first:
 
 ```bash
-cd ~/ayu-pi
+# macOS / Linux
+curl https://mise.run | sh
+
+# Windows (via winget)
+winget install jdx.mise
+```
+
+### 2. Install project tools via mise
+
+```bash
+mise install
+```
+
+This reads `mise.toml` and installs the pinned versions of `node`, `pnpm`, `pi`, and `codegraph`.
+
+### 3. Install dependencies
+
+```bash
 pnpm install
 ```
 
-### Register as a Pi Package (optional)
+### 4. Initialize CodeGraph (optional)
 
-To make Pi aware of this repository's extensions, skills, prompts, and themes from outside the project directory:
+If you plan to use CodeGraph for code navigation:
 
 ```bash
-pnpm run setup      # register in ~/.pi/agent/settings.json
-pnpm run teardown   # unregister
+codegraph init -i
 ```
 
-These scripts modify the user-level Pi settings so the package is available globally in your Pi environment. They are safe to run multiple times (idempotent).
+This indexes the repository and creates a `.codegraph/` directory.
+
+### ⚠️ Package Conflict Warning
+
+Pi loads extensions from multiple sources simultaneously. Installing the same package from different sources (e.g., npm global + local repo, or curated collection + standalone extension) will cause duplication or runtime errors. Use `pi list` to inspect active packages.
 
 ## Scripts
 
