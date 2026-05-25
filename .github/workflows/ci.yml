@@ -26,5 +26,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "@ayulab/oh-my-pi"
+          git config --global user.email "noreply@example.com"
+
       - name: Run CI gate
         run: pnpm run ci
