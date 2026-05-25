@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/oh-my-pi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Personal Pi toolkit: extensions, skills, prompts, and themes",
   "keywords": [
     "extensions",
@@ -72,7 +72,7 @@
     "pi-mcp-adapter"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "pi": {
     "extensions": [

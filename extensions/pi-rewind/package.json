@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/pi-rewind",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pi extension providing /rewind checkpoint navigation",
   "keywords": [
     "checkpoint",
@@ -53,7 +53,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "pi": {
     "extensions": [
