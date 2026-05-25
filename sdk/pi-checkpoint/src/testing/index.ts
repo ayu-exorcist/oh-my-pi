@@ -1,10 +1,14 @@
-import { vi, type Mock } from "vitest";
+import { vi } from "vitest";
 import type { RepoManager } from "../repo-manager";
 import type { SafeCheckoutResult } from "../repo-manager";
 
-/** Narrow an injected spy to a callable Mock or undefined. */
-function asMock<T extends (...args: any[]) => any>(fn: unknown): Mock<T> | undefined {
-  return typeof fn === "function" ? (fn as Mock<T>) : undefined;
+function isCallable(fn: unknown): fn is (...args: unknown[]) => unknown {
+  return typeof fn === "function";
+}
+
+/** Narrow an injected spy to a callable function or undefined. */
+function asMock(fn: unknown): ((...args: unknown[]) => unknown) | undefined {
+  return isCallable(fn) ? fn : undefined;
 }
 
 /**
@@ -24,7 +28,7 @@ function asMock<T extends (...args: any[]) => any>(fn: unknown): Mock<T> | undef
  * });
  */
 export function createMockRepo(
-  partial: Partial<Record<keyof RepoManager, Mock>> = {},
+  partial: Partial<Record<keyof RepoManager, (...args: unknown[]) => unknown>> = {},
 ): RepoManager {
   const defaults = {
     withLock: vi.fn((fn: () => Promise<unknown>) => fn()),
@@ -39,10 +43,11 @@ export function createMockRepo(
             const stageAll = asMock(repo.stageAll);
             if (stageAll) await stageAll();
 
-            const diffAgainst = asMock<typeof repo.diffAgainst>(repo.diffAgainst);
-            const dirtyStdout = diffAgainst ? await diffAgainst(dirtyBaseCommit) : "";
+            const diffAgainst = asMock(repo.diffAgainst);
+            const dirtyResult = diffAgainst ? await diffAgainst(dirtyBaseCommit) : "";
+            const dirtyStdout = typeof dirtyResult === "string" ? dirtyResult : "";
             if (dirtyStdout.trim().length > 0) {
-              return { ok: false as const, reason: "dirty" };
+              return { ok: false, reason: "dirty" };
             }
           } catch {
             // skip dirty check if diff fails
@@ -51,10 +56,11 @@ export function createMockRepo(
 
         let safetyHash: string | undefined;
         try {
-          const createSafetyCommit = asMock<typeof repo.createSafetyCommit>(
-            repo.createSafetyCommit,
-          );
-          if (createSafetyCommit) safetyHash = await createSafetyCommit();
+          const createSafetyCommit = asMock(repo.createSafetyCommit);
+          if (createSafetyCommit) {
+            const result = await createSafetyCommit();
+            if (typeof result === "string") safetyHash = result;
+          }
         } catch {
           // proceed without safety commit
         }
@@ -62,7 +68,7 @@ export function createMockRepo(
         const checkoutCommit = asMock(repo.checkoutCommit);
         if (!checkoutCommit) {
           return {
-            ok: false as const,
+            ok: false,
             reason: "checkout-failed",
             error: "checkoutCommit not mocked",
           };
@@ -70,14 +76,14 @@ export function createMockRepo(
 
         try {
           await checkoutCommit(targetCommit);
-          return { ok: true as const, safetyHash };
+          return { ok: true, safetyHash };
         } catch (err) {
           if (safetyHash) {
             try {
               await checkoutCommit(safetyHash);
             } catch (rollbackErr) {
               return {
-                ok: false as const,
+                ok: false,
                 reason: "checkout-failed",
                 error: err instanceof Error ? err.message : String(err),
                 rollbackError:
@@ -86,7 +92,7 @@ export function createMockRepo(
             }
           }
           return {
-            ok: false as const,
+            ok: false,
             reason: "checkout-failed",
             error: err instanceof Error ? err.message : String(err),
           };
@@ -95,5 +101,5 @@ export function createMockRepo(
     );
   }
 
-  return repo as RepoManager;
+  return repo;
 }

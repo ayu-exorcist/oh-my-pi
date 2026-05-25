@@ -2,22 +2,39 @@
 
 Development and release automation for the `@ayulab/oh-my-pi` monorepo.
 
-All scripts are TypeScript files executed via [`oxnode`](https://github.com/oxc-project/oxc-node) (zero-config TypeScript runner) and are registered as `package.json` scripts.
+All top-level scripts are TypeScript files executed via [`oxnode`](https://github.com/oxc-project/oxc-node) (zero-config TypeScript runner) and are registered as `package.json` scripts.
 
-## Scripts
+```
+scripts/
+├── publish.ts          # Release entry point
+├── setup.ts            # Register repo in Pi settings
+├── teardown.ts         # Unregister repo from Pi settings
+├── lib/                # Shared modules (imported by scripts above)
+│   ├── cli.ts          # CLI flag parser
+│   ├── guards.ts       # Type guards (isRecord, isStringArray, isPkgJson)
+│   ├── types.ts        # Shared interfaces (PkgJson, PackageInfo, DepGraph, ...)
+│   ├── packages.ts     # Discover root + workspace packages
+│   ├── deps.ts         # Dependency graph + topological sort
+│   ├── npm.ts          # npm registry queries
+│   ├── changelog.ts    # CHANGELOG.md generation
+│   ├── validate.ts     # Pre-publish manifest validation
+│   ├── git.ts          # Git tag + GitHub Release automation
+│   └── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
+```
 
-### `publish.ts` — Topological Publish
+## `publish.ts` — Topological Publish
 
 `pnpm run release` / `pnpm run release --dry-run`
 
-Orchestrates npm publishing across the monorepo:
+Orchestrates npm publishing across the monorepo. Entry point that composes modules from `lib/`:
 
-1. Scans `extensions/` and `sdk/` for publishable packages.
-2. Compares local versions against the npm registry.
-3. Builds a dependency graph from `package.json` `dependencies`.
-4. Topologically sorts packages so dependencies are published before dependents.
-5. Runs `pnpm publish` for each out-of-date package.
-6. After the root package is published, auto-generates a `CHANGELOG.md` entry listing every bundled dependency and its exact version.
+1. **Discovery** (`lib/packages.ts`) — scans `extensions/` and `sdk/` for publishable packages.
+2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
+3. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
+4. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`files` includes `README.md`, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
+5. **Publish** — runs `pnpm publish` for each out-of-date package.
+6. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, auto-generates a `CHANGELOG.md` entry listing every bundled dependency and its exact version.
+7. **Tags + Releases** (`lib/git.ts`) — creates and pushes git tags (`@scope/name@version`), then opens GitHub Releases via the `gh` CLI.
 
 Flags:
 
@@ -50,40 +67,38 @@ pnpm run release --otp 123456
 pnpm run release --dry-run
 ```
 
-### `setup.ts` — Symlink Sync (Development)
+## `setup.ts` — Register in Pi Settings
 
-`pnpm run setup` / `pnpm run setup:local`
+`pnpm run setup`
 
-Creates symbolic links from this repository into the Pi agent directory so that local source changes are reflected immediately without re-installing.
+Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without re-installing.
 
-Modes:
+Displays the planned change and asks for `y` confirmation before writing.
 
-| Mode             | Target         | Command                |
-| ---------------- | -------------- | ---------------------- |
-| Global (default) | `~/.pi/agent/` | `pnpm run setup`       |
-| Local            | `./.pi/`       | `pnpm run setup:local` |
+Uses `lib/pi-settings.ts` for settings I/O and prompt handling.
 
-What gets linked:
+## `teardown.ts` — Unregister from Pi Settings
 
-- `extensions/` → `extensions/`
-- `skills/` → `skills/`
-- `prompts/` → `prompts/`
-- `themes/` → `themes/`
-- `bundledDependencies` from `node_modules/` → matched category directories (`extensions/`, `skills/`, `prompts/`, `themes/`)
+`pnpm run teardown`
 
-Before making any changes, the script displays a full plan and highlights conflicts (e.g., globally installed packages with the same name). You must confirm with `y` before proceeding.
+Removes the repository root path from `~/.pi/agent/settings.json`. Reverses `setup.ts`.
 
-### `teardown.ts` — Remove Symlinks
+Skips if the path is not currently registered. Asks for `y` confirmation before writing.
 
-`pnpm run teardown` / `pnpm run teardown:local`
+Uses `lib/pi-settings.ts` for settings I/O and prompt handling.
 
-Reverses `setup.ts` by removing all symlinks that point back into this repository.
+## Adding New Shared Logic
 
-Modes:
+If a new script needs functionality that other scripts might also need, extract it into `scripts/lib/` instead of duplicating:
 
-| Mode             | Target         | Command                   |
-| ---------------- | -------------- | ------------------------- |
-| Global (default) | `~/.pi/agent/` | `pnpm run teardown`       |
-| Local            | `./.pi/`       | `pnpm run teardown:local` |
+1. Create `scripts/lib/<name>.ts` with a single, well-defined responsibility.
+2. Export pure functions (no side effects) when possible.
+3. Import from `lib/` using relative paths (no `.ts` extension): `import { foo } from "./lib/foo";`
+4. Update this README with a one-line description.
 
-The script skips items that are not managed by this project (e.g., globally installed pi-packages) and asks for confirmation before removing anything.
+## Adding a New Top-Level Script
+
+1. Create `scripts/<name>.ts`.
+2. Register it in `package.json` under `scripts`.
+3. Import shared utilities from `scripts/lib/` rather than inlining.
+4. Add a section to this README.

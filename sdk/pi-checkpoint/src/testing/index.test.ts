@@ -50,6 +50,27 @@ describe("createMockRepo", () => {
     });
   });
 
+  test("default safeCheckout treats non-string diffAgainst result as empty", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue(null),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+    const result = await repo.safeCheckout("target", "base");
+    expect(result).toEqual({ ok: true, safetyHash: undefined });
+  });
+
+  test("default safeCheckout proceeds when createSafetyCommit returns non-string", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue(""),
+      createSafetyCommit: vi.fn().mockResolvedValue(null),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+    const result = await repo.safeCheckout("target", "base");
+    expect(result).toEqual({ ok: true, safetyHash: undefined });
+  });
+
   test("default safeCheckout reports non-Error checkout and rollback failure", async () => {
     const repo = createMockRepo({
       stageAll: vi.fn().mockResolvedValue(undefined),
