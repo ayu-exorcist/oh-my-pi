@@ -428,6 +428,39 @@ async function main(): Promise<void> {
     updateChangelog(rootPkg, publishedVersions);
   }
 
+  // Create and push git tags for successfully published packages
+  const newTags: string[] = [];
+  for (const [name, version] of publishedVersions) {
+    const tag = `${name}@${version}`;
+    try {
+      execSync(`git rev-parse --verify refs/tags/${tag}`, {
+        cwd: root,
+        stdio: "pipe",
+      });
+      console.log(`🏷️ Tag ${tag} already exists, skipping`);
+    } catch {
+      try {
+        execSync(`git tag ${tag}`, { cwd: root, stdio: "pipe" });
+        newTags.push(tag);
+        console.log(`🏷️ Created tag ${tag}`);
+      } catch (err) {
+        console.warn(`⚠️ Failed to create tag ${tag}:`, err);
+      }
+    }
+  }
+
+  if (newTags.length > 0) {
+    try {
+      execSync(`git push origin ${newTags.join(" ")}`, {
+        cwd: root,
+        stdio: "pipe",
+      });
+      console.log(`🚀 Pushed tags: ${newTags.join(", ")}\n`);
+    } catch (err) {
+      console.warn(`⚠️ Failed to push tags:`, err);
+    }
+  }
+
   console.log("🎉 All packages published successfully!");
 }
 

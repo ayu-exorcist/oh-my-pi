@@ -11,8 +11,16 @@
     "themes",
     "toolkit"
   ],
+  "homepage": "https://github.com/ayu-exorcist/oh-my-pi#readme",
+  "bugs": {
+    "url": "https://github.com/ayu-exorcist/oh-my-pi/issues"
+  },
   "license": "GPL-3.0",
   "author": "ayu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayu-exorcist/oh-my-pi.git"
+  },
   "files": [
     "skills",
     "prompts",
