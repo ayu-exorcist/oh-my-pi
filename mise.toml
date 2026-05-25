@@ -1,5 +1,6 @@
 [tools]
 gh = "latest"
+jq = "latest"
 node = "24"
 "npm:@colbymchenry/codegraph" = "latest"
 pi = "latest"

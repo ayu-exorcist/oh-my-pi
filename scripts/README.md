@@ -32,9 +32,8 @@ Orchestrates npm publishing across the monorepo. Entry point that composes modul
 2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
 3. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
 4. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`files` includes `README.md`, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
-5. **Publish** — runs `pnpm publish` for each out-of-date package.
-6. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, auto-generates a `CHANGELOG.md` entry listing every bundled dependency and its exact version.
-7. **Tags + Releases** (`lib/git.ts`) — creates and pushes git tags (`@scope/name@version`), then opens GitHub Releases via the `gh` CLI.
+5. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package. As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
+6. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, queries the npm registry for every bundled dependency's exact version, then prepends a `CHANGELOG.md` entry. This ensures `workspace:*` placeholders never leak into the release log.
 
 Flags:
 

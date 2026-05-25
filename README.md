@@ -75,8 +75,8 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
 │   ├── publish.ts        # Topological publish + auto CHANGELOG + tag + release
-│   ├── setup.ts          # Symlink sync for local development
-│   └── teardown.ts       # Remove symlinks created by setup
+│   ├── setup.ts          # Register repo in Pi settings
+│   └── teardown.ts       # Unregister repo from Pi settings
 ├── package.json          # Pi Package manifest (curated meta package)
 ├── CHANGELOG.md          # Curated release log
 ├── .npmrc                # npm provenance config

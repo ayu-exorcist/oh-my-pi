@@ -1,6 +1,7 @@
 # pi CLI agent
 .pi/*
 !.pi/settings.json
+!.pi/keybindings.json
 !.pi/mcp.json
 !.pi/AGENTS.md
 
