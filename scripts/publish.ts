@@ -86,6 +86,13 @@ interface PkgJson {
   dependencies?: Record<string, string>;
   private?: boolean;
   bundledDependencies?: unknown;
+  files?: unknown;
+  repository?: unknown;
+  homepage?: unknown;
+  bugs?: unknown;
+  publishConfig?: unknown;
+  keywords?: unknown;
+  pi?: unknown;
   [key: string]: unknown;
 }
 
@@ -111,6 +118,132 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isPkgJson(value: unknown): value is PkgJson {
   if (!isRecord(value)) return false;
   return typeof value.name === "string" && typeof value.version === "string";
+}
+
+interface ValidationError {
+  pkg: string;
+  field: string;
+  message: string;
+}
+
+/** Determine whether a package is root / extension / sdk. */
+function getPackageKind(pkg: PackageInfo): "root" | "extension" | "sdk" {
+  if (pkg.isRoot) return "root";
+  const normalized = pkg.path.replace(/\\/g, "/");
+  if (normalized.includes("/extensions/")) return "extension";
+  if (normalized.includes("/sdk/")) return "sdk";
+  return "root";
+}
+
+/** Validate a single package's manifest. */
+function validatePackage(pkg: PackageInfo): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const kind = getPackageKind(pkg);
+  const { name, pkg: json } = pkg;
+
+  // files must include README.md
+  const files = json.files;
+  if (!Array.isArray(files) || !files.some((f) => f === "README.md")) {
+    errors.push({ pkg: name, field: "files", message: 'must include "README.md"' });
+  }
+
+  // repository
+  const repo = json.repository;
+  if (!isRecord(repo)) {
+    errors.push({ pkg: name, field: "repository", message: "is required" });
+  } else {
+    if (typeof repo.url !== "string" || !repo.url) {
+      errors.push({ pkg: name, field: "repository.url", message: "is required" });
+    }
+    if (!pkg.isRoot && (typeof repo.directory !== "string" || !repo.directory)) {
+      errors.push({
+        pkg: name,
+        field: "repository.directory",
+        message: "is required for workspace packages",
+      });
+    }
+  }
+
+  // homepage
+  if (typeof json.homepage !== "string" || !json.homepage) {
+    errors.push({ pkg: name, field: "homepage", message: "is required" });
+  }
+
+  // bugs
+  if (!isRecord(json.bugs)) {
+    errors.push({ pkg: name, field: "bugs", message: "is required" });
+  }
+
+  // publishConfig.access
+  const publishConfig = json.publishConfig;
+  if (!isRecord(publishConfig) || publishConfig.access !== "public") {
+    errors.push({ pkg: name, field: "publishConfig.access", message: 'must be "public"' });
+  }
+
+  // keywords: pi-package
+  const keywords = Array.isArray(json.keywords) ? json.keywords : [];
+  const hasPiPackage = keywords.includes("pi-package");
+  if (kind === "sdk" && hasPiPackage) {
+    errors.push({
+      pkg: name,
+      field: "keywords",
+      message: 'must NOT include "pi-package" (SDK packages are not Pi extensions)',
+    });
+  }
+  if ((kind === "extension" || kind === "root") && !hasPiPackage) {
+    errors.push({ pkg: name, field: "keywords", message: 'must include "pi-package"' });
+  }
+
+  // pi.extensions
+  const pi = json.pi;
+  const hasPiExtensions = isRecord(pi) && Array.isArray(pi.extensions);
+  if ((kind === "extension" || kind === "root") && !hasPiExtensions) {
+    errors.push({ pkg: name, field: "pi.extensions", message: "is required" });
+  }
+  if (kind === "sdk" && hasPiExtensions) {
+    errors.push({
+      pkg: name,
+      field: "pi.extensions",
+      message: "must NOT be set (SDK packages are not extensions)",
+    });
+  }
+
+  return errors;
+}
+
+/** Validate root package consistency (bundledDeps vs dependencies). */
+function validateRootConsistency(
+  rootPkg: PackageInfo,
+  workspacePkgs: PackageInfo[],
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const deps = rootPkg.pkg.dependencies || {};
+  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
+    ? rootPkg.pkg.bundledDependencies
+    : [];
+  const workspaceNames = new Set(workspacePkgs.map((p) => p.name));
+
+  for (const depName of bundled) {
+    if (!deps[depName]) {
+      errors.push({
+        pkg: rootPkg.name,
+        field: "bundledDependencies",
+        message: `"${depName}" is bundled but not in dependencies`,
+      });
+    }
+  }
+
+  for (const [depName] of Object.entries(deps)) {
+    if (workspaceNames.has(depName) && !bundled.includes(depName)) {
+      errors.push({
+        pkg: rootPkg.name,
+        field: "dependencies",
+        message: `"${depName}" is a workspace dependency but not in bundledDependencies`,
+      });
+    }
+  }
+
+  return errors;
 }
 
 /** Read the root `package.json` when it is not marked private. */
@@ -378,6 +511,30 @@ async function main(): Promise<void> {
     console.log(`  ${name}@${pkg?.version} (registry: ${registryVersion || "not published"})`);
   }
 
+  // Pre-publish validation
+  const validationErrors: ValidationError[] = [];
+  for (const name of toPublish) {
+    const pkg = nameMap.get(name)!;
+    validationErrors.push(...validatePackage(pkg));
+  }
+  const rootPkg = packages.find((p) => p.isRoot);
+  if (rootPkg && toPublish.has(rootPkg.name)) {
+    validationErrors.push(
+      ...validateRootConsistency(
+        rootPkg,
+        packages.filter((p) => !p.isRoot),
+      ),
+    );
+  }
+  if (validationErrors.length > 0) {
+    console.error("\n❌ Package validation failed:");
+    for (const err of validationErrors) {
+      console.error(`  ${err.pkg}: ${err.field} ${err.message}`);
+    }
+    console.error("");
+    process.exit(1);
+  }
+
   if (DRY_RUN) {
     console.log("\n🏃 Dry run mode. No packages were actually published.");
     return;
@@ -423,9 +580,19 @@ async function main(): Promise<void> {
   }
 
   // Generate changelog after root package is published
-  const rootPkg = packages.find((p) => p.isRoot);
   if (rootPkg && publishedVersions.has(rootPkg.name)) {
     updateChangelog(rootPkg, publishedVersions);
+  } else if (rootPkg) {
+    const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
+      ? rootPkg.pkg.bundledDependencies
+      : [];
+    const publishedBundled = bundled.filter((name) => publishedVersions.has(name));
+    if (publishedBundled.length > 0) {
+      console.log(
+        `⚠️ Bundled deps published but root unchanged. Bump ${rootPkg.name} and re-run to update CHANGELOG.`,
+      );
+      console.log(`   Published: ${publishedBundled.join(", ")}\n`);
+    }
   }
 
   // Create and push git tags for successfully published packages
