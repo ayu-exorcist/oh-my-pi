@@ -125,7 +125,7 @@ function publishOne(
   try {
     const otpFlag = OTP ? ` --otp ${OTP}` : "";
     const env = OTP ? { ...process.env, PNPM_CONFIG_OTP: OTP } : undefined;
-    execSync(`pnpm publish --access ${ACCESS}${otpFlag}`, {
+    execSync(`pnpm publish --no-git-checks --access ${ACCESS}${otpFlag}`, {
       cwd: pkg.path,
       stdio: "inherit",
       env,
@@ -146,6 +146,9 @@ function publishOne(
       tagAndRelease(root, pkg.name, pkg.version);
     } else {
       console.error(`❌ Failed to publish ${pkg.name}`);
+      for (const restore of restores) {
+        restore();
+      }
       process.exit(1);
     }
   } finally {
