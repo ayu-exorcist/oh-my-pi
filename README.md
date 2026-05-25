@@ -211,27 +211,23 @@ cd ~/ayu-pi
 pnpm install
 ```
 
-### Sync to Pi (Local Dev)
+### Local Dev with Pi
+
+Use the project as a local Pi package:
 
 ```bash
-# Symlink to ~/.pi/agent/ (global, default)
-pnpm run setup
+pi install /path/to/oh-my-pi
+```
 
-# Symlink to ./.pi/ (project-local)
-pnpm run setup:local
+Or configure it in your project's `.pi/settings.json`:
+
+```json
+{
+  "packages": ["/path/to/oh-my-pi"]
+}
 ```
 
 Source changes take effect immediately in Pi (extensions support `/reload` hot-reload).
-
-### Remove Local Symlinks
-
-```bash
-# Remove global symlinks
-pnpm run teardown
-
-# Remove local symlinks
-pnpm run teardown:local
-```
 
 ### Scripts
 
@@ -265,18 +261,6 @@ pnpm run check
 # CI gate (type + lint + fmt + coverage)
 pnpm run ci
 ```
-
-### Git Hooks
-
-[simple-git-hooks](https://github.com/toplenboren/simple-git-hooks) runs the full CI gate before every commit:
-
-```
-pre-commit → pnpm run ci
-```
-
-This executes `tsc --noEmit && oxlint . && oxfmt . --check && vitest run --coverage` (100% threshold).
-
-Skip hooks (not recommended): `git commit -m "xxx" --no-verify`
 
 ## Adding New Content
 

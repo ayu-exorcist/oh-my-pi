@@ -31,24 +31,20 @@ pnpm install
 | `pnpm run fmt` / `fmt:check` | oxfmt                                              |
 | `pnpm run check`             | Local full check (type + lint + fmt + test)        |
 | `pnpm run ci`                | CI gate (type + lint + fmt + coverage)             |
-| `pnpm run setup`             | Symlink to `~/.pi/agent/` (global, default)        |
-| `pnpm run setup:local`       | Symlink to `./.pi/` (project-local)                |
-| `pnpm run teardown`          | Remove global symlinks                             |
-| `pnpm run teardown:local`    | Remove local symlinks                              |
 | `pnpm run release`           | Topological publish + auto CHANGELOG               |
 | `pnpm run release --dry-run` | Dry-run preview of publish                         |
 | `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo           |
 
 ## Quality Gate
 
-Every `git commit` triggers `pnpm run ci` via [simple-git-hooks](https://github.com/toplenboren/simple-git-hooks):
+Before committing, run `pnpm run ci` locally:
 
 - `tsc --noEmit` — zero errors
 - `oxlint .` — zero errors
 - `oxfmt . --check` — clean
 - `vitest run --coverage` — 100% threshold
 
-Skip hooks (not recommended): `git commit -m "xxx" --no-verify`
+GitHub Actions runs `pnpm run ci` on every pull request as the final gate.
 
 ## Directory Conventions
 

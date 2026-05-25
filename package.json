@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/oh-my-pi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Personal Pi toolkit: extensions, skills, prompts, and themes",
   "keywords": [
     "extensions",
@@ -26,8 +26,6 @@
     "access": "public"
   },
   "scripts": {
-    "preinstall": "npx only-allow pnpm",
-    "postinstall": "simple-git-hooks",
     "dev": "vitest",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
@@ -40,10 +38,6 @@
     "fmt:check": "oxfmt . --check",
     "check": "tsc --noEmit && pnpm run lint && pnpm run fmt:check && pnpm run test",
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check && pnpm run coverage",
-    "setup": "oxnode scripts/setup.ts",
-    "setup:local": "oxnode scripts/setup.ts --local",
-    "teardown": "oxnode scripts/teardown.ts",
-    "teardown:local": "oxnode scripts/teardown.ts --local",
     "release": "oxnode scripts/publish.ts",
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
@@ -59,7 +53,6 @@
     "@vitest/coverage-istanbul": "^4.1.7",
     "oxfmt": "^0.51.0",
     "oxlint": "^1.66.0",
-    "simple-git-hooks": "^2.13.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },
@@ -68,9 +61,6 @@
     "@ayulab/pi-undoredo",
     "pi-mcp-adapter"
   ],
-  "simple-git-hooks": {
-    "pre-commit": "pnpm run ci"
-  },
   "engines": {
     "node": ">=20.0.0"
   },

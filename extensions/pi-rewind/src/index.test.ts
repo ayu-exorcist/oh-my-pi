@@ -774,8 +774,8 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "checkpoints", "sessions", "session");
-    await fs.rm(path.join(repoDir, ".git"), { recursive: true, force: true });
+    vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
+    vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
 
     const turnStartHandlers = events["turn_start"] || [];
     for (const h of turnStartHandlers) {
@@ -861,8 +861,8 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "checkpoints", "sessions", "session");
-    await fs.rm(path.join(repoDir, ".git"), { recursive: true, force: true });
+    vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
+    vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
 
     const turnStartHandlers = events["turn_start"] || [];
     for (const h of turnStartHandlers) {

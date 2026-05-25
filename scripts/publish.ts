@@ -397,11 +397,11 @@ async function main(): Promise<void> {
 
     try {
       const otpFlag = OTP ? ` --otp ${OTP}` : "";
-      const otpEnv = OTP ? `PNPM_CONFIG_OTP=${OTP} ` : "";
-      execSync(`${otpEnv}pnpm publish --access ${ACCESS}${otpFlag}`, {
+      const env = OTP ? { ...process.env, PNPM_CONFIG_OTP: OTP } : undefined;
+      execSync(`pnpm publish --access ${ACCESS}${otpFlag}`, {
         cwd: pkg.path,
         stdio: "inherit",
-        shell: "/bin/sh",
+        env,
       });
       console.log(`✅ Published ${name}@${pkg.version}\n`);
       publishedVersions.set(name, pkg.version);

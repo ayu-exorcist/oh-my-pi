@@ -248,6 +248,65 @@ describe("RepoManager", () => {
     expect(content).toContain("*.log");
   });
 
+  test("ensureReady does nothing when repo is intact", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    const spy = vi.spyOn(repo, "init");
+
+    await repo.ensureReady();
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test("ensureReady re-initialises repo when deleted", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude(["*.log"]);
+
+    await fs.rm(gitDir, { recursive: true, force: true });
+
+    await repo.ensureReady(["node_modules/**"]);
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["rev-parse", "--git-dir"], env);
+    expect(stdout.trim()).toBe(gitDir);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const content = await fs.readFile(excludePath, "utf8");
+    expect(content).toContain("node_modules/**");
+  });
+
+  test("ensureReady skips setExclude when patterns are empty", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    await fs.rm(gitDir, { recursive: true, force: true });
+
+    const spy = vi.spyOn(repo, "setExclude");
+
+    await repo.ensureReady([]);
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   test("withLock serialises access through filesystem lock", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");

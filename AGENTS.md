@@ -53,7 +53,17 @@ For multi-step tasks, state a brief plan with verification checkpoints.
 - Update configuration examples, schemas, and type definitions to match the new reality.
 - Don't leave stale documentation behind.
 
-## 6. Agent skills
+## 6. Pre-commit Gate
+
+**Before every commit, `pnpm run ci` must pass.**
+
+This executes `tsc --noEmit && oxlint . && oxfmt . --check && vitest run --coverage` (100% threshold enforced).
+
+- Run it locally before committing.
+- If it fails, fix the issue before staging.
+- GitHub Actions also runs this on every PR as a final gate.
+
+## 7. Agent skills
 
 ### Issue tracker
 

@@ -149,6 +149,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     pendingPrompt = extractPrompt(leaf).slice(0, 60);
 
     try {
+      await repo.ensureReady(config.exclude);
       pendingBeforeCommit = await repo.checkpoint(leaf.id);
     } catch (err) {
       if (ctx.hasUI) {

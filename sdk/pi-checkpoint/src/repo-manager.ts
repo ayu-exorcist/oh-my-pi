@@ -88,6 +88,23 @@ export class RepoManager {
     );
   }
 
+  /**
+   * Silently re-initialise the bare repo if it has been deleted externally.
+   *
+   * Used before operations that assume the repo exists (e.g. checkpoint).
+   * Does nothing when the repo is still intact.
+   */
+  async ensureReady(excludePatterns?: readonly string[]): Promise<void> {
+    try {
+      await exec("git", [...this.gitArgs(), "rev-parse", "--git-dir"], this.env, this.workTree);
+    } catch {
+      await this.init();
+      if (excludePatterns && excludePatterns.length > 0) {
+        await this.setExclude(excludePatterns);
+      }
+    }
+  }
+
   /** Write exclude patterns to `info/exclude` inside the bare repo. */
   async setExclude(patterns: readonly string[]): Promise<void> {
     const excludePath = path.join(this.gitDir, "info", "exclude");
