@@ -7,7 +7,6 @@ import { parseCLI } from "./lib/cli";
 import { getRegistryVersion, setRoot } from "./lib/npm";
 import { getPackages } from "./lib/packages";
 import { buildDepGraph, topoSort, collectDependencies } from "./lib/deps";
-import { updateChangelog } from "./lib/changelog";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
 import { tagAndRelease } from "./lib/git";
 import { isStringArray } from "./lib/guards";
@@ -157,27 +156,6 @@ function publishOne(
 }
 
 /**
- * Ensure every bundled dependency has a concrete version in
- * `publishedVersions`. Queries the npm registry for any missing entries
- * so the CHANGELOG never shows `workspace:*`.
- */
-function resolveBundledVersions(
-  rootPkg: PackageInfo,
-  publishedVersions: Map<string, string>,
-): void {
-  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
-    ? rootPkg.pkg.bundledDependencies
-    : [];
-  for (const dep of bundled) {
-    if (publishedVersions.has(dep)) continue;
-    const registryVersion = getRegistryVersion(dep);
-    if (registryVersion) {
-      publishedVersions.set(dep, registryVersion);
-    }
-  }
-}
-
-/**
  * Orchestrate the release:
  *
  *   1. Detect packages whose local version differs from the registry.
@@ -185,7 +163,7 @@ function resolveBundledVersions(
  *   3. Validate every package's manifest before publishing.
  *   4. Topologically sort so dependencies publish first.
  *   5. Publish each package and immediately tag + release it.
- *   6. Update `CHANGELOG.md` after the root package is published.
+ *   6. Create git tag + GitHub Release for every published package.
  */
 async function main(): Promise<void> {
   const packages = getPackages(root);
@@ -285,23 +263,6 @@ async function main(): Promise<void> {
     const pkg = nameMap.get(name);
     if (!pkg) continue;
     publishOne(pkg, publishedVersions, nameMap);
-  }
-
-  // Generate changelog after root package is published
-  if (rootPkg && publishedVersions.has(rootPkg.name)) {
-    resolveBundledVersions(rootPkg, publishedVersions);
-    updateChangelog(root, rootPkg, publishedVersions);
-  } else if (rootPkg) {
-    const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
-      ? rootPkg.pkg.bundledDependencies
-      : [];
-    const publishedBundled = bundled.filter((name) => publishedVersions.has(name));
-    if (publishedBundled.length > 0) {
-      console.log(
-        `⚠️ Bundled deps published but root unchanged. Bump ${rootPkg.name} and re-run to update CHANGELOG.`,
-      );
-      console.log(`   Published: ${publishedBundled.join(", ")}\n`);
-    }
   }
 
   console.log("🎉 All packages published successfully!");

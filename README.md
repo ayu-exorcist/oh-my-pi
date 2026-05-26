@@ -75,7 +75,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
 │   ├── build.ts          # Topological build all workspace packages into dist/
-│   ├── publish.ts        # Topological publish + auto CHANGELOG + tag + release
+│   ├── publish.ts        # Topological publish + tag + release
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings
 ├── package.json          # Pi Package manifest (curated meta package)

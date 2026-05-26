@@ -17,7 +17,7 @@ scripts/
 │   ├── packages.ts     # Discover root + workspace packages
 │   ├── deps.ts         # Dependency graph + topological sort
 │   ├── npm.ts          # npm registry queries
-│   ├── changelog.ts    # CHANGELOG.md generation
+
 │   ├── validate.ts     # Pre-publish manifest validation
 │   ├── git.ts          # Git tag + GitHub Release automation
 │   └── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
@@ -50,7 +50,6 @@ Orchestrates npm publishing across the monorepo. Entry point that composes modul
 4. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
 5. **Build** — runs `scripts/build.ts` to compile all workspace packages into `dist/` before publishing.
 6. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package (child packages publish from `dist/` via `publishConfig.directory`). As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
-7. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, queries the npm registry for every bundled dependency's exact version, then prepends a `CHANGELOG.md` entry. This ensures `workspace:*` placeholders never leak into the release log.
 
 Flags:
 
