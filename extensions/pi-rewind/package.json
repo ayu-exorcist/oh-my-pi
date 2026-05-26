@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/pi-rewind",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Pi extension providing /rewind checkpoint navigation",
   "keywords": [
     "checkpoint",
