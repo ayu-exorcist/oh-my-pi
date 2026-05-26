@@ -1,24 +1,18 @@
 # @ayulab/pi-checkpoint
 
-File-level checkpoint engine powered by git bare repositories. Usable standalone or as a dependency for other Pi extensions.
+File-level checkpoint engine powered by git bare repositories. Usable as an SDK Package dependency for Pi extensions.
 
 ## Features
 
-- **Auto checkpoint**: create code snapshots automatically on every user turn
-- **Metadata persistence**: checkpoint metadata stored as Pi session custom entries
-- **Fork / clone support**: auto-copy checkpoint repo on session fork or clone
-- **Restore**: checkout to any previous checkpoint's code state
+- **Checkpoint Storage**: resolve, create, or clone the on-disk git bare repository for a Pi session
+- **Metadata persistence**: read `CheckpointEntry` metadata stored as Pi session custom entries
+- **Fork support**: clone Checkpoint Storage when a Pi session forks
+- **Restore**: safely checkout to any previous Checkpoint's code state
 - **Zero runtime dependencies**: relies only on Node.js built-ins and system git
 
 ## Installation
 
-Standalone:
-
-```bash
-pi install npm:@ayulab/pi-checkpoint
-```
-
-Or as a dependency of another extension:
+As a dependency of a Pi Package:
 
 ```json
 {
@@ -28,6 +22,8 @@ Or as a dependency of another extension:
 }
 ```
 
+`@ayulab/pi-checkpoint` is an SDK Package. It does not register Pi resources by itself.
+
 ## API
 
 ```typescript
@@ -35,15 +31,11 @@ import {
   loadConfig,
   loadConfigFromFile,
   defaultConfig,
+  resolveSessionCheckpointStorage,
+  ensureSessionCheckpointStorage,
+  cloneSessionCheckpointStorage,
   RepoManager,
-  getRepoDir,
-  getGitDir,
-  getIndexPath,
-  exec,
-  execSafe,
   parseDiffStats,
-  withRepoLock,
-  createDefaultRepoProvider,
   extractCheckpointData,
   filterCheckpointEntries,
   getCheckpointEntries,
@@ -51,23 +43,76 @@ import {
 } from "@ayulab/pi-checkpoint";
 ```
 
-### RepoManager
+### Checkpoint Storage
 
-Manage the lifecycle of a git bare repo:
+Use Checkpoint Storage as the cross-package seam. It is based on the session file path and work tree, not on shared in-memory state, so separately installed Pi Packages can interoperate.
+
+Checkpoint Consumers resolve existing storage without creating it:
 
 ```typescript
-const repo = new RepoManager(gitDir, indexFile, cwd);
-await repo.init();
-const hash = await repo.checkpoint(entryId);
-await repo.checkoutCommit(hash);
-await repo.setExclude(["node_modules/", ".git/"]);
-const stats = await repo.diffStats(hash);
-const result = await repo.safeCheckout(targetCommit, dirtyBaseCommit);
+const storage = await resolveSessionCheckpointStorage({
+  sessionFile: ctx.sessionManager.getSessionFile(),
+  cwd: ctx.cwd,
+});
+
+if (!storage.ok) {
+  ctx.ui.notify(
+    "Checkpoint storage not found. This session has checkpoints, but their file snapshots are missing.",
+    "warning",
+  );
+  return;
+}
+
+const result = await storage.repo.safeCheckout(targetCommit, dirtyBaseCommit);
 ```
+
+Checkpoint Producers create storage when missing:
+
+```typescript
+const storage = await ensureSessionCheckpointStorage({
+  sessionFile: ctx.sessionManager.getSessionFile(),
+  cwd: ctx.cwd,
+  exclude: config.exclude,
+});
+
+const beforeCommit = await storage.repo.checkpoint(entryId);
+```
+
+Fork handlers clone storage from a previous session:
+
+```typescript
+const storage = await cloneSessionCheckpointStorage({
+  previousSessionFile,
+  sessionFile: ctx.sessionManager.getSessionFile(),
+  cwd: ctx.cwd,
+});
+
+if (storage.ok) {
+  await storage.repo.checkoutCommit(forkPoint.beforeCommit);
+}
+```
+
+### RepoManager
+
+`RepoManager` is the lower-level git implementation behind Checkpoint Storage:
+
+```typescript
+const hash = await storage.repo.checkpoint(entryId);
+const stats = await storage.repo.diffStats(hash);
+const result = await storage.repo.safeCheckout(targetCommit, dirtyBaseCommit);
+```
+
+Prefer Checkpoint Storage helpers over constructing `RepoManager` directly from repo paths in Pi Package code.
 
 ### Checkpoint entries
 
 Read checkpoint metadata written by extensions as Pi session custom entries:
+
+```typescript
+const checkpoints = getCheckpointEntries(ctx.sessionManager.getEntries());
+```
+
+Or in two steps:
 
 ```typescript
 const dataList = extractCheckpointData(sessionEntries);

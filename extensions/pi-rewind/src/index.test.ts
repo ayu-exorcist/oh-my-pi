@@ -9,6 +9,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { RepoManager } from "@ayulab/pi-checkpoint";
+import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
 
 function createMockApi(): {
   api: ExtensionAPI;
@@ -44,6 +45,23 @@ function createMockSessionManager(sessionFile: string, branch: SessionEntry[] = 
     getBranch: () => branch,
     getEntries: () => branch,
   };
+}
+
+function expectCheckpointEntryCall(
+  mock: ReturnType<typeof vi.fn>,
+  index: number,
+): [string, CheckpointEntry] {
+  const call = mock.mock.calls[index];
+  if (!call) throw new Error(`expected mock call ${index}`);
+  const [customType, entry] = call;
+  if (customType !== "pi-checkpoint") throw new Error("expected pi-checkpoint entry");
+  return [customType, entry as CheckpointEntry];
+}
+
+function expectFileChange(entry: CheckpointEntry, index: number) {
+  const change = entry.fileChanges[index];
+  if (!change) throw new Error(`expected file change ${index}`);
+  return change;
 }
 
 function createUserEntry(id: string, text: string): SessionEntry {
@@ -512,7 +530,7 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
-    const call = appendEntry.mock.calls[0];
+    const call = expectCheckpointEntryCall(appendEntry, 0);
     expect(call[1].fileCount).toBe(1);
   });
 
@@ -541,7 +559,7 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
-    const call = appendEntry.mock.calls[0];
+    const call = expectCheckpointEntryCall(appendEntry, 0);
     expect(call[1].fileChanges.length).toBeGreaterThan(0);
   });
 
@@ -572,10 +590,11 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
-    const call = appendEntry.mock.calls[0];
-    expect(call[1].fileChanges[0].path).toBe("path");
-    expect(call[1].fileChanges[0].added).toBe(0);
-    expect(call[1].fileChanges[0].removed).toBe(0);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    const change = expectFileChange(call[1], 0);
+    expect(change.path).toBe("path");
+    expect(change.added).toBe(0);
+    expect(change.removed).toBe(0);
   });
 
   test("turn_end handles non-standard diff output", async () => {
@@ -605,10 +624,11 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
-    const call = appendEntry.mock.calls[0];
-    expect(call[1].fileChanges[0].path).toBe("no-tabs-line");
-    expect(call[1].fileChanges[0].added).toBe(0);
-    expect(call[1].fileChanges[0].removed).toBe(0);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    const change = expectFileChange(call[1], 0);
+    expect(change.path).toBe("no-tabs-line");
+    expect(change.added).toBe(0);
+    expect(change.removed).toBe(0);
   });
 
   test("rewind command delegates to getRepo", async () => {
@@ -691,6 +711,22 @@ describe("checkpoint extension", () => {
     expect(appendEntry).not.toHaveBeenCalled();
   });
 
+  test("turn_end does nothing before session_start", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
   test("turn_end does nothing when no checkpoint pending", async () => {
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events, appendEntry } = createMockApi();
@@ -761,6 +797,30 @@ describe("checkpoint extension", () => {
     expect(gitExists).toBe(true);
   });
 
+  test("turn_start notifies checkpoint failure with UI", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
+    vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
+
+    const turnStartHandlers = events["turn_start"] || [];
+    for (const h of turnStartHandlers) {
+      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
+    }
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Checkpoint failed: checkpoint fail", "warning");
+  });
+
   test("turn_start handles checkpoint failure without UI", async () => {
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events } = createMockApi();
@@ -816,7 +876,7 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
-    const call = appendEntry.mock.calls[0];
+    const call = expectCheckpointEntryCall(appendEntry, 0);
     expect(call[1].prompt).toBe("plain text prompt");
   });
 

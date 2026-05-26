@@ -259,7 +259,7 @@ export class RepoManager {
       // 3. Checkout
       try {
         await this.checkoutCommit(targetCommit);
-        return { ok: true, safetyHash };
+        return safetyHash ? { ok: true, safetyHash } : { ok: true };
       } catch (err) {
         // 4. Rollback on failure
         if (safetyHash) {

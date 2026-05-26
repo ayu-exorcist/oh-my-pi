@@ -1,4 +1,4 @@
-# ADR-0003: Before/After Commit Pairs in CheckpointEntry v2
+# ADR-0003: Before/After Commit Pairs in CheckpointEntry
 
 ## Status
 
@@ -16,12 +16,12 @@ A single commit hash cannot represent both "before" and "after" states.
 
 ## Decision
 
-Store **two commit hashes** per checkpoint in the v2 schema:
+Store **two commit hashes** per checkpoint in the schema:
 
 - **`beforeCommit`** — snapshot taken at `turn_start`, before the agent modifies anything.
 - **`afterCommit`** — snapshot taken at `turn_end`, after the agent finishes. May equal `beforeCommit` if no files changed.
 
-The `CheckpointEntry` v2 schema:
+The `CheckpointEntry` schema:
 
 ```ts
 interface CheckpointEntry {

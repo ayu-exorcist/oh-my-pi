@@ -76,7 +76,7 @@ export function createMockRepo(
 
         try {
           await checkoutCommit(targetCommit);
-          return { ok: true, safetyHash };
+          return safetyHash ? { ok: true, safetyHash } : { ok: true };
         } catch (err) {
           if (safetyHash) {
             try {

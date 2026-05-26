@@ -24,6 +24,10 @@ _Avoid_: end commit, post-turn commit, final commit
 An exclusive filesystem lock acquired before any destructive repo operation (checkpoint, checkout, reset). Uses atomic `mkdir` with 30-second stale-detection to serialize access across processes. Held for the duration of `safeCheckout` and other critical sections.
 _Avoid_: repo lock, mutex, file lock
 
+**Checkpoint Storage**:
+The on-disk git bare repository and index file that hold the file snapshots referenced by `CheckpointEntry` metadata. Checkpoint Storage is addressed through the session file path and work tree, not through shared in-memory state, so independently installed Pi Packages can interoperate through the same protocol seam.
+_Avoid_: repo storage, snapshot store, shared provider
+
 **Dirty Workspace**:
 A working tree that contains unsnapshotted changes — modifications made after the latest `afterCommit` that have not been committed. Commands like `/undo` and `/rewind` refuse to proceed against a dirty workspace to prevent data loss.
 _Avoid_: modified, uncommitted, out of sync
@@ -38,8 +42,9 @@ _Avoid_: repo factory, repo registry, repo store
 
 ## Flagged ambiguities
 
-- **"Checkpoint" vs "CheckpointEntry"**: `Checkpoint` is the domain concept (a snapshot of a Turn). `CheckpointEntry` is the concrete v2 schema object stored in the Pi session. In casual discussion they are used interchangeably; in precise discussion, `CheckpointEntry` refers to the data structure.
+- **"Checkpoint" vs "CheckpointEntry"**: `Checkpoint` is the domain concept (a snapshot of a Turn). `CheckpointEntry` is the concrete schema object stored in the Pi session. In casual discussion they are used interchangeably; in precise discussion, `CheckpointEntry` refers to the data structure.
 - **"Undo" is not an engine concept**: `/undo` and `/redo` are extension-level commands. The engine only knows `safeCheckout`. Whether a checkout represents "undoing" a Turn is decided by the caller.
+- **Checkpoint Storage is the cross-package seam**: Pi Packages may load separate copies of `@ayulab/pi-checkpoint`, so cross-package coordination must use `CheckpointEntry` metadata plus Checkpoint Storage on disk, not a shared `RepoProvider` instance.
 
 ## Example dialogue
 

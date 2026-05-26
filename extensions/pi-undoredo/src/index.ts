@@ -1,21 +1,20 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import fs from "node:fs/promises";
 import type { RepoManager, CheckpointEntry, RepoProvider } from "@ayulab/pi-checkpoint";
 import {
-  RepoManager as RepoManagerClass,
   getCheckpointEntries,
-  getRepoDir,
-  getGitDir,
-  getIndexPath,
   createDefaultRepoProvider,
-  errorMessage,
+  resolveSessionCheckpointStorage,
 } from "@ayulab/pi-checkpoint";
+import { restoreRedoTarget, restoreUndoTarget } from "./restore";
 
 /** Per-session redo stack entry — records where we were before an undo. */
 interface RedoEntry {
   readonly targetLeafId: string;
   readonly afterCommit: string;
 }
+
+const checkpointStorageMissingMessage =
+  "Checkpoint storage not found. This session has checkpoints, but their file snapshots are missing.";
 
 /** Convenience helper to get all checkpoints for the current session. */
 function getCheckpoints(ctx: ExtensionContext): readonly CheckpointEntry[] {
@@ -54,20 +53,13 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const sessionId = ctx.sessionManager.getSessionId();
     redoStacks.delete(sessionId);
 
-    const sessionFile = ctx.sessionManager.getSessionFile();
-    const repoDir = getRepoDir(sessionFile);
-    const gitDir = getGitDir(repoDir);
-    const indexFile = getIndexPath(repoDir);
+    const storage = await resolveSessionCheckpointStorage({
+      sessionFile: ctx.sessionManager.getSessionFile(),
+      cwd: ctx.cwd,
+    });
 
-    // Only bind a repo if the checkpoint directory already exists
-    // (created by pi-rewind or another checkpoint-aware extension).
-    const gitExists = await fs
-      .access(gitDir)
-      .then(() => true)
-      .catch(() => false);
-
-    if (gitExists) {
-      repos.setRepo(sessionId, new RepoManagerClass(gitDir, indexFile, ctx.cwd));
+    if (storage.ok) {
+      repos.setRepo(sessionId, storage.repo);
     }
   });
 
@@ -91,16 +83,24 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     handler: async (_args, ctx) => {
       await ctx.waitForIdle();
 
-      const repo = getRepo(ctx.sessionManager.getSessionId());
-      if (!repo) {
-        ctx.ui.notify("Checkpoint extension not ready", "warning");
-        return;
-      }
-
       const cps = getCheckpoints(ctx);
       if (cps.length === 0) {
         ctx.ui.notify("Nothing to undo.", "info");
         return;
+      }
+
+      let repo = getRepo(ctx.sessionManager.getSessionId());
+      if (!repo) {
+        const storage = await resolveSessionCheckpointStorage({
+          sessionFile: ctx.sessionManager.getSessionFile(),
+          cwd: ctx.cwd,
+        });
+        if (!storage.ok) {
+          ctx.ui.notify(checkpointStorageMissingMessage, "warning");
+          return;
+        }
+        repo = storage.repo;
+        repos.setRepo(ctx.sessionManager.getSessionId(), repo);
       }
 
       const cp = cps[cps.length - 1];
@@ -112,23 +112,16 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       }
 
       const currentLeafId = ctx.sessionManager.getLeafId();
-      const result = await repo.safeCheckout(cp.beforeCommit, cp.afterCommit);
+      const result = await restoreUndoTarget({
+        repo,
+        ui: ctx.ui,
+        navigateTree: ctx.navigateTree,
+        targetCommit: cp.beforeCommit,
+        dirtyBaseCommit: cp.afterCommit,
+        targetLeafId: cp.userEntryId,
+      });
 
-      if (!result.ok) {
-        if (result.reason === "dirty") {
-          ctx.ui.notify(
-            "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before undoing.",
-            "warning",
-          );
-        } else {
-          if (result.rollbackError) {
-            ctx.ui.notify(`Undo failed and rollback also failed: ${result.rollbackError}`, "error");
-          } else {
-            ctx.ui.notify(`Undo failed: ${result.error}`, "error");
-          }
-        }
-        return;
-      }
+      if (!result.ok) return;
 
       if (currentLeafId) {
         getStack(ctx.sessionManager.getSessionId()).push({
@@ -136,15 +129,6 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
           afterCommit: cp.afterCommit,
         });
       }
-
-      try {
-        await ctx.navigateTree(cp.userEntryId, { summarize: false });
-      } catch (err) {
-        ctx.ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");
-        return;
-      }
-
-      ctx.ui.notify("Undo complete. Workspace restored to before that turn.", "info");
     },
   });
 
@@ -160,47 +144,41 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     handler: async (_args, ctx) => {
       await ctx.waitForIdle();
 
-      const repo = getRepo(ctx.sessionManager.getSessionId());
-      if (!repo) {
-        ctx.ui.notify("Checkpoint extension not ready", "warning");
-        return;
-      }
-
       const stack = getStack(ctx.sessionManager.getSessionId());
-      const entry = stack.pop();
+      const entry = stack[stack.length - 1];
       if (!entry) {
         ctx.ui.notify("Nothing to redo.", "info");
         return;
       }
 
+      let repo = getRepo(ctx.sessionManager.getSessionId());
+      if (!repo) {
+        const storage = await resolveSessionCheckpointStorage({
+          sessionFile: ctx.sessionManager.getSessionFile(),
+          cwd: ctx.cwd,
+        });
+        if (!storage.ok) {
+          ctx.ui.notify(checkpointStorageMissingMessage, "warning");
+          return;
+        }
+        repo = storage.repo;
+        repos.setRepo(ctx.sessionManager.getSessionId(), repo);
+      }
+
       const cps = getCheckpoints(ctx);
       const latest = cps[cps.length - 1];
-      const result = await repo.safeCheckout(entry.afterCommit, latest?.afterCommit);
+      const result = await restoreRedoTarget({
+        repo,
+        ui: ctx.ui,
+        navigateTree: ctx.navigateTree,
+        targetCommit: entry.afterCommit,
+        dirtyBaseCommit: latest?.afterCommit,
+        targetLeafId: entry.targetLeafId,
+      });
 
-      if (!result.ok) {
-        if (result.reason === "dirty") {
-          ctx.ui.notify(
-            "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before redoing.",
-            "warning",
-          );
-        } else {
-          if (result.rollbackError) {
-            ctx.ui.notify(`Redo failed and rollback also failed: ${result.rollbackError}`, "error");
-          } else {
-            ctx.ui.notify(`Redo failed: ${result.error}`, "error");
-          }
-        }
-        return;
+      if (result.ok) {
+        stack.pop();
       }
-
-      try {
-        await ctx.navigateTree(entry.targetLeafId, { summarize: false });
-      } catch (err) {
-        ctx.ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");
-        return;
-      }
-
-      ctx.ui.notify("Redo complete. Workspace restored.", "info");
     },
   });
 }

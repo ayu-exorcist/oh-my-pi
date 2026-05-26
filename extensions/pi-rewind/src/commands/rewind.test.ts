@@ -33,7 +33,15 @@ function createMockPi(): ExtensionAPI {
 }
 
 function getRegisterCall(pi: ExtensionAPI) {
-  return (pi.registerCommand as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].handler;
+  const call = (pi.registerCommand as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+  if (!call) throw new Error("expected registerCommand call");
+  return call[1].handler;
+}
+
+function firstEntry(entries: readonly CheckpointEntry[]): CheckpointEntry {
+  const entry = entries[0];
+  if (!entry) throw new Error("expected checkpoint entry");
+  return entry;
 }
 
 function createEntry(
@@ -109,7 +117,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce(undefined);
     await handler("", ctx);
     expect(ctx.ui.select).toHaveBeenCalledTimes(2);
@@ -123,7 +131,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Never mind");
     await handler("", ctx);
     expect(ctx.ui.select).toHaveBeenCalledTimes(2);
@@ -152,7 +160,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code and conversation");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -181,7 +189,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code and conversation");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -212,7 +220,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code and conversation");
     await handler("", ctx);
     expect(stageAll).toHaveBeenCalled();
@@ -233,7 +241,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore conversation only");
     await handler("", ctx);
     expect(stageAll).not.toHaveBeenCalled();
@@ -254,7 +262,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -269,7 +277,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Summarize from here");
     ctx.ui.input.mockResolvedValueOnce("");
     await handler("", ctx);
@@ -284,7 +292,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Summarize from here");
     ctx.ui.input.mockResolvedValueOnce("");
     await handler("", ctx);
@@ -299,7 +307,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Summarize from here");
     ctx.ui.input.mockResolvedValueOnce("focus on API");
     await handler("", ctx);
@@ -317,7 +325,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Summarize from here");
     ctx.ui.input.mockResolvedValueOnce("");
     await handler("", ctx);
@@ -337,7 +345,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(stageAll).toHaveBeenCalled();
@@ -359,7 +367,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -378,7 +386,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -402,7 +410,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -429,7 +437,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -453,7 +461,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(createSafetyCommit).toHaveBeenCalled();
@@ -477,7 +485,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: string error", "error");
@@ -504,7 +512,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -525,7 +533,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
@@ -546,7 +554,7 @@ describe("registerRewind", () => {
     const handler = getRegisterCall(pi);
     const ctx = createMockCtx(entries);
     ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(entries[0]))
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");

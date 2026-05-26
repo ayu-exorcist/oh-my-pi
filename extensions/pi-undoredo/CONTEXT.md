@@ -46,4 +46,4 @@ _Avoid_: checkpoint reader, checkpoint client
 >
 > **Dev**: What happens if I install UndoRedo but not Rewind?
 >
-> **Domain expert**: UndoRedo is a Checkpoint Consumer. It reads `CheckpointEntry` v2 entries from the session history. If no extension is producing those entries, `/undo` and `/redo` will both report "Nothing to undo." / "Nothing to redo." You need a Checkpoint Producer like Rewind (or a custom extension that writes `pi-checkpoint` custom entries) for UndoRedo to function.
+> **Domain expert**: UndoRedo is a Checkpoint Consumer. It reads `CheckpointEntry` entries from the session history. If no extension is producing those entries, `/undo` and `/redo` will both report "Nothing to undo." / "Nothing to redo." You need a Checkpoint Producer like Rewind (or a custom extension that writes `pi-checkpoint` custom entries) for UndoRedo to function.

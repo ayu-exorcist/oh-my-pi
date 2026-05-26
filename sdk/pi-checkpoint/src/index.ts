@@ -21,5 +21,17 @@ export {
 } from "./checkpoint-entry";
 export { withRepoLock } from "./lock";
 export { createDefaultRepoProvider, type RepoProvider } from "./repo-provider";
+export {
+  cloneSessionCheckpointStorage,
+  ensureSessionCheckpointStorage,
+  resolveSessionCheckpointStorage,
+} from "./session-checkpoint-storage";
+export type {
+  CloneSessionCheckpointStorageOptions,
+  CloneSessionCheckpointStorageResult,
+  EnsureSessionCheckpointStorageOptions,
+  SessionCheckpointStorageOptions,
+  SessionCheckpointStorageResult,
+} from "./session-checkpoint-storage";
 export type { CheckpointConfig, CheckpointMeta, FileChange } from "./types";
 export type { CheckpointEntry } from "./checkpoint-entry";

@@ -15,9 +15,9 @@ export function extractCheckpointData(entries: readonly unknown[]): readonly unk
 }
 
 /**
- * Checkpoint metadata stored as a Pi session custom entry (v2).
+ * Checkpoint metadata stored as a Pi session custom entry.
  *
- * v2 introduces before/after commit pairs so that rewind can restore
+ * Introduces before/after commit pairs so that rewind can restore
  * to the state *before* a turn, while undo/redo can navigate between
  * before and after snapshots.
  */

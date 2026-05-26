@@ -12,6 +12,7 @@ export function parseCLI(): {
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === undefined) break;
     if (a === "--") {
       positionals.push(...args.slice(i + 1));
       break;
@@ -33,6 +34,7 @@ export function parseCLI(): {
     }
     if (a.startsWith("-") && a.length === 2) {
       const key = a[1];
+      if (key === undefined) continue;
       const next = args[i + 1];
       if (next && !next.startsWith("-")) {
         flags.set(key, next);

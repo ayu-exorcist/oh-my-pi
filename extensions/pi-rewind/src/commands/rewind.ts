@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkpoint";
-import { getCheckpointEntries, errorMessage } from "@ayulab/pi-checkpoint";
+import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
+import { runRestoreMode } from "./restore-mode";
 
 /** Render a single file change with ANSI colour codes for terminal display. */
 export function formatChangeLine(change: FileChange): string {
@@ -80,60 +81,20 @@ export function registerRewind(
 
       const mode = await ctx.ui.select("Restore mode:", modes);
       if (!mode) return;
-      if (mode.includes("Never mind")) return;
 
-      if (mode === "Summarize from here") {
-        try {
-          const custom = await ctx.ui.input(
-            "Summary focus (optional, press Enter for default):",
-            "",
-          );
-          await ctx.navigateTree(targetCp.userEntryId, {
-            summarize: true,
-            customInstructions: custom || undefined,
-          });
-          ctx.ui.notify("Summarized and restored conversation", "info");
-          return;
-        } catch (err) {
-          ctx.ui.notify(`Rewind failed: ${errorMessage(err)}`, "error");
-          return;
-        }
+      let latest = targetCp;
+      for (const cp of cps) {
+        latest = cp;
       }
 
-      if (mode.includes("code")) {
-        const latest = cps[cps.length - 1];
-        const result = await repo.safeCheckout(targetCp.beforeCommit, latest.afterCommit);
-
-        if (!result.ok) {
-          if (result.reason === "dirty") {
-            ctx.ui.notify(
-              "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
-              "warning",
-            );
-          } else {
-            if (result.rollbackError) {
-              ctx.ui.notify(
-                `Rewind failed and rollback also failed: ${result.rollbackError}`,
-                "error",
-              );
-            } else {
-              ctx.ui.notify(`Rewind failed: ${result.error}`, "error");
-            }
-          }
-          return;
-        }
-      }
-
-      if (mode.includes("conversation")) {
-        try {
-          await ctx.navigateTree(targetCp.userEntryId, { summarize: false });
-        } catch (err) {
-          ctx.ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");
-          return;
-        }
-      }
-
-      ctx.ui.notify("Rewind completed", "info");
+      await runRestoreMode({
+        mode,
+        repo,
+        ui: ctx.ui,
+        navigateTree: ctx.navigateTree,
+        targetCp,
+        latestCp: latest,
+      });
     },
   });
 }

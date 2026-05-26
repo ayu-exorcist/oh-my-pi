@@ -1,15 +1,15 @@
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseCLI } from "./lib/cli";
 import { getRegistryVersion, setRoot } from "./lib/npm";
 import { getPackages } from "./lib/packages";
-import { buildDepGraph, topoSort, collectDependencies } from "./lib/deps";
+import { buildDepGraph } from "./lib/deps";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
 import { tagAndRelease } from "./lib/git";
-import { isStringArray } from "./lib/guards";
+import { createReleasePlan } from "./lib/release-plan";
+import { stageBundledBuildArtifacts } from "./lib/build-artifact-stage";
 import type { PackageInfo } from "./lib/types";
 
 /** Repository root absolute path. */
@@ -40,60 +40,6 @@ if (pkgFlag) {
 // default to all out-of-date packages for backwards compatibility.
 const PUBLISH_ALL = ALL || TARGETS.length === 0;
 
-/** Check whether a package should be published (version mismatch or not yet published). */
-function shouldPublish(version: string, registryVersion: string | null): boolean {
-  return version !== registryVersion;
-}
-
-/**
- * Before publishing the root package, swap each bundled workspace dependency
- * in node_modules/ with its built dist/ directory so the tarball only
- * contains clean JS + a package.json without `workspace:*`.
- * Returns restore functions that revert node_modules back to symlinks.
- */
-function prepareBundledDeps(
-  rootPkg: PackageInfo,
-  nameMap: Map<string, PackageInfo>,
-): (() => void)[] {
-  const restores: (() => void)[] = [];
-  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
-    ? rootPkg.pkg.bundledDependencies
-    : [];
-
-  for (const depName of bundled) {
-    const depPkg = nameMap.get(depName);
-    if (!depPkg) continue;
-
-    const distPath = join(depPkg.path, "dist");
-    if (!existsSync(distPath)) {
-      console.error(`❌ ${depName} dist/ not found. Run build first.`);
-      process.exit(1);
-    }
-
-    const nmPath = join(root, "node_modules", depName);
-    if (!existsSync(nmPath)) {
-      console.error(`❌ ${nmPath} not found. Run pnpm install first.`);
-      process.exit(1);
-    }
-
-    const stat = lstatSync(nmPath);
-    const isSymlink = stat.isSymbolicLink();
-    const originalTarget = isSymlink ? readlinkSync(nmPath) : null;
-
-    rmSync(nmPath, { recursive: true });
-    cpSync(distPath, nmPath, { recursive: true });
-
-    restores.push(() => {
-      rmSync(nmPath, { recursive: true });
-      if (isSymlink && originalTarget) {
-        symlinkSync(originalTarget, nmPath);
-      }
-    });
-  }
-
-  return restores;
-}
-
 /**
  * Publish a single package. On success, record the version and immediately
  * create a git tag + GitHub Release so metadata is never left behind.
@@ -110,7 +56,12 @@ function publishOne(
   const restores: (() => void)[] = [];
 
   if (pkg.isRoot) {
-    restores.push(...prepareBundledDeps(pkg, nameMap));
+    const result = stageBundledBuildArtifacts({ root, rootPkg: pkg, nameMap });
+    if (!result.ok) {
+      console.error(result.message);
+      process.exit(1);
+    }
+    restores.push(...result.restores);
   }
 
   if (pkg.isRoot) {
@@ -167,61 +118,31 @@ function publishOne(
  */
 async function main(): Promise<void> {
   const packages = getPackages(root);
-  const { graph, inDegree, nameMap } = buildDepGraph(packages);
+  const { nameMap } = buildDepGraph(packages);
+  const result = createReleasePlan({
+    packages,
+    targets: TARGETS,
+    publishAll: PUBLISH_ALL,
+    getRegistryVersion,
+  });
 
-  // Step 1 — detect version drift
-  const needsPublish = new Map<string, string | null>();
-  for (const pkg of packages) {
-    const registryVersion = getRegistryVersion(pkg.name);
-    if (shouldPublish(pkg.version, registryVersion)) {
-      needsPublish.set(pkg.name, registryVersion);
-    }
+  if (!result.ok) {
+    console.error(`❌ Unknown package: ${result.target}`);
+    process.exit(1);
   }
 
-  let toPublish = new Set(needsPublish.keys());
+  const sortedToPublish = result.plan.packages.map((pkg) => pkg.name);
+  const toPublish = new Set(sortedToPublish);
 
-  if (!PUBLISH_ALL) {
-    // -p / --package was explicitly set; -a was not.
-    for (const target of TARGETS) {
-      if (!nameMap.has(target)) {
-        console.error(`❌ Unknown package: ${target}`);
-        process.exit(1);
-      }
-    }
-
-    const allowed = new Set<string>();
-    for (const target of TARGETS) {
-      for (const dep of collectDependencies(target, nameMap)) {
-        allowed.add(dep);
-      }
-    }
-
-    // Narrow existing drift list to allowed packages, then supplement
-    // any allowed package that has never been published.
-    toPublish = new Set([...toPublish].filter((n) => allowed.has(n)));
-    for (const name of allowed) {
-      if (toPublish.has(name)) continue;
-      const registryVersion = getRegistryVersion(name);
-      if (registryVersion === null) {
-        toPublish.add(name);
-        needsPublish.set(name, null);
-      }
-    }
-  }
-
-  if (toPublish.size === 0) {
+  if (sortedToPublish.length === 0) {
     console.log("✅ All packages are up to date. Nothing to publish.");
     return;
   }
 
-  const sorted = topoSort([...nameMap.keys()], graph, inDegree);
-  const sortedToPublish = sorted.filter((n) => toPublish.has(n));
-
   console.log(`📦 Packages to publish (${sortedToPublish.length}):`);
-  for (const name of sortedToPublish) {
-    const pkg = nameMap.get(name);
-    const registryVersion = needsPublish.get(name) ?? getRegistryVersion(name);
-    console.log(`  ${name}@${pkg?.version} (registry: ${registryVersion || "not published"})`);
+  for (const pkg of result.plan.packages) {
+    const registryVersion = result.plan.registryVersions.get(pkg.name);
+    console.log(`  ${pkg.name}@${pkg.version} (registry: ${registryVersion || "not published"})`);
   }
 
   // Pre-publish validation

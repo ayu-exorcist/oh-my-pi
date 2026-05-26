@@ -32,6 +32,7 @@
     "./config": "./src/config.ts",
     "./repo-manager": "./src/repo-manager.ts",
     "./repo-provider": "./src/repo-provider.ts",
+    "./session-checkpoint-storage": "./src/session-checkpoint-storage.ts",
     "./testing": "./src/testing/index.ts",
     "./resolver": "./src/resolver.ts",
     "./exec": "./src/exec.ts",

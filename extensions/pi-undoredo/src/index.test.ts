@@ -1,8 +1,15 @@
 import { describe, test, expect, vi } from "vitest";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { RepoManager, RepoProvider } from "@ayulab/pi-checkpoint";
-import { createDefaultRepoProvider } from "@ayulab/pi-checkpoint";
+import {
+  createDefaultRepoProvider,
+  getGitDir,
+  getRepoDir,
+  RepoManager as RepoManagerClass,
+} from "@ayulab/pi-checkpoint";
 import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
 import defaultFactory from "./index";
 
@@ -70,6 +77,41 @@ function createMockProvider(): RepoProvider {
 const mockRepo = createMockRepo;
 
 describe("undoredo extension", () => {
+  test("undo warns when checkpoints exist but Checkpoint Storage is missing", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-undoredo-storage-test-"));
+    vi.stubEnv("HOME", tmpDir);
+    vi.stubEnv("USERPROFILE", tmpDir);
+    try {
+      const { api, registerCommand } = createMockApi();
+      defaultFactory(api);
+
+      const undoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "undo");
+      if (!undoCall) throw new Error("undo command not registered");
+      const handler = undoCall[1].handler;
+
+      const entries = [createCheckpointEntry("entry-1", "abc", "def")];
+      const cmdCtx = {
+        ui: { notify: vi.fn() },
+        cwd: tmpDir,
+        sessionManager: createMockSessionManager(
+          path.join(tmpDir, ".pi", "agent", "sessions", "missing.jsonl"),
+          entries,
+        ),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ExtensionCommandContext;
+
+      await handler("", cmdCtx);
+
+      expect(cmdCtx.ui.notify).toHaveBeenCalledWith(
+        "Checkpoint storage not found. This session has checkpoints, but their file snapshots are missing.",
+        "warning",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test("registers /undo and /redo commands", async () => {
     const { api, registerCommand } = createMockApi();
     defaultFactory(api, createMockProvider());
@@ -138,7 +180,7 @@ describe("undoredo extension", () => {
     accessSpy.mockRestore();
   });
 
-  test("undo warns when repo not ready", async () => {
+  test("undo no-op when repo is missing and no checkpoints exist", async () => {
     const { api, registerCommand } = createMockApi();
     defaultFactory(api, createMockProvider());
 
@@ -153,7 +195,7 @@ describe("undoredo extension", () => {
     } as unknown as ExtensionCommandContext;
 
     await handler("", cmdCtx);
-    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Checkpoint extension not ready", "warning");
+    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Nothing to undo.", "info");
   });
 
   test("undo no-op when no checkpoints", async () => {
@@ -174,6 +216,44 @@ describe("undoredo extension", () => {
 
     await handler("", cmdCtx);
     expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Nothing to undo.", "info");
+  });
+
+  test("undo lazily resolves existing Checkpoint Storage", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-undoredo-lazy-storage-test-"));
+    vi.stubEnv("HOME", tmpDir);
+    vi.stubEnv("USERPROFILE", tmpDir);
+    const checkoutSpy = vi.spyOn(RepoManagerClass.prototype, "safeCheckout").mockResolvedValue({
+      ok: true,
+    });
+    try {
+      const { api, registerCommand } = createMockApi();
+      defaultFactory(api);
+
+      const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "existing.jsonl");
+      await fs.mkdir(getGitDir(getRepoDir(sessionFile)), { recursive: true });
+
+      const entries = [createCheckpointEntry("entry-1", "abc", "def")];
+      const undoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "undo");
+      if (!undoCall) throw new Error("undo command not registered");
+      const handler = undoCall[1].handler;
+
+      const cmdCtx = {
+        ui: { notify: vi.fn() },
+        cwd: tmpDir,
+        sessionManager: createMockSessionManager(sessionFile, entries),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+        navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+      } as unknown as ExtensionCommandContext;
+
+      await handler("", cmdCtx);
+
+      expect(checkoutSpy).toHaveBeenCalledWith("abc", "def");
+      expect(cmdCtx.navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    } finally {
+      checkoutSpy.mockRestore();
+      vi.unstubAllEnvs();
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test("undo restores code and conversation", async () => {
@@ -498,7 +578,7 @@ describe("undoredo extension", () => {
     );
   });
 
-  test("redo warns when repo not ready", async () => {
+  test("redo no-op when repo is missing and Redo Stack is empty", async () => {
     const { api, registerCommand } = createMockApi();
     defaultFactory(api, createMockProvider());
 
@@ -513,7 +593,7 @@ describe("undoredo extension", () => {
     } as unknown as ExtensionCommandContext;
 
     await handler("", cmdCtx);
-    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Checkpoint extension not ready", "warning");
+    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Nothing to redo.", "info");
   });
 
   test("redo no-op when stack empty", async () => {
@@ -582,6 +662,133 @@ describe("undoredo extension", () => {
     expect(repo.checkoutCommit).toHaveBeenCalledWith("def");
     expect(redoCtx.navigateTree).toHaveBeenCalledWith("leaf-1", { summarize: false });
     expect(redoCtx.ui.notify).toHaveBeenCalledWith("Redo complete. Workspace restored.", "info");
+  });
+
+  test("redo lazily resolves existing Checkpoint Storage", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-undoredo-redo-lazy-test-"));
+    vi.stubEnv("HOME", tmpDir);
+    vi.stubEnv("USERPROFILE", tmpDir);
+    const checkoutSpy = vi.spyOn(RepoManagerClass.prototype, "safeCheckout").mockResolvedValue({
+      ok: true,
+    });
+    try {
+      const { api, registerCommand } = createMockApi();
+      const provider = createMockProvider();
+      provider.setRepo(
+        "test-session",
+        mockRepo({
+          stageAll: vi.fn().mockResolvedValue(undefined),
+          diffAgainst: vi.fn().mockResolvedValue(""),
+          createSafetyCommit: vi.fn().mockResolvedValue("safety"),
+          checkoutCommit: vi.fn().mockResolvedValue(undefined),
+        }),
+      );
+      defaultFactory(api, provider);
+
+      const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "existing.jsonl");
+      await fs.mkdir(getGitDir(getRepoDir(sessionFile)), { recursive: true });
+      const entries = [createCheckpointEntry("entry-1", "abc", "def")];
+
+      const undoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "undo");
+      if (!undoCall) throw new Error("undo command not registered");
+      await undoCall[1].handler("", {
+        ui: { notify: vi.fn() },
+        sessionManager: createMockSessionManager(sessionFile, entries),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+        navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+      } as unknown as ExtensionCommandContext);
+      provider.deleteRepo("test-session");
+
+      const redoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "redo");
+      if (!redoCall) throw new Error("redo command not registered");
+      const redoCtx = {
+        ui: { notify: vi.fn() },
+        cwd: tmpDir,
+        sessionManager: createMockSessionManager(sessionFile, entries),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+        navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+      } as unknown as ExtensionCommandContext;
+
+      await redoCall[1].handler("", redoCtx);
+
+      expect(checkoutSpy).toHaveBeenCalledWith("def", "def");
+      expect(redoCtx.navigateTree).toHaveBeenCalledWith("leaf-1", { summarize: false });
+    } finally {
+      checkoutSpy.mockRestore();
+      vi.unstubAllEnvs();
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("redo keeps Redo Entry when Checkpoint Storage is missing", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-undoredo-redo-storage-test-"));
+    vi.stubEnv("HOME", tmpDir);
+    vi.stubEnv("USERPROFILE", tmpDir);
+    try {
+      const { api, registerCommand } = createMockApi();
+      const provider = createMockProvider();
+      provider.setRepo(
+        "test-session",
+        mockRepo({
+          stageAll: vi.fn().mockResolvedValue(undefined),
+          diffAgainst: vi.fn().mockResolvedValue(""),
+          createSafetyCommit: vi.fn().mockResolvedValue("safety"),
+          checkoutCommit: vi.fn().mockResolvedValue(undefined),
+        }),
+      );
+      defaultFactory(api, provider);
+
+      const entries = [createCheckpointEntry("entry-1", "abc", "def")];
+      const undoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "undo");
+      if (!undoCall) throw new Error("undo command not registered");
+      await undoCall[1].handler("", {
+        ui: { notify: vi.fn() },
+        sessionManager: createMockSessionManager(
+          path.join(tmpDir, ".pi", "agent", "sessions", "missing.jsonl"),
+          entries,
+        ),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+        navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+      } as unknown as ExtensionCommandContext);
+      provider.deleteRepo("test-session");
+
+      const redoCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "redo");
+      if (!redoCall) throw new Error("redo command not registered");
+      const redoHandler = redoCall[1].handler;
+
+      const firstCtx = {
+        ui: { notify: vi.fn() },
+        cwd: tmpDir,
+        sessionManager: createMockSessionManager(
+          path.join(tmpDir, ".pi", "agent", "sessions", "missing.jsonl"),
+          entries,
+        ),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ExtensionCommandContext;
+      await redoHandler("", firstCtx);
+      expect(firstCtx.ui.notify).toHaveBeenCalledWith(
+        "Checkpoint storage not found. This session has checkpoints, but their file snapshots are missing.",
+        "warning",
+      );
+
+      const secondCtx = {
+        ui: { notify: vi.fn() },
+        cwd: tmpDir,
+        sessionManager: createMockSessionManager(
+          path.join(tmpDir, ".pi", "agent", "sessions", "missing.jsonl"),
+          entries,
+        ),
+        waitForIdle: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ExtensionCommandContext;
+      await redoHandler("", secondCtx);
+      expect(secondCtx.ui.notify).toHaveBeenCalledWith(
+        "Checkpoint storage not found. This session has checkpoints, but their file snapshots are missing.",
+        "warning",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test("redo dirty guard blocks when workspace has changes", async () => {
@@ -1081,12 +1288,15 @@ describe("undoredo extension", () => {
 
     const cmdCtx = {
       ui: { notify: vi.fn() },
-      sessionManager: { getSessionId: () => "test-session" },
+      sessionManager: {
+        getSessionId: () => "test-session",
+        getEntries: () => [],
+      },
       waitForIdle: vi.fn().mockResolvedValue(undefined),
     } as unknown as ExtensionCommandContext;
 
     await handler("", cmdCtx);
-    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Checkpoint extension not ready", "warning");
+    expect(cmdCtx.ui.notify).toHaveBeenCalledWith("Nothing to undo.", "info");
   });
 
   test("createDefaultRepoProvider isolates sessions", () => {

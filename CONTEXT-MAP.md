@@ -10,4 +10,4 @@
 
 - **Checkpoint Engine → Rewind Extension**: Rewind depends on Checkpoint Engine for `RepoManager`, config loading, diff parsing, and `CheckpointEntry` extraction.
 - **Checkpoint Engine → UndoRedo Extension**: UndoRedo depends on Checkpoint Engine for `RepoManager`, `RepoProvider`, and `CheckpointEntry` reading. It does not create checkpoints; it consumes entries written by Rewind (or any other checkpoint-aware extension).
-- **Rewind Extension ↔ UndoRedo Extension**: Both operate on the same Pi session entries. Rewind writes `CheckpointEntry` v2 custom entries; UndoRedo reads them. The redo stack is private to UndoRedo.
+- **Rewind Extension ↔ UndoRedo Extension**: Both operate on the same Pi session entries. Rewind writes `CheckpointEntry` custom entries; UndoRedo reads them. The redo stack is private to UndoRedo.
