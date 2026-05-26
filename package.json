@@ -48,6 +48,7 @@
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check && pnpm run coverage",
     "setup": "oxnode scripts/setup.ts",
     "teardown": "oxnode scripts/teardown.ts",
+    "build": "oxnode scripts/build.ts",
     "release": "oxnode scripts/publish.ts",
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
@@ -76,8 +77,8 @@
   },
   "pi": {
     "extensions": [
-      "!node_modules/@ayulab/pi-rewind/index.ts",
-      "!node_modules/@ayulab/pi-undoredo/index.ts",
+      "!node_modules/@ayulab/pi-rewind/index.mjs",
+      "!node_modules/@ayulab/pi-undoredo/index.mjs",
       "node_modules/pi-mcp-adapter/index.ts"
     ],
     "skills": [

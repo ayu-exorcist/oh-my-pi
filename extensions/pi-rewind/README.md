@@ -63,6 +63,7 @@ Select mode: 1
 ## Development
 
 ```bash
+pnpm run build    # tsdown bundle into dist/
 pnpm run dev      # watch mode
 pnpm test         # run tests
 pnpm run coverage # coverage report

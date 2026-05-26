@@ -94,6 +94,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`:
 ## Development
 
 ```bash
+pnpm run build     # tsdown bundle into dist/
 pnpm run dev       # watch mode
 pnpm test          # run tests
 pnpm run coverage  # coverage report

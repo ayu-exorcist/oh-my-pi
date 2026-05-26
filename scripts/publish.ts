@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,49 +47,61 @@ function shouldPublish(version: string, registryVersion: string | null): boolean
 }
 
 /**
- * Temporarily replace `workspace:*` dependencies in a package's
- * `package.json` with concrete versions from the workspace.
- * Returns a restore function that reverts the file to its original
- * content, or `undefined` when no changes were necessary.
+ * Before publishing the root package, swap each bundled workspace dependency
+ * in node_modules/ with its built dist/ directory so the tarball only
+ * contains clean JS + a package.json without `workspace:*`.
+ * Returns restore functions that revert node_modules back to symlinks.
  */
-function rewriteWorkspaceDeps(
-  pkg: PackageInfo,
+function prepareBundledDeps(
+  rootPkg: PackageInfo,
   nameMap: Map<string, PackageInfo>,
-): (() => void) | undefined {
-  const deps = pkg.pkg.dependencies;
-  if (!deps) return;
+): (() => void)[] {
+  const restores: (() => void)[] = [];
+  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
+    ? rootPkg.pkg.bundledDependencies
+    : [];
 
-  const replacements: Record<string, string> = {};
-  for (const [depName, version] of Object.entries(deps)) {
-    if (version !== "workspace:*") continue;
+  for (const depName of bundled) {
     const depPkg = nameMap.get(depName);
-    if (depPkg) {
-      replacements[depName] = depPkg.version;
+    if (!depPkg) continue;
+
+    const distPath = join(depPkg.path, "dist");
+    if (!existsSync(distPath)) {
+      console.error(`❌ ${depName} dist/ not found. Run build first.`);
+      process.exit(1);
     }
+
+    const nmPath = join(root, "node_modules", depName);
+    if (!existsSync(nmPath)) {
+      console.error(`❌ ${nmPath} not found. Run pnpm install first.`);
+      process.exit(1);
+    }
+
+    const stat = lstatSync(nmPath);
+    const isSymlink = stat.isSymbolicLink();
+    const originalTarget = isSymlink ? readlinkSync(nmPath) : null;
+
+    rmSync(nmPath, { recursive: true });
+    cpSync(distPath, nmPath, { recursive: true });
+
+    restores.push(() => {
+      rmSync(nmPath, { recursive: true });
+      if (isSymlink && originalTarget) {
+        symlinkSync(originalTarget, nmPath);
+      }
+    });
   }
 
-  if (Object.keys(replacements).length === 0) return;
-
-  const pkgJsonPath = join(pkg.path, "package.json");
-  const original = readFileSync(pkgJsonPath, "utf8");
-  const parsed = JSON.parse(original);
-
-  for (const [depName, realVersion] of Object.entries(replacements)) {
-    parsed.dependencies[depName] = `^${realVersion}`;
-  }
-
-  writeFileSync(pkgJsonPath, JSON.stringify(parsed, null, 2) + "\n");
-  return () => {
-    writeFileSync(pkgJsonPath, original);
-  };
+  return restores;
 }
 
 /**
  * Publish a single package. On success, record the version and immediately
  * create a git tag + GitHub Release so metadata is never left behind.
  *
- * Workspace `package.json` files are temporarily rewritten so that nested
- * bundled dependencies do not contain `workspace:*` in the published tarball.
+ * Child packages are published from their `dist/` directory (via
+ * publishConfig.directory). The root package has its bundled workspace deps
+ * temporarily swapped with clean dist/ copies before publishing.
  */
 function publishOne(
   pkg: PackageInfo,
@@ -98,22 +110,8 @@ function publishOne(
 ): void {
   const restores: (() => void)[] = [];
 
-  // Rewrite this package's own workspace deps.
-  const restoreSelf = rewriteWorkspaceDeps(pkg, nameMap);
-  if (restoreSelf) restores.push(restoreSelf);
-
-  // If this is the root package, also rewrite any bundled workspace deps so
-  // they are packed with concrete versions instead of `workspace:*`.
   if (pkg.isRoot) {
-    const bundled: string[] = isStringArray(pkg.pkg.bundledDependencies)
-      ? pkg.pkg.bundledDependencies
-      : [];
-    for (const depName of bundled) {
-      const depPkg = nameMap.get(depName);
-      if (!depPkg) continue;
-      const restoreBundled = rewriteWorkspaceDeps(depPkg, nameMap);
-      if (restoreBundled) restores.push(restoreBundled);
-    }
+    restores.push(...prepareBundledDeps(pkg, nameMap));
   }
 
   if (pkg.isRoot) {
@@ -278,7 +276,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  console.log("🔨 Building packages...");
+  execSync("oxnode scripts/build.ts", { cwd: root, stdio: "inherit" });
   console.log("");
+
   const publishedVersions = new Map<string, string>();
   for (const name of sortedToPublish) {
     const pkg = nameMap.get(name);

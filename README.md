@@ -74,6 +74,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── themes/               # Themes
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
+│   ├── build.ts          # Topological build all workspace packages into dist/
 │   ├── publish.ts        # Topological publish + auto CHANGELOG + tag + release
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings
@@ -140,7 +141,14 @@ cd oh-my-pi
 mise install && pnpm install
 ```
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full development guide — mise setup, scripts, quality gate, adding extensions, and release workflow.
+Build all workspace packages before publishing:
+
+```bash
+pnpm run build   # topological build via tsdown
+pnpm run release # publish to npm
+```
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full development guide — mise setup, scripts, quality gate, adding extensions, build config, and release workflow.
 
 ## License
 

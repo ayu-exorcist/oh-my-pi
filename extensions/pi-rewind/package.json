@@ -22,7 +22,6 @@
   },
   "files": [
     "src",
-    "index.ts",
     "README.md"
   ],
   "type": "module",
@@ -33,13 +32,15 @@
     "./commands/rewind": "./src/commands/rewind.ts"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "directory": "dist"
   },
   "scripts": {
     "dev": "vitest",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
   },
   "dependencies": {
     "@ayulab/pi-checkpoint": "workspace:*"
@@ -57,7 +58,7 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./src/index.ts"
     ]
   }
 }

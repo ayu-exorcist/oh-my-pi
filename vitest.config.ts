@@ -8,6 +8,12 @@ import { defineConfig } from "vitest/config";
  * - Enforces 100 % coverage across statements, branches, functions, and lines.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@ayulab/pi-checkpoint": "sdk/pi-checkpoint/src/index.ts",
+      "@ayulab/pi-checkpoint/testing": "sdk/pi-checkpoint/src/testing/index.ts",
+    },
+  },
   test: {
     projects: ["extensions/*", "sdk/*"],
     coverage: {

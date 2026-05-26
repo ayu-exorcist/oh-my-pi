@@ -10,7 +10,11 @@
     "noEmit": true,
     "allowJs": true,
     "checkJs": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@ayulab/pi-checkpoint": ["./sdk/pi-checkpoint/src/index.ts"],
+      "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"]
+    }
   },
   "include": ["sdk/**/*.ts", "extensions/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "**/node_modules"]

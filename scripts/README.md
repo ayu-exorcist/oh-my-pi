@@ -6,6 +6,7 @@ All top-level scripts are TypeScript files executed via [`oxnode`](https://githu
 
 ```
 scripts/
+├── build.ts            # Topological build all workspace packages
 ├── publish.ts          # Release entry point
 ├── setup.ts            # Register repo in Pi settings
 ├── teardown.ts         # Unregister repo from Pi settings
@@ -22,6 +23,21 @@ scripts/
 │   └── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
 ```
 
+## `build.ts` — Topological Build
+
+`pnpm run build`
+
+Builds all workspace packages in dependency order:
+
+1. **Discovery** (`lib/packages.ts` + `lib/deps.ts`) — scans `extensions/` and `sdk/` for publishable packages and topologically sorts them.
+2. **Build** — runs `pnpm build` in each package directory:
+   - `sdk/pi-checkpoint` — `tsdown` bundles `src/index.ts` into `dist/index.mjs` + `dist/index.d.mts`
+   - `extensions/pi-rewind` / `extensions/pi-undoredo` — `tsdown` bundles with `@ayulab/pi-checkpoint` inlined (`deps.alwaysBundle`)
+3. **Generate `dist/package.json`** — rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.mjs`), strips `scripts`/`devDependencies`/`files`, removes workspace dependencies.
+4. **Copy README** — copies `README.md` into `dist/`.
+
+Run this before `pnpm run release`.
+
 ## `publish.ts` — Topological Publish
 
 `pnpm run release` / `pnpm run release --dry-run`
@@ -31,9 +47,10 @@ Orchestrates npm publishing across the monorepo. Entry point that composes modul
 1. **Discovery** (`lib/packages.ts`) — scans `extensions/` and `sdk/` for publishable packages.
 2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
 3. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
-4. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`files` includes `README.md`, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
-5. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package. As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
-6. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, queries the npm registry for every bundled dependency's exact version, then prepends a `CHANGELOG.md` entry. This ensures `workspace:*` placeholders never leak into the release log.
+4. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
+5. **Build** — runs `scripts/build.ts` to compile all workspace packages into `dist/` before publishing.
+6. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package (child packages publish from `dist/` via `publishConfig.directory`). As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
+7. **CHANGELOG** (`lib/changelog.ts`) — after the root package is published, queries the npm registry for every bundled dependency's exact version, then prepends a `CHANGELOG.md` entry. This ensures `workspace:*` placeholders never leak into the release log.
 
 Flags:
 

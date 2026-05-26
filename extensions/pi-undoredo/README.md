@@ -43,6 +43,7 @@ Redo complete. Workspace restored.
 ## Development
 
 ```bash
+pnpm run build     # tsdown bundle into dist/
 pnpm run dev       # watch mode
 pnpm test          # run tests
 pnpm run coverage  # coverage report
