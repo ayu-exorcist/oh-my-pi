@@ -141,6 +141,18 @@ export default defineConfig({
 });
 ```
 
+If the extension ships runtime prompt templates or other assets, copy them into `dist/` with `copy`:
+
+```typescript
+export default defineConfig({
+  entry: ["src/index.ts"],
+  format: "esm",
+  dts: false,
+  clean: true,
+  copy: "prompts",
+});
+```
+
 If the extension depends on `@ayulab/pi-checkpoint`:
 
 ```json

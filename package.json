@@ -52,6 +52,7 @@
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
   "dependencies": {
+    "@ayulab/pi-ayu-workflow": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
     "@ayulab/pi-undoredo": "workspace:*",
     "pi-mcp-adapter": "2.6.1"
@@ -67,6 +68,7 @@
     "vitest": "^4.1.7"
   },
   "bundledDependencies": [
+    "@ayulab/pi-ayu-workflow",
     "@ayulab/pi-rewind",
     "@ayulab/pi-undoredo",
     "pi-mcp-adapter"
@@ -76,6 +78,7 @@
   },
   "pi": {
     "extensions": [
+      "!node_modules/@ayulab/pi-ayu-workflow/index.mjs",
       "!node_modules/@ayulab/pi-rewind/index.mjs",
       "!node_modules/@ayulab/pi-undoredo/index.mjs",
       "node_modules/pi-mcp-adapter/index.ts"

@@ -1,78 +1,52 @@
-# Agent Instructions
+# Agent Collaboration Defaults
 
-Behavioral guidelines to reduce common LLM coding mistakes. Bias toward caution over speed.
+## Core Behavior
 
-## 1. Think Before Coding
+- Be concise and direct.
+- Clarify before acting when requirements are ambiguous.
+- Push back when assumptions are flawed.
+- Do not guess when missing information matters; ask up to 3 blocking questions.
+- Do not write files during discussion, research, or planning unless the user clearly asks for implementation or file changes.
+- Prefer small, reversible changes over large speculative edits.
+- Do not do unrelated refactors, formatting, dependency changes, or cleanup.
+- Treat each user request as a new task boundary unless explicitly referenced.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Project Context
 
-- State assumptions explicitly. If uncertain, ask rather than guess.
-- Present multiple interpretations — don't pick silently when ambiguity exists.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- Before coding, read the project `AGENTS.md` and only the relevant README, CONTRIBUTING, docs, or code.
+- Project-level rules override these user-level defaults.
+- Ask before overriding conflicting rules.
+- Prefer the project's documented commands and package manager; do not assume defaults.
+- If a project lacks clear commands or rules, ask or proceed with the smallest safe inspection before making changes.
+- Keep long explanations, architecture notes, and workflow details in project docs, not in user-level rules.
 
-## 2. Simplicity First
+## Change Scope
 
-**Minimum code that solves the problem. Nothing speculative.**
+- Implement one clear vertical slice at a time.
+- If the requested change requires expanding scope, stop and explain why first.
+- Do not introduce new dependencies unless necessary; explain alternatives and trade-offs first.
+- Treat public APIs, user-facing behavior, data formats, and configuration as compatibility-sensitive; call out breaking changes before making them.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If 200 lines could be 50, rewrite it.
+## Secret Safety
 
-## 3. Surgical Changes
+- Do not print, copy, or expose full secrets, tokens, API keys, cookies, or private credentials.
+- If a secret is found in a file, mention only the file path and secret type, then recommend rotation.
+- Prefer environment variables or secret-manager commands over literal secrets in config files.
 
-**Touch only what you must. Clean up only your own mess.**
+## Coding Defaults
 
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it — don't delete it.
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+- Follow the existing project style.
+- Keep code minimal; avoid speculative abstractions.
+- Do not weaken, delete, or bypass tests to make checks pass.
 
-## 4. Goal-Driven Execution
+## Verification
 
-**Define success criteria. Loop until verified.**
+- Prefer evidence over self-assessment: run relevant verification before claiming completion.
+- Report exact commands and outcomes.
+- If verification cannot run, explain why and list residual risk.
+- For reported bugs or regressions, reproduce the issue before fixing when practical; otherwise explain why reproduction was not possible.
 
-Transform tasks into verifiable goals:
+## Git Safety
 
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan with verification checkpoints.
-
-## 5. Docs Stay in Sync
-
-**When code changes, comments, docs, and config must change with it.**
-
-- Update inline comments that describe behavior you've modified.
-- Update README, CONTRIBUTING, or other project docs when interfaces or workflows change.
-- Update configuration examples, schemas, and type definitions to match the new reality.
-- Don't leave stale documentation behind.
-
-## 6. Pre-commit Gate
-
-**Before every commit, `pnpm run ci` must pass.**
-
-This executes `tsc --noEmit && oxlint . && oxfmt . --check && vitest run --coverage` (100% threshold enforced).
-
-- Run it locally before committing.
-- If it fails, fix the issue before staging.
-- GitHub Actions also runs this on every PR as a final gate.
-
-## 7. Agent skills
-
-### Issue tracker
-
-Issues and PRDs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Five canonical roles mapped to local-markdown status strings. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Multi-context monorepo with per-package `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+- Do not run destructive git commands unless explicitly requested.
+- Do not commit, tag, push, publish, or release unless explicitly requested.

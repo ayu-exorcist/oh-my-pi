@@ -1,0 +1,63 @@
+{
+  "name": "@ayulab/pi-ayu-workflow",
+  "version": "0.1.0",
+  "description": "Pi extension providing the Ayu write gate and workflow commands",
+  "keywords": [
+    "ayu",
+    "extension",
+    "pi",
+    "pi-package",
+    "workflow",
+    "write-gate"
+  ],
+  "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/extensions/pi-ayu-workflow#readme",
+  "bugs": {
+    "url": "https://github.com/ayu-exorcist/oh-my-pi/issues"
+  },
+  "license": "GPL-3.0",
+  "author": "ayu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayu-exorcist/oh-my-pi.git",
+    "directory": "extensions/pi-ayu-workflow"
+  },
+  "files": [
+    "src",
+    "prompts",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "directory": "dist"
+  },
+  "scripts": {
+    "dev": "vitest",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}

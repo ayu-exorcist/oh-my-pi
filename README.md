@@ -38,6 +38,7 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
 Each extension is published independently. Install only what you need:
 
 ```bash
+pi install npm:@ayulab/pi-ayu-workflow
 pi install npm:@ayulab/pi-rewind
 pi install npm:@ayulab/pi-undoredo
 ```
@@ -65,6 +66,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ```
 @ayulab/oh-my-pi/
 ├── extensions/           # Pi extensions (independently published)
+│   ├── pi-ayu-workflow/           # @ayulab/pi-ayu-workflow — Ayu Write Gate and /ayu router
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 │   └── pi-undoredo/      # @ayulab/pi-undoredo — /undo /redo commands
 ├── sdk/                  # Shared infrastructure (independently published)
@@ -88,12 +90,13 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                         | Description                                         |
-| ----------------------------------------------- | --------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)    | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)     | `/rewind` command — interactive checkpoint restore. |
-| [`@ayulab/pi-undoredo`](extensions/pi-undoredo) | `/undo` and `/redo` commands.                       |
-| [`Purple Dream`](themes/purple-dream.json)      | Dark purple theme for long coding sessions.         |
+| Package                                                 | Description                                         |
+| ------------------------------------------------------- | --------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)            | Git bare-repo checkpoint engine. Zero deps.         |
+| [`@ayulab/pi-ayu-workflow`](extensions/pi-ayu-workflow) | Ayu Write Gate, Write Mode, and `/ayu` router.      |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)             | `/rewind` command — interactive checkpoint restore. |
+| [`@ayulab/pi-undoredo`](extensions/pi-undoredo)         | `/undo` and `/redo` commands.                       |
+| [`Purple Dream`](themes/purple-dream.json)              | Dark purple theme for long coding sessions.         |
 
 ## Extension Management
 
@@ -105,9 +108,26 @@ pi config
 
 Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering) in `settings.json` for fine-grained control.
 
+## Using /ayu
+
+After starting Pi, the Ayu extension registers automatically. Write Mode starts Off for each session and can be toggled with `Alt+S`, `/ayu on`, or `/ayu off`.
+
+```text
+> /ayu status
+Ayu Write Mode: Off
+
+> /ayu task add validation tests
+# Sends a planning prompt and does not edit files by itself.
+
+> /ayu on implement the confirmed plan
+# Enables Write Mode for this prompt, immediately sends it, then auto-turns Off when the run ends.
+```
+
+When Write Mode is Off, Ayu blocks mutating tool calls and allows only read-only inspection, including a narrow git-inspection subset. Bare `/ayu on` and `Alt+S` stay enabled until manually disabled; `/ayu on <prompt>` is one-shot and auto-turns Off after that run.
+
 ## Using /rewind
 
-After starting Pi, the extension registers automatically. Every prompt you send triggers a background checkpoint.
+After starting Pi, the Rewind extension registers automatically. Every prompt you send triggers a background checkpoint.
 
 ```
 > /rewind
