@@ -1,7 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import {
   loadConfig,
   loadConfigFromFile,
@@ -12,6 +13,7 @@ import {
   createDefaultRepoProvider,
   cloneSessionCheckpointStorage,
   ensureSessionCheckpointStorage,
+  getRepoDir,
 } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { extractPrompt, findLastUserEntry } from "./utils/prompt";
@@ -60,6 +62,86 @@ function createAutoCheckpointProducer(
   });
 }
 
+interface ForkIntent {
+  readonly entryId: string;
+  readonly position: "before" | "at";
+}
+
+function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isForkIntent(value: unknown): value is ForkIntent {
+  if (!isForkIntentRecord(value)) return false;
+
+  return (
+    typeof value.entryId === "string" && (value.position === "before" || value.position === "at")
+  );
+}
+
+function getForkIntentPath(sessionFile: string | undefined): string {
+  return path.join(getRepoDir(sessionFile), "fork-intent.json");
+}
+
+async function writeForkIntent(
+  sessionFile: string | undefined,
+  intent: ForkIntent | undefined,
+): Promise<void> {
+  if (!sessionFile || !intent) return;
+
+  const intentPath = getForkIntentPath(sessionFile);
+  await mkdir(path.dirname(intentPath), { recursive: true });
+  await writeFile(intentPath, JSON.stringify(intent), "utf8");
+}
+
+async function readForkIntent(sessionFile: string | undefined): Promise<ForkIntent | undefined> {
+  if (!sessionFile) return undefined;
+
+  try {
+    const intentPath = getForkIntentPath(sessionFile);
+    const raw = await readFile(intentPath, "utf8");
+    await rm(intentPath, { force: true });
+    const parsed: unknown = JSON.parse(raw);
+    return isForkIntent(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function findLatestCheckpoint(entries: readonly unknown[]): CheckpointEntry | undefined {
+  let latest: CheckpointEntry | undefined;
+  for (const cp of filterCheckpointEntries(extractCheckpointData(entries))) {
+    latest = cp;
+  }
+  return latest;
+}
+
+async function restoreForkCodeState(
+  repo: RepoManager,
+  entries: readonly unknown[],
+  branch: SessionEntry[],
+): Promise<void> {
+  const lastUserEntry = findLastUserEntry(branch);
+  if (!lastUserEntry) return;
+
+  const cp = findCheckpointForEntryId(entries, lastUserEntry.id);
+  if (cp) {
+    await repo.checkoutCommit(cp.beforeCommit);
+  }
+}
+
+async function restoreCloneCodeState(
+  repo: RepoManager,
+  entries: readonly unknown[],
+  selectedEntryId: string,
+): Promise<void> {
+  const targetCp =
+    findCheckpointForEntryId(entries, selectedEntryId) ?? findLatestCheckpoint(entries);
+  if (targetCp) {
+    await repo.checkoutCommit(targetCp.afterCommit);
+  }
+}
+
 /**
  * Pi extension entry point — sets up automatic per-turn checkpoints
  * and registers the `/rewind` command.
@@ -74,6 +156,21 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const producers = new Map<string, AutoCheckpointProducer>();
 
   let config = loadConfig({});
+  let pendingForkIntent: ForkIntent | undefined;
+
+  pi.on("session_before_fork", async (event) => {
+    pendingForkIntent = {
+      entryId: event.entryId,
+      position: event.position,
+    };
+  });
+
+  pi.on("session_shutdown", async (event) => {
+    if (event.reason === "fork") {
+      await writeForkIntent(event.targetSessionFile, pendingForkIntent);
+    }
+    pendingForkIntent = undefined;
+  });
 
   pi.on("session_start", async (event, ctx) => {
     const sessionFile = ctx.sessionManager.getSessionFile();
@@ -87,6 +184,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (event.reason === "fork") {
       if (!event.previousSessionFile) return;
 
+      const forkIntent = await readForkIntent(sessionFile);
       const storage = await cloneSessionCheckpointStorage({
         previousSessionFile: event.previousSessionFile,
         sessionFile,
@@ -98,16 +196,13 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       repos.setRepo(sessionId, storage.repo);
       producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
 
-      // Optionally restore code state to the fork point.
-      if (config.restoreOnFork === "always") {
-        const entries = ctx.sessionManager.getEntries();
-        const lastUserEntry = findLastUserEntry(ctx.sessionManager.getBranch());
-        if (lastUserEntry) {
-          const cp = findCheckpointForEntryId(entries, lastUserEntry.id);
-          if (cp) {
-            await storage.repo.checkoutCommit(cp.beforeCommit);
-          }
+      const entries = ctx.sessionManager.getEntries();
+      if (forkIntent?.position === "at") {
+        if (config.restoreOnClone === "always") {
+          await restoreCloneCodeState(storage.repo, entries, forkIntent.entryId);
         }
+      } else if (config.restoreOnFork === "always") {
+        await restoreForkCodeState(storage.repo, entries, ctx.sessionManager.getBranch());
       }
       return;
     }

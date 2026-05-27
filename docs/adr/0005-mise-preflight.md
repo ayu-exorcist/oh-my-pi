@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`oh-my-pi` uses a specific toolchain: pnpm, Node.js >= 20, oxfmt, oxlint, vitest. Version mismatches between contributors (or between an agent's assumptions and the actual environment) cause subtle failures — tests pass locally but fail in CI, or formatting drifts between runs.
+`oh-my-pi` uses a specific toolchain: pnpm, Node.js 24, oxfmt, oxlint, vitest, and Pi. Version mismatches between contributors (or between an agent's assumptions and the actual environment) cause subtle failures — tests pass locally but fail in CI, or formatting drifts between runs.
 
 `mise.toml` at the repo root declares the required toolchain. The question is: should the agent enforce this before doing any work?
 
@@ -22,7 +22,7 @@ Implement **option 2: preflight check with stop**.
 
 The agent must run `mise --version` before any development work. If it fails, the agent stops all operations and informs the user. No auto-installation, no workarounds. The user must install and activate mise themselves.
 
-This rule is encoded in `AGENTS.md` under the "Toolchain preflight" section.
+This rule is documented by this ADR and enforced operationally by agents before development work. It is not duplicated in `AGENTS.md`; if agent collaboration rules are expanded later, they should reference this ADR rather than redefining the toolchain contract.
 
 We explicitly rejected auto-installation because:
 
@@ -45,5 +45,5 @@ We explicitly rejected auto-installation because:
 
 ## Related
 
-- `AGENTS.md`
 - `mise.toml`
+- `package.json`

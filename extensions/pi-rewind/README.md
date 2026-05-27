@@ -11,7 +11,7 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
   3. Restore code only
   4. Generate summary from selected point
   5. Never mind
-- Auto-copy checkpoint repo on fork / clone
+- Auto-copy checkpoint repo on fork / clone; clone can restore code to the selected checkpoint's `afterCommit` when `checkpoint.restoreOnClone` is `"always"`
 - Real-time file-change counter for the current turn
 
 ## Dependencies

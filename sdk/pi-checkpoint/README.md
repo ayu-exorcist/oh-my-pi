@@ -121,18 +121,20 @@ const checkpoints = filterCheckpointEntries(dataList);
 
 ## Configuration
 
-Via `.pi/settings.json` or `~/.pi/agent/settings.json`:
+Via the `checkpoint` object in `.pi/settings.json` or `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "enabled": true,
-  "autoCheckpoint": true,
-  "restoreOnTree": "never",
-  "restoreOnFork": "always",
-  "restoreOnClone": "never",
-  "restoreOnResume": "never",
-  "defaultSummaryInstructions": "",
-  "exclude": ["node_modules/", ".git/", "*.log"]
+  "checkpoint": {
+    "enabled": true,
+    "autoCheckpoint": true,
+    "restoreOnTree": "never",
+    "restoreOnFork": "always",
+    "restoreOnClone": "never",
+    "restoreOnResume": "never",
+    "defaultSummaryInstructions": "",
+    "exclude": ["node_modules/", ".git/", "*.log"]
+  }
 }
 ```
 

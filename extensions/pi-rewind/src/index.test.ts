@@ -228,6 +228,16 @@ describe("checkpoint extension", () => {
     ];
     const forkCtx = createMockContext(forkSessionFile, forkBranch, projectDir);
 
+    const beforeForkHandlers = events["session_before_fork"] || [];
+    for (const h of beforeForkHandlers) {
+      await h({ entryId: "entry-1", position: "before" }, srcCtx);
+    }
+
+    const shutdownHandlers = events["session_shutdown"] || [];
+    for (const h of shutdownHandlers) {
+      await h({ reason: "fork", targetSessionFile: forkSessionFile }, srcCtx);
+    }
+
     for (const h of sessionStartHandlers) {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
@@ -248,6 +258,149 @@ describe("checkpoint extension", () => {
 
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(1)");
+  }, 15000);
+
+  test("clone copies repo and restores code to selected checkpoint afterCommit", async () => {
+    const srcBranch = [createUserEntry("entry-1", "create file")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const projectDir = path.join(tmpDir, "project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ checkpoint: { restoreOnClone: "always" } }),
+      "utf8",
+    );
+
+    const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
+    const turnStartHandlers = events["turn_start"] || [];
+    for (const h of turnStartHandlers) {
+      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+
+    const checkpointEntry = appendEntry.mock.calls
+      .filter(
+        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
+      )
+      .map((call: unknown[]) => call[1])
+      .pop();
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
+
+    const cloneSessionFile = path.join(tmpDir, "clone-session.jsonl");
+    await fs.writeFile(cloneSessionFile, "", "utf8");
+
+    const cloneBranch = [
+      createUserEntry("entry-1", "create file"),
+      ...(checkpointEntry
+        ? [{ type: "custom", customType: "pi-checkpoint", data: checkpointEntry }]
+        : []),
+    ];
+    const cloneCtx = createMockContext(cloneSessionFile, cloneBranch, projectDir);
+
+    const beforeForkHandlers = events["session_before_fork"] || [];
+    for (const h of beforeForkHandlers) {
+      await h({ entryId: "entry-1", position: "at" }, srcCtx);
+    }
+
+    const shutdownHandlers = events["session_shutdown"] || [];
+    for (const h of shutdownHandlers) {
+      await h({ reason: "fork", targetSessionFile: cloneSessionFile }, srcCtx);
+    }
+
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, cloneCtx);
+    }
+
+    const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
+    expect(content).toBe("console.log(2)");
+  }, 15000);
+
+  test("clone restore falls back to latest checkpoint when selected entry has no checkpoint", async () => {
+    const srcBranch = [createUserEntry("entry-1", "create file")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const projectDir = path.join(tmpDir, "project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ checkpoint: { restoreOnClone: "always" } }),
+      "utf8",
+    );
+
+    const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
+    const turnStartHandlers = events["turn_start"] || [];
+    for (const h of turnStartHandlers) {
+      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+
+    const checkpointEntry = appendEntry.mock.calls
+      .filter(
+        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
+      )
+      .map((call: unknown[]) => call[1])
+      .pop();
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
+
+    const cloneSessionFile = path.join(tmpDir, "clone-fallback-session.jsonl");
+    await fs.writeFile(cloneSessionFile, "", "utf8");
+
+    const cloneBranch = [
+      createUserEntry("entry-unknown", "unknown"),
+      ...(checkpointEntry
+        ? [{ type: "custom", customType: "pi-checkpoint", data: checkpointEntry }]
+        : []),
+    ];
+    const cloneCtx = createMockContext(cloneSessionFile, cloneBranch, projectDir);
+
+    const beforeForkHandlers = events["session_before_fork"] || [];
+    for (const h of beforeForkHandlers) {
+      await h({ entryId: "entry-unknown", position: "at" }, srcCtx);
+    }
+
+    const shutdownHandlers = events["session_shutdown"] || [];
+    for (const h of shutdownHandlers) {
+      await h({ reason: "fork", targetSessionFile: cloneSessionFile }, srcCtx);
+    }
+
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, cloneCtx);
+    }
+
+    const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
+    expect(content).toBe("console.log(2)");
   }, 15000);
 
   test("fork returns early when previousSessionFile missing", async () => {
