@@ -110,7 +110,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## Extension Management
 
-After installation, `pi-write-gate`, `pi-clarify`, `pi-claude-style-tools`, and `pi-mcp-adapter` are enabled by default. `pi-compact`, `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-write-gate`, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config

@@ -60,7 +60,6 @@
     "@ayulab/pi-undo-redo": "workspace:*",
     "@ayulab/pi-workflow": "workspace:*",
     "@ayulab/pi-write-gate": "workspace:*",
-    "pi-claude-style-tools": "^1.0.25",
     "pi-mcp-adapter": "^2.8.0"
   },
   "devDependencies": {
@@ -82,7 +81,6 @@
     "@ayulab/pi-undo-redo",
     "@ayulab/pi-workflow",
     "@ayulab/pi-write-gate",
-    "pi-claude-style-tools",
     "pi-mcp-adapter"
   ],
   "engines": {
@@ -94,11 +92,10 @@
       "node_modules/@ayulab/pi-write-gate",
       "node_modules/@ayulab/pi-trace-lab",
       "node_modules/@ayulab/pi-clarify",
-      "!node_modules/@ayulab/pi-compact",
+      "node_modules/@ayulab/pi-compact",
       "!node_modules/@ayulab/pi-workflow",
       "!node_modules/@ayulab/pi-rewind",
       "!node_modules/@ayulab/pi-undo-redo",
-      "node_modules/pi-claude-style-tools",
       "node_modules/pi-mcp-adapter"
     ],
     "skills": [
