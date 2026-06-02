@@ -1,9 +1,6 @@
 # pi CLI agent
-.pi/*
-!.pi/settings.json
-!.pi/keybindings.json
-!.pi/mcp.json
-!.pi/AGENTS.md
+.pi/sessions
+.pi/ayu/tasks/trace-lab/
 
 # Claude
 .claude/
@@ -47,3 +44,6 @@ coverage/
 # oxc / oxlint / oxfmt
 .oxlintcache/
 .oxfmtcache/
+
+# Turborepo
+.turbo/

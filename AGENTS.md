@@ -1,31 +1,73 @@
-# Agent Collaboration Defaults
+# AGENTS.md
 
-## Core Behavior
+> Project type: Pi extensions / package monorepo (pnpm workspace)
+> Tech stack: TypeScript (ESM), Node.js
+> Entry doc: README.md
+> Final outputs: `dist/` (package build artifacts), published packages
+> Extension runtime: full system permissions (privileged harness code)
 
-- Be concise and direct.
-- Clarify before acting when requirements are ambiguous.
-- Push back when assumptions are flawed.
-- Do not guess when missing information matters; ask up to 3 blocking questions.
-- Do not write files during discussion, research, or planning unless the user clearly asks for implementation or file changes.
-- Prefer small, reversible changes over large speculative edits.
-- Do not do unrelated refactors, formatting, dependency changes, or cleanup.
-- Treat each user request as a new task boundary unless explicitly referenced.
+## Project
 
-## Project Context
+- `@ayulab/oh-my-pi` is a pnpm workspace and Pi package monorepo.
+- It ships Pi extensions, packageable skills/prompts/themes, and shared SDK code.
+- Extensions run with full system permissions; treat all extension code as privileged runtime harness code.
 
-- Before coding, read the project `AGENTS.md` and only the relevant README, CONTRIBUTING, docs, or code.
-- Project-level rules override these user-level defaults.
-- Ask before overriding conflicting rules.
-- Prefer the project's documented commands and package manager; do not assume defaults.
-- If a project lacks clear commands or rules, ask or proceed with the smallest safe inspection before making changes.
-- Keep long explanations, architecture notes, and workflow details in project docs, not in user-level rules.
+## Read First
+
+1. This file.
+2. `README.md` and `CONTRIBUTING.md` for package structure, commands, and release rules.
+3. `CONTEXT-MAP.md`, then only the relevant context docs and ADRs in `docs/adr/`.
+4. For full harness rules (T0–T4 tiers, capability review, release safety): read `docs/agents/ai-harness.md`.
+
+## Commands
+
+Use pnpm and mise; do not switch package managers.
+
+- Install: `mise install && pnpm install`
+- Local check: `pnpm run check`
+- CI gate: `pnpm run ci`
+- Build: `pnpm run build`
+- Release dry run: `pnpm run release:dry`
+
+## Pi Collaboration Rules
+
+- Check `.pi/skills/` and `.agents/skills/` at session start; follow any relevant `SKILL.md`.
+- Do not skip skill workflows, checklists, or stop conditions.
+- Update `.pi/workspace/journal.md` at session end if it exists.
 
 ## Change Scope
 
-- Implement one clear vertical slice at a time.
-- If the requested change requires expanding scope, stop and explain why first.
-- Do not introduce new dependencies unless necessary; explain alternatives and trade-offs first.
-- Treat public APIs, user-facing behavior, data formats, and configuration as compatibility-sensitive; call out breaking changes before making them.
+- One behavior change per task; prefer small vertical slices.
+- Do not do unrelated refactors, formatting churn, dependency bumps, or lockfile changes.
+- Do not edit `package.json`, `pnpm-lock.yaml`, release scripts, `.npmrc`, GitHub Actions, or `dist/` unless the task requires it.
+
+## Coding Rules
+
+Follow `CONTRIBUTING.md`:
+
+- TypeScript ESM. Prefer `unknown` over `any`. No `any`, unsafe `as`, or non-null `!` in production code.
+- No `console.log` in production code; use `ctx.ui.notify`.
+- Use `node:path` and `path.relative` for paths; do not hard-code `/` separators.
+- Extract shared logic to `sdk/` instead of duplicating.
+- For bug fixes, reproduce first when practical and add/adjust tests before the fix.
+
+## Tool Permission Matrix
+
+Judge by side effect, not by tool name. See `docs/agents/ai-harness.md` for the full policy.
+
+- **T0 read**: Read files, search, read-only logs. Default allowed; reject secrets/PII.
+- **T1 write-local**: Modify workspace files, generate local artifacts. Allowed for small scope; protect sensitive paths.
+- **T2 external-send**: Web search, fetch external content, HTTP POST. Must note risk and source bias.
+- **T3 irreversible**: Bulk delete, data migration, rename/move directories. Default deny; provide dry-run if required.
+- **T4 production-mutating**: Publish, release, push, modify production config. Default deny; requires explicit approval.
+
+## Constraints
+
+- Keep Write Gate / Write Mode, Clarify, Rewind, UndoRedo, and checkpoint semantics intact.
+- Do not weaken safety gates or release validation without explicit approval and regression tests.
+- Do not add network, filesystem, shell, MCP, browser, publish, or release side effects without calling out the risk tier and verification plan (see `docs/agents/ai-harness.md` for T0–T4 tiers).
+- Do not commit, tag, push, publish, or run `pnpm run release` unless explicitly requested.
+- Use `pnpm run release:dry` for release-readiness checks.
 
 ## Secret Safety
 
@@ -33,20 +75,22 @@
 - If a secret is found in a file, mention only the file path and secret type, then recommend rotation.
 - Prefer environment variables or secret-manager commands over literal secrets in config files.
 
-## Coding Defaults
+## Git Safety
 
-- Follow the existing project style.
-- Keep code minimal; avoid speculative abstractions.
-- Do not weaken, delete, or bypass tests to make checks pass.
+- Do not run destructive git commands (e.g., `git reset --hard`, forced push to `main`) unless explicitly requested.
+- Do not commit, tag, push, publish, or release unless explicitly requested.
+
+## Harness Self-Iteration
+
+- When modifying AI rules, templates, skills, or prompt code, record the failure fact, change hypothesis, target metric, and rollback standard first.
+- Do not append long-term rules from a single failure; record to `.pi/ayu/tasks/ai-notes.md` or an iteration card first.
+- Important harness changes must use a fixed benchmark suite for before/after comparison.
+- Prompt/skill/tool description changes prefer bounded add/delete/replace; record rejected variants; do not promote solely based on LLM judgment that text is "better."
+- Prefer mechanizing rules into tests, lint, schema, CI, or hooks; keep natural language rules short.
+- Changing models or tools requires a separate baseline; do not count model improvement as harness improvement.
 
 ## Verification
 
-- Prefer evidence over self-assessment: run relevant verification before claiming completion.
-- Report exact commands and outcomes.
-- If verification cannot run, explain why and list residual risk.
-- For reported bugs or regressions, reproduce the issue before fixing when practical; otherwise explain why reproduction was not possible.
-
-## Git Safety
-
-- Do not run destructive git commands unless explicitly requested.
-- Do not commit, tag, push, publish, or release unless explicitly requested.
+- Prefer evidence over self-assessment: run `pnpm run check` or the relevant test suite before claiming completion.
+- For bug fixes, reproduce the issue before fixing when practical; otherwise explain why reproduction was not possible.
+- Report exact files changed, commands run and exact outcomes, tests or checks not run with reason, and any residual risk.

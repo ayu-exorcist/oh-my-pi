@@ -14,8 +14,14 @@
     "checkJs": true,
     "types": ["node"],
     "paths": {
+      "@ayulab/pi-write-gate": ["./extensions/pi-write-gate/src/index.ts"],
+      "@ayulab/pi-write-gate/*": ["./extensions/pi-write-gate/src/*"],
       "@ayulab/pi-checkpoint": ["./sdk/pi-checkpoint/src/index.ts"],
-      "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"]
+      "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"],
+      "@ayulab/pi-checkpoint/testing": ["./sdk/pi-checkpoint/src/testing/index.ts"],
+      "@ayulab/pi-session": ["./sdk/pi-session/src/index.ts"],
+      "@ayulab/pi-trace-engine": ["./sdk/pi-trace-engine/src/index.ts"],
+      "@ayulab/pi-trace-engine/*": ["./sdk/pi-trace-engine/src/*"]
     }
   },
   "include": ["sdk/**/*.ts", "extensions/**/*.ts", "scripts/**/*.ts"],

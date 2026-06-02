@@ -11,6 +11,8 @@ export {
   isBoolean,
   isStringArray,
   isArrayOf,
+  getStringField,
+  getArrayField,
   errorMessage,
 } from "./guards";
 export {
@@ -20,12 +22,16 @@ export {
   getCheckpointEntries,
 } from "./checkpoint-entry";
 export { withRepoLock } from "./lock";
+export { SessionStateMap } from "./session-state-map";
+export { safeRestore } from "./restore";
+export type { RestoreResult } from "./restore";
 export { createDefaultRepoProvider, type RepoProvider } from "./repo-provider";
 export {
   cloneSessionCheckpointStorage,
   ensureSessionCheckpointStorage,
   resolveSessionCheckpointStorage,
 } from "./session-checkpoint-storage";
+export { bindSessionRepo } from "./session-repo-binder";
 export type {
   CloneSessionCheckpointStorageOptions,
   CloneSessionCheckpointStorageResult,

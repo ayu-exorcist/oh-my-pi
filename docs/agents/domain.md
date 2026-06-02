@@ -21,7 +21,7 @@ Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
 │   ├── pi-rewind/
 │   │   ├── CONTEXT.md
 │   │   └── docs/adr/                  ← context-specific decisions
-│   └── pi-undoredo/
+│   └── pi-undo-redo/
 │       ├── CONTEXT.md
 │       └── docs/adr/
 └── sdk/

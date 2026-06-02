@@ -11,7 +11,19 @@ async function createTmpDir(): Promise<string> {
 }
 
 async function cleanup(dir: string): Promise<void> {
-  await fs.rm(dir, { recursive: true, force: true });
+  for (let i = 0; i < 5; i++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if ((code === "EBUSY" || code === "EPERM") && i < 4) {
+        await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 describe("RepoManager", () => {

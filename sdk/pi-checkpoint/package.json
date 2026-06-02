@@ -33,6 +33,7 @@
     "./repo-manager": "./src/repo-manager.ts",
     "./repo-provider": "./src/repo-provider.ts",
     "./session-checkpoint-storage": "./src/session-checkpoint-storage.ts",
+    "./session-state-map": "./src/session-state-map.ts",
     "./testing": "./src/testing/index.ts",
     "./resolver": "./src/resolver.ts",
     "./exec": "./src/exec.ts",
@@ -49,11 +50,12 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "build": "tsdown"
+    "build": "tsdown",
+    "postbuild": "node ../../scripts/dist-manifest.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "tsdown": "^0.22.0",
+    "tsdown": "^0.22.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },

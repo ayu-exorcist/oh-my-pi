@@ -24,7 +24,7 @@ Options considered:
 
 Use **git bare repositories with external work trees** as the checkpoint backend.
 
-Each session gets its own bare repo under `~/.pi/agent/checkpoints/sessions/<session-name>/.git`. The work tree points to the user's project directory. `RepoManager` sets `GIT_DIR`, `GIT_WORK_TREE`, and `GIT_INDEX_FILE` environment variables so all git commands operate on this isolated repo without interfering with the user's own `.git`.
+Each session gets its own bare repo under `~/.pi/agent/ayu/checkpoints/sessions/<session-name>/.git`. The work tree points to the user's project directory. `RepoManager` sets `GIT_DIR`, `GIT_WORK_TREE`, and `GIT_INDEX_FILE` environment variables so all git commands operate on this isolated repo without interfering with the user's own `.git`.
 
 ## Consequences
 

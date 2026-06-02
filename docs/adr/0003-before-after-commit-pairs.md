@@ -60,11 +60,11 @@ The `redoEntry` pushed onto the redo stack during undo records `targetLeafId` an
 ### Negative
 
 - **Schema migration**: v1 entries (if any existed in earlier versions) are not backward-compatible.
-- **Redo stack is in-memory only**: the redo stack lives in a `Map<string, RedoEntry[]>` inside `pi-undoredo`. Restarting Pi loses redo history.
+- **Redo stack is in-memory only**: the redo stack lives in a `Map<string, RedoEntry[]>` inside `pi-undo-redo`. Restarting Pi loses redo history.
 - **Fork semantics are subtle**: when forking a session, we clone the bare repo and optionally checkout `beforeCommit` of the latest checkpoint. The fork inherits the full commit graph.
 
 ## Related
 
 - `sdk/pi-checkpoint/src/checkpoint-entry.ts`
 - `extensions/pi-rewind/src/index.ts`
-- `extensions/pi-undoredo/src/index.ts`
+- `extensions/pi-undo-redo/src/index.ts`

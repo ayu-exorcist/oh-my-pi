@@ -53,23 +53,23 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 
 ## Scripts
 
-| Script                       | Description                                           |
-| ---------------------------- | ----------------------------------------------------- |
-| `pnpm run dev`               | vitest watch mode                                     |
-| `pnpm test`                  | Run all tests once                                    |
-| `pnpm run coverage`          | Tests + 100% coverage enforcement                     |
-| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`    |
-| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                             |
-| `pnpm run lint` / `lint:fix` | oxlint                                                |
-| `pnpm run fmt` / `fmt:check` | oxfmt                                                 |
-| `pnpm run check`             | Local full check (type + lint + fmt + test)           |
-| `pnpm run ci`                | CI gate (type + lint + fmt + coverage)                |
-| `pnpm run build`             | Topological build all workspace packages into `dist/` |
-| `pnpm run setup`             | Register repo in user-level Pi settings               |
-| `pnpm run teardown`          | Unregister repo from user-level Pi settings           |
-| `pnpm run release`           | Topological publish + git tag + GitHub Release        |
-| `pnpm run release --dry-run` | Dry-run preview of publish                            |
-| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo              |
+| Script                       | Description                                         |
+| ---------------------------- | --------------------------------------------------- |
+| `pnpm run dev`               | vitest watch mode                                   |
+| `pnpm test`                  | Run all tests once                                  |
+| `pnpm run coverage`          | Tests + 100% coverage enforcement                   |
+| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`  |
+| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                           |
+| `pnpm run lint` / `lint:fix` | oxlint                                              |
+| `pnpm run fmt` / `fmt:check` | oxfmt                                               |
+| `pnpm run check`             | Local full check (type + lint + fmt + test)         |
+| `pnpm run ci`                | CI gate (type + lint + fmt + coverage)              |
+| `pnpm run build`             | Turborepo build all workspace packages into `dist/` |
+| `pnpm run setup`             | Register repo in user-level Pi settings             |
+| `pnpm run teardown`          | Unregister repo from user-level Pi settings         |
+| `pnpm run release`           | Topological publish + git tag + GitHub Release      |
+| `pnpm run release --dry-run` | Dry-run preview of publish                          |
+| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo            |
 
 ## Quality Gate
 
@@ -93,7 +93,7 @@ extensions/
     ├── package.json      # Extension package config
     ├── README.md         # Shown on npm and pi.dev/packages
     ├── tsdown.config.ts  # tsdown bundle config
-    ├── vitest.config.ts  # Optional
+    ├── vitest.config.ts  # Vitest test config
     └── src/
         ├── index.ts      # Extension logic
         └── ...           # Source + tests
@@ -171,7 +171,7 @@ sdk/
     ├── package.json
     ├── README.md         # Shown on npm
     ├── tsdown.config.ts  # tsdown bundle config
-    ├── vitest.config.ts  # Optional
+    ├── vitest.config.ts  # Vitest test config
     └── src/
         ├── index.ts
         └── ...
@@ -241,7 +241,7 @@ If multiple extensions need the same logic, do not duplicate it. Extract shared 
 
 Examples:
 
-- `pi-rewind` and `pi-undoredo` both read checkpoint entries from sessions → `extractCheckpointData()` lives in `@ayulab/pi-checkpoint`.
+- `pi-rewind` and `pi-undo-redo` both read checkpoint entries from sessions → `extractCheckpointData()` lives in `@ayulab/pi-checkpoint`.
 - If a third extension needs a parser from `pi-rewind`, consider promoting it to `sdk/`.
 
 ### Cross-platform Path Handling
@@ -271,11 +271,11 @@ Exception: when normalizing paths returned by external systems (e.g., CodeGraph 
 
 ### Build & Release
 
-**Build** — `pnpm run build` topologically builds all workspace packages via `tsdown`:
+**Build** — `pnpm run build` uses [Turborepo](https://turbo.build) to build all workspace packages in dependency order with caching:
 
 - `sdk/pi-checkpoint` → single-file bundle (`index.mjs` + `index.d.mts`)
-- `extensions/pi-rewind` / `extensions/pi-undoredo` → multi-entry bundles with `@ayulab/pi-checkpoint` inlined
-- `dist/package.json` is auto-generated from source `package.json` (paths rewritten, `workspace:*` removed, `scripts`/`devDependencies` stripped)
+- `extensions/pi-rewind` / `extensions/pi-undo-redo` → multi-entry bundles with `@ayulab/pi-checkpoint` inlined
+- `dist/package.json` is auto-generated by `scripts/dist-manifest.mjs` (paths rewritten, `workspace:*` removed, `scripts`/`devDependencies` stripped)
 
 Always build before releasing.
 

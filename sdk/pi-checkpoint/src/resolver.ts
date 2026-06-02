@@ -3,7 +3,7 @@ import os from "node:os";
 
 /** Root directory for all session checkpoint repos. */
 function baseDir(): string {
-  return path.join(os.homedir(), ".pi", "agent", "checkpoints", "sessions");
+  return path.join(os.homedir(), ".pi", "agent", "ayu", "checkpoints", "sessions");
 }
 
 /**

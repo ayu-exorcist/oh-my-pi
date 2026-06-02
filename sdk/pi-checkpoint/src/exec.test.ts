@@ -8,6 +8,22 @@ async function createTmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "pi-exec-test-"));
 }
 
+async function rmRetry(dir: string, retries = 5, delay = 200): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if ((code === "EBUSY" || code === "EPERM") && i < retries - 1) {
+        await new Promise((r) => setTimeout(r, delay * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 describe("exec", () => {
   let tmpDir: string;
 
@@ -16,7 +32,7 @@ describe("exec", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("user can run git commands in directories with spaces", async () => {

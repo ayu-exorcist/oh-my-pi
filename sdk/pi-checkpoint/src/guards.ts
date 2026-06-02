@@ -43,6 +43,28 @@ export function isArrayOf<T>(
 }
 
 /**
+ * Extract a string field from a record safely.
+ *
+ * Returns `undefined` if the value is not a record or the field is not a string.
+ */
+export function getStringField(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return typeof field === "string" ? field : undefined;
+}
+
+/**
+ * Extract an array field from a record safely.
+ *
+ * Returns `undefined` if the value is not a record or the field is not an array.
+ */
+export function getArrayField(value: unknown, key: string): unknown[] | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return Array.isArray(field) ? field : undefined;
+}
+
+/**
  * Extract a human-readable message from an unknown error value.
  *
  * Prefer this over manual `instanceof Error` checks to keep error

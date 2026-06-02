@@ -19,7 +19,7 @@ Split the codebase into three packages:
 
 - **`sdk/pi-checkpoint`** — Reusable engine. Zero external dependencies. Exports `RepoManager`, config loading, diff parsing, type guards, and a testing module.
 - **`extensions/pi-rewind`** — User-facing extension. Registers `turn_start`/`turn_end` hooks for automatic checkpointing and the `/rewind` command.
-- **`extensions/pi-undoredo`** — User-facing extension. Registers `/undo` and `/redo` commands. Does not create checkpoints; it consumes `CheckpointEntry` metadata written by `pi-rewind` (or any other extension).
+- **`extensions/pi-undo-redo`** — User-facing extension. Registers `/undo` and `/redo` commands. Does not create checkpoints; it consumes `CheckpointEntry` metadata written by `pi-rewind` (or any other extension).
 
 Both extensions depend on `sdk/pi-checkpoint` via `workspace:*`.
 
@@ -35,7 +35,7 @@ interface RepoProvider {
 }
 ```
 
-Production uses `createDefaultRepoProvider()` (Map-backed). Tests inject `createMockRepo()` objects via a custom provider. This makes `pi-undoredo` testable without any filesystem I/O.
+Production uses `createDefaultRepoProvider()` (Map-backed). Tests inject `createMockRepo()` objects via a custom provider. This makes `pi-undo-redo` testable without any filesystem I/O.
 
 ## Consequences
 
@@ -57,4 +57,4 @@ Production uses `createDefaultRepoProvider()` (Map-backed). Tests inject `create
 - `sdk/pi-checkpoint/src/repo-provider.ts`
 - `sdk/pi-checkpoint/src/testing/index.ts`
 - `extensions/pi-rewind/package.json`
-- `extensions/pi-undoredo/package.json`
+- `extensions/pi-undo-redo/package.json`

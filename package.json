@@ -47,41 +47,56 @@
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check && pnpm run coverage",
     "setup": "oxnode scripts/setup.ts",
     "teardown": "oxnode scripts/teardown.ts",
-    "build": "oxnode scripts/build.ts",
+    "build": "turbo run build --filter=\"!@ayulab/oh-my-pi\"",
+    "build:all": "turbo run build",
     "release": "oxnode scripts/publish.ts",
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
   "dependencies": {
-    "@ayulab/pi-ayu-workflow": "workspace:*",
+    "@ayulab/pi-clarify": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
-    "@ayulab/pi-undoredo": "workspace:*",
-    "pi-mcp-adapter": "2.6.1"
+    "@ayulab/pi-trace-lab": "workspace:*",
+    "@ayulab/pi-undo-redo": "workspace:*",
+    "@ayulab/pi-workflow": "workspace:*",
+    "@ayulab/pi-write-gate": "workspace:*",
+    "pi-claude-style-tools": "^1.0.25",
+    "pi-mcp-adapter": "^2.8.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "@earendil-works/pi-coding-agent": "^0.78.0",
     "@oxc-node/cli": "^0.1.0",
     "@types/node": "^25.9.1",
-    "@vitest/coverage-istanbul": "^4.1.7",
-    "oxfmt": "^0.51.0",
-    "oxlint": "^1.66.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
+    "turbo": "^2.9.16",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },
   "bundledDependencies": [
-    "@ayulab/pi-ayu-workflow",
+    "@ayulab/pi-clarify",
     "@ayulab/pi-rewind",
-    "@ayulab/pi-undoredo",
+    "@ayulab/pi-trace-lab",
+    "@ayulab/pi-undo-redo",
+    "@ayulab/pi-workflow",
+    "@ayulab/pi-write-gate",
+    "pi-claude-style-tools",
     "pi-mcp-adapter"
   ],
   "engines": {
     "node": ">=24.0.0"
   },
+  "packageManager": "pnpm@11.4.0",
   "pi": {
     "extensions": [
-      "!node_modules/@ayulab/pi-ayu-workflow/index.mjs",
-      "!node_modules/@ayulab/pi-rewind/index.mjs",
-      "!node_modules/@ayulab/pi-undoredo/index.mjs",
-      "node_modules/pi-mcp-adapter/index.ts"
+      "node_modules/@ayulab/pi-write-gate",
+      "node_modules/@ayulab/pi-trace-lab",
+      "node_modules/@ayulab/pi-clarify",
+      "!node_modules/@ayulab/pi-workflow",
+      "!node_modules/@ayulab/pi-rewind",
+      "!node_modules/@ayulab/pi-undo-redo",
+      "node_modules/pi-claude-style-tools",
+      "node_modules/pi-mcp-adapter"
     ],
     "skills": [
       "./skills"

@@ -3,6 +3,7 @@
     "codegraph": {
       "type": "stdio",
       "command": "codegraph",
+      "directTools": false,
       "args": ["serve", "--mcp"]
     }
   }

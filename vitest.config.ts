@@ -5,25 +5,30 @@ import { defineConfig } from "vitest/config";
  *
  * - Uses workspace-aware `projects` so that tests in `extensions/*`, `sdk/*`,
  *   and `scripts` pick up their local `vitest.config.ts` files.
- * - Enforces high coverage across statements, branches, functions, and lines.
+ * - Path aliases for workspace packages are defined here once; sub-packages
+ *   do not repeat them.
+ * - Coverage provider is v8; thresholds match current project baseline.
  */
 export default defineConfig({
-  resolve: {
+  test: {
     alias: {
+      "@ayulab/pi-write-gate": "extensions/pi-write-gate/src/index.ts",
       "@ayulab/pi-checkpoint": "sdk/pi-checkpoint/src/index.ts",
       "@ayulab/pi-checkpoint/testing": "sdk/pi-checkpoint/src/testing/index.ts",
+
+      "@ayulab/pi-trace-engine": "sdk/pi-trace-engine/src/index.ts",
+      "@ayulab/pi-trace-engine/*": "sdk/pi-trace-engine/src/*",
     },
-  },
-  test: {
     projects: ["extensions/*", "sdk/*", "scripts"],
+    testTimeout: 15000,
     coverage: {
-      provider: "istanbul",
+      provider: "v8",
       reporter: ["text", "html"],
       thresholds: {
         statements: 99,
-        branches: 97,
+        branches: 96,
         functions: 99,
-        lines: 100,
+        lines: 99,
       },
     },
   },

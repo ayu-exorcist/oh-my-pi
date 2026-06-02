@@ -12,9 +12,10 @@ import {
   extractCheckpointData,
   createDefaultRepoProvider,
   cloneSessionCheckpointStorage,
-  ensureSessionCheckpointStorage,
+  bindSessionRepo,
   getRepoDir,
 } from "@ayulab/pi-checkpoint";
+import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { registerRewind } from "./commands/rewind";
@@ -67,11 +68,11 @@ interface ForkIntent {
   readonly position: "before" | "at";
 }
 
-function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
+export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isForkIntent(value: unknown): value is ForkIntent {
+export function isForkIntent(value: unknown): value is ForkIntent {
   if (!isForkIntentRecord(value)) return false;
 
   return (
@@ -79,11 +80,11 @@ function isForkIntent(value: unknown): value is ForkIntent {
   );
 }
 
-function getForkIntentPath(sessionFile: string | undefined): string {
+export function getForkIntentPath(sessionFile: string | undefined): string {
   return path.join(getRepoDir(sessionFile), "fork-intent.json");
 }
 
-async function writeForkIntent(
+export async function writeForkIntent(
   sessionFile: string | undefined,
   intent: ForkIntent | undefined,
 ): Promise<void> {
@@ -94,7 +95,9 @@ async function writeForkIntent(
   await writeFile(intentPath, JSON.stringify(intent), "utf8");
 }
 
-async function readForkIntent(sessionFile: string | undefined): Promise<ForkIntent | undefined> {
+export async function readForkIntent(
+  sessionFile: string | undefined,
+): Promise<ForkIntent | undefined> {
   if (!sessionFile) return undefined;
 
   try {
@@ -153,7 +156,7 @@ async function restoreCloneCodeState(
 export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const repos = provider ?? createDefaultRepoProvider();
 
-  const producers = new Map<string, AutoCheckpointProducer>();
+  const producers = new SessionStateMap<AutoCheckpointProducer>();
 
   let config = loadConfig({});
   let pendingForkIntent: ForkIntent | undefined;
@@ -207,17 +210,15 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       return;
     }
 
-    const storage = await ensureSessionCheckpointStorage({
-      sessionFile,
-      cwd: ctx.cwd,
+    const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
       exclude: config.exclude,
     });
-    repos.setRepo(sessionId, storage.repo);
-    producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
+    if (!repo) return;
+    producers.set(sessionId, createAutoCheckpointProducer(repo, config));
   });
 
   pi.on("turn_start", async (_event, ctx) => {
-    const producer = producers.get(ctx.sessionManager.getSessionId());
+    const producer = producers.getOrUndefined(ctx.sessionManager.getSessionId());
     if (!config.enabled || !config.autoCheckpoint || !producer) return;
 
     const branch = ctx.sessionManager.getBranch();
@@ -235,7 +236,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   });
 
   pi.on("turn_end", async (_event, ctx) => {
-    const producer = producers.get(ctx.sessionManager.getSessionId());
+    const producer = producers.getOrUndefined(ctx.sessionManager.getSessionId());
     if (!producer) return;
 
     const result = await producer.turnEnd();

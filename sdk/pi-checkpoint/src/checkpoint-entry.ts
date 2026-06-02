@@ -4,7 +4,7 @@ import type { FileChange } from "./types";
 /**
  * Pull `pi-checkpoint` custom entries out of a raw session entry list.
  *
- * Both `pi-rewind` and `pi-undoredo` use this to read checkpoint metadata
+ * Both `pi-rewind` and `pi-undo-redo` use this to read checkpoint metadata
  * from the session history without duplicating the extraction logic.
  */
 export function extractCheckpointData(entries: readonly unknown[]): readonly unknown[] {

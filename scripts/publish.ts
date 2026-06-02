@@ -176,7 +176,7 @@ async function main(): Promise<void> {
   }
 
   console.log("🔨 Building packages...");
-  execSync("oxnode scripts/build.ts", { cwd: root, stdio: "inherit" });
+  execSync("pnpm run build", { cwd: root, stdio: "inherit" });
   console.log("");
 
   const publishedVersions = new Map<string, string>();

@@ -1,3 +1,7 @@
 {
-  "theme": "purple-dream"
+  "theme": "purple-dream",
+  "sessionDir": ".pi/sessions",
+  "skills": ["skills"],
+  "prompts": ["prompts"],
+  "extensions": ["extensions"]
 }

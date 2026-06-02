@@ -21,7 +21,7 @@ export type SafeCheckoutResult =
 /**
  * Manages a git bare repository used for file-level checkpoints.
  *
- * Each session gets its own bare repo under `~/.pi/agent/checkpoints/sessions/`.
+ * Each session gets its own bare repo under `~/.pi/agent/ayu/checkpoints/sessions/`.
  * The work tree points to the user's project directory so that `git add/checkout`
  * operate directly on the project files.
  */

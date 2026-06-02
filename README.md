@@ -14,7 +14,7 @@ Install `@ayulab/oh-my-pi` to get all curated extensions. Enable or disable indi
 pi install npm:@ayulab/oh-my-pi
 ```
 
-All curated extensions are enabled by default. Use `pi config` to toggle interactively:
+The curated package enables the lightweight safety and clarification baseline by default, while optional workflow/rollback extensions stay disabled until you opt in. Use `pi config` to toggle interactively:
 
 ```bash
 pi config
@@ -27,7 +27,7 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
   "packages": [
     {
       "source": "npm:@ayulab/oh-my-pi",
-      "extensions": ["!node_modules/@ayulab/pi-undoredo/index.ts"]
+      "extensions": ["!node_modules/@ayulab/pi-undo-redo"]
     }
   ]
 }
@@ -38,9 +38,11 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
 Each extension is published independently. Install only what you need:
 
 ```bash
-pi install npm:@ayulab/pi-ayu-workflow
+pi install npm:@ayulab/pi-write-gate
+pi install npm:@ayulab/pi-clarify
+pi install npm:@ayulab/pi-workflow
 pi install npm:@ayulab/pi-rewind
-pi install npm:@ayulab/pi-undoredo
+pi install npm:@ayulab/pi-undo-redo
 ```
 
 ### Local Development
@@ -66,9 +68,11 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ```
 @ayulab/oh-my-pi/
 ├── extensions/           # Pi extensions (independently published)
-│   ├── pi-ayu-workflow/           # @ayulab/pi-ayu-workflow — Ayu Write Gate and /ayu router
+│   ├── pi-write-gate/    # @ayulab/pi-write-gate — Ayu Write Mode and Write Gate
+│   ├── pi-clarify/       # @ayulab/pi-clarify — structured one-question clarification
+│   ├── pi-workflow/  # @ayulab/pi-workflow — /ayu workflow prompt router
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
-│   └── pi-undoredo/      # @ayulab/pi-undoredo — /undo /redo commands
+│   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
 ├── sdk/                  # Shared infrastructure (independently published)
 │   └── pi-checkpoint/    # @ayulab/pi-checkpoint — git checkpoint engine
 ├── skills/               # Skills
@@ -76,8 +80,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── themes/               # Themes
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
-│   ├── build.ts          # Topological build all workspace packages into dist/
-│   ├── publish.ts        # Topological publish + tag + release
+│   ├── publish.ts        # Publish + tag + release
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings
 ├── package.json          # Pi Package manifest (curated meta package)
@@ -90,17 +93,22 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                                 | Description                                         |
-| ------------------------------------------------------- | --------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)            | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-ayu-workflow`](extensions/pi-ayu-workflow) | Ayu Write Gate, Write Mode, and `/ayu` router.      |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)             | `/rewind` command — interactive checkpoint restore. |
-| [`@ayulab/pi-undoredo`](extensions/pi-undoredo)         | `/undo` and `/redo` commands.                       |
-| [`Purple Dream`](themes/purple-dream.json)              | Dark purple theme for long coding sessions.         |
+| Package                                             | Description                                         |
+| --------------------------------------------------- | --------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)        | Git bare-repo checkpoint engine. Zero deps.         |
+| [`@ayulab/pi-write-gate`](extensions/pi-write-gate) | Write authorization gate with T0–T4 risk tiers.     |
+| [`@ayulab/pi-clarify`](extensions/pi-clarify)       | Structured one-question clarification prompts.      |
+| [`@ayulab/pi-workflow`](extensions/pi-workflow)     | `/ayu` workflow prompt router and Plan Mode.        |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)         | `/rewind` command — interactive checkpoint restore. |
+| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)   | `/undo` and `/redo` commands.                       |
+| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)   | Trace collection, review, and harness iteration.    |
+| [`claim-check`](skills/claim-check)                 | Audit strong claims and source mapping.             |
+| [`doc-audit`](skills/doc-audit)                     | Read-only doc structure and sync audit.             |
+| [`Purple Dream`](themes/purple-dream.json)          | Dark purple theme for long coding sessions.         |
 
 ## Extension Management
 
-After installation, all extensions are enabled by default. Toggle interactively:
+After installation, `pi-write-gate`, `pi-clarify`, `pi-claude-style-tools`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config
@@ -108,22 +116,78 @@ pi config
 
 Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering) in `settings.json` for fine-grained control.
 
-## Using /ayu
+## Using /write-gate
 
-After starting Pi, the Ayu extension registers automatically. Write Mode starts Off for each session and can be toggled with `Alt+S`, `/ayu on`, or `/ayu off`.
+After starting Pi, Write Gate registers automatically. Write Mode starts Off for each new session and can be toggled with `Alt+S`, `/write-gate on`, or `/write-gate off`.
 
 ```text
-> /ayu status
-Ayu Write Mode: Off
+> /write-gate status
+Write Mode: Off
 
+> /write-gate on
+# Turns Write Mode On. Mutating tools are now allowed.
+
+> /write-gate off
+# Turns Write Mode Off. Mutating tools are blocked.
+```
+
+When Write Mode is Off, Write Gate blocks mutating tool calls and allows only read-only inspection, including a narrow git-inspection subset. `/write-gate on` and `Alt+S` stay enabled until you manually turn them Off. Resumed or reloaded sessions restore the last Write Mode you set.
+
+## Using /plan
+
+Plan Mode gives you a read-only research phase before any code is modified.
+
+```text
+> /plan refactor auth module
+# Agent researches the codebase, writes a plan, then asks you to choose:
+# A) Execute now   B) Edit plan   C) Refine   D) Cancel
+
+> /plan --local add OAuth support
+# Stores the plan in .pi/plans/ instead of ~/.pi/plans/
+```
+
+## Using /ayu
+
+```text
 > /ayu task add validation tests
 # Sends a planning prompt and does not edit files by itself.
 
-> /ayu on implement the confirmed plan
-# Enables Write Mode for this prompt, immediately sends it, then auto-turns Off when the run ends.
+> /ayu review docs
+# Sends a diff-review prompt focused on documentation.
 ```
 
-When Write Mode is Off, Ayu blocks mutating tool calls and allows only read-only inspection, including a narrow git-inspection subset. Bare `/ayu on` and `Alt+S` stay enabled until manually disabled; `/ayu on <prompt>` is one-shot and auto-turns Off after that run.
+## Using /trace-lab
+
+Trace Lab turns Pi sessions into measurable experiments. It collects tool sequences and file operations silently, detects anomalies in real time, and provides a structured workflow for turning failures into harness improvements.
+
+```text
+> /trace-lab status
+Turns: 3 | Tool calls: 12 | Signals: none
+
+> /trace-lab review
+# Structured TUI review of the latest session
+
+> /trace-lab weekly
+# Cluster reviews into patterns
+
+> /trace-lab draft <pattern-id>
+# Generate harness iteration card
+
+> /trace-lab benchmark [suite-path]
+# Draft a benchmark run report
+
+> /trace-lab sync
+# Sync verified patterns to ai-engineering
+```
+
+## Using /journal
+
+Update the session journal with a concise summary:
+
+```text
+> /ayu journal
+# Summarizes the session into .pi/workspace/journal.md
+```
 
 ## Using /rewind
 
@@ -164,7 +228,7 @@ mise install && pnpm install
 Build all workspace packages before publishing:
 
 ```bash
-pnpm run build   # topological build via tsdown
+pnpm run build   # turborepo build with caching
 pnpm run release # publish to npm
 ```
 

@@ -11,12 +11,10 @@ export default defineConfig({
         find: /^@ayulab\/pi-checkpoint\/testing$/,
         replacement: "../../sdk/pi-checkpoint/src/testing/index.ts",
       },
+      {
+        find: /^@ayulab\/pi-session$/,
+        replacement: "../../sdk/pi-session/src/index.ts",
+      },
     ],
-  },
-  test: {
-    coverage: {
-      provider: "istanbul",
-      reporter: ["text", "html"],
-    },
   },
 });

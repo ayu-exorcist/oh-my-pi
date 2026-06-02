@@ -1,5 +1,5 @@
 import type { CheckpointEntry, RepoManager } from "@ayulab/pi-checkpoint";
-import { errorMessage } from "@ayulab/pi-checkpoint";
+import { errorMessage, safeRestore } from "@ayulab/pi-checkpoint";
 
 interface RestoreModeUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
@@ -39,7 +39,27 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
     }
   }
 
-  if (options.mode.includes("code")) {
+  const restoreCode = options.mode.includes("code");
+  const restoreConversation = options.mode.includes("conversation");
+
+  if (restoreCode && restoreConversation) {
+    await safeRestore({
+      repo: options.repo,
+      ui: options.ui,
+      navigateTree: options.navigateTree,
+      targetCommit: options.targetCp.beforeCommit,
+      dirtyBaseCommit: options.latestCp.afterCommit,
+      targetLeafId: options.targetCp.userEntryId,
+      dirtyMessage:
+        "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      failedPrefix: "Rewind failed",
+      rollbackFailedPrefix: "Rewind failed and rollback also failed",
+      successMessage: "Rewind completed",
+    });
+    return;
+  }
+
+  if (restoreCode) {
     const result = await options.repo.safeCheckout(
       options.targetCp.beforeCommit,
       options.latestCp.afterCommit,
@@ -63,7 +83,7 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
     }
   }
 
-  if (options.mode.includes("conversation")) {
+  if (restoreConversation) {
     try {
       await options.navigateTree(options.targetCp.userEntryId, { summarize: false });
     } catch (err) {
