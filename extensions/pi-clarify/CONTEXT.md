@@ -10,8 +10,9 @@ It exists to avoid long question walls in CLI conversations. When missing inform
 
 - Registers the `ask_user` tool.
 - Registers `/clarify` for status and demo commands.
-- Supports three prompt kinds:
+- Supports four prompt kinds:
   - `select` — choose one option, optionally with a custom text option;
+  - `multiselect` — choose multiple options with space toggle;
   - `text` — provide a single-line free-form answer;
   - `confirm` — answer yes/no.
 - Returns a structured answer as the tool result.
@@ -44,6 +45,8 @@ Clarify intentionally does not provide password prompts. Secrets should not pass
 - Do not add password/secret input support.
 - Do not use single-key submit shortcuts that can accidentally approve a prompt.
 - Prefer arrows + Enter, and Esc to cancel.
+- Number keys (1-6) jump to options in select/multiselect; y/n jump in confirm.
+- Space toggles selection in multiselect.
 - In non-interactive mode, return a structured unavailable result instead of guessing.
 
 ## Verification Focus
@@ -51,7 +54,7 @@ Clarify intentionally does not provide password prompts. Secrets should not pass
 When changing this extension, test:
 
 - tool registration and `/clarify` command registration;
-- select/text/confirm request validation;
+- select/multiselect/text/confirm request validation;
 - custom select answer normalization;
 - secret-like prompt rejection;
 - non-interactive behavior;

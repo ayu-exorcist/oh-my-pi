@@ -15,8 +15,18 @@ function validSelect(overrides?: Partial<AskUserParams>): AskUserParams {
 }
 
 describe("pi-clarify schema helpers", () => {
-  test("accepts valid select, text, and confirm prompts", () => {
+  test("accepts valid select, multiselect, text, and confirm prompts", () => {
     expect(validateAskUserParams(validSelect())).toEqual({ ok: true });
+    expect(
+      validateAskUserParams({
+        type: "multiselect",
+        message: "Pick items",
+        options: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+      }),
+    ).toEqual({ ok: true });
     expect(validateAskUserParams({ type: "text", message: "What should I call it?" })).toEqual({
       ok: true,
     });
@@ -39,7 +49,7 @@ describe("pi-clarify schema helpers", () => {
       validateAskUserParams(validSelect({ options: [{ value: "one", label: "One" }] })),
     ).toEqual({
       ok: false,
-      reason: "Select prompts require at least two options.",
+      reason: "Select and multiselect prompts require at least two options.",
     });
 
     expect(
@@ -51,7 +61,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Duplicate select option value: same" });
+    ).toEqual({ ok: false, reason: "Duplicate option value: same" });
 
     expect(
       validateAskUserParams(
@@ -78,7 +88,7 @@ describe("pi-clarify schema helpers", () => {
           { value: "b", label: "B" },
         ],
       }),
-    ).toEqual({ ok: false, reason: "Only select prompts may include options." });
+    ).toEqual({ ok: false, reason: "Only select and multiselect prompts may include options." });
 
     expect(
       validateAskUserParams({ type: "confirm", message: "Proceed?", allowCustom: true }),
@@ -86,9 +96,24 @@ describe("pi-clarify schema helpers", () => {
       ok: false,
       reason: "Confirm prompts cannot allow custom answers.",
     });
+
+    expect(
+      validateAskUserParams({
+        type: "multiselect",
+        message: "Pick?",
+        options: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+        allowCustom: true,
+      }),
+    ).toEqual({
+      ok: false,
+      reason: "Multiselect prompts cannot allow custom answers.",
+    });
   });
 
-  test("rejects \u003e6 options", () => {
+  test("rejects >6 options", () => {
     expect(
       validateAskUserParams(
         validSelect({
@@ -103,7 +128,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select prompts support at most six options." });
+    ).toEqual({ ok: false, reason: "Select and multiselect prompts support at most six options." });
   });
 
   test("rejects blank option values and labels", () => {
@@ -116,7 +141,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select option values and labels must not be empty." });
+    ).toEqual({ ok: false, reason: "Option values and labels must not be empty." });
 
     expect(
       validateAskUserParams(
@@ -127,7 +152,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select option values and labels must not be empty." });
+    ).toEqual({ ok: false, reason: "Option values and labels must not be empty." });
 
     expect(
       validateAskUserParams(
@@ -138,7 +163,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select option values and labels must not be empty." });
+    ).toEqual({ ok: false, reason: "Option values and labels must not be empty." });
   });
 
   test("rejects secret words in option hints", () => {
@@ -151,7 +176,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select options must not ask for secrets or credentials." });
+    ).toEqual({ ok: false, reason: "Options must not ask for secrets or credentials." });
   });
 
   test("rejects secret words in option values and labels", () => {
@@ -164,7 +189,7 @@ describe("pi-clarify schema helpers", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "Select options must not ask for secrets or credentials." });
+    ).toEqual({ ok: false, reason: "Options must not ask for secrets or credentials." });
   });
 
   test("rejects secret words in Chinese", () => {
@@ -192,5 +217,14 @@ describe("pi-clarify schema helpers", () => {
     expect(formatAnswer({ type: "select", value: "docs", label: "Docs" })).toBe(
       "User selected: Docs",
     );
+    expect(
+      formatAnswer({
+        type: "multiselect",
+        values: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+      }),
+    ).toBe("User selected: A, B");
   });
 });

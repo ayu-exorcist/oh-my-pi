@@ -54,6 +54,7 @@
   },
   "dependencies": {
     "@ayulab/pi-clarify": "workspace:*",
+    "@ayulab/pi-compact": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
     "@ayulab/pi-trace-lab": "workspace:*",
     "@ayulab/pi-undo-redo": "workspace:*",
@@ -75,6 +76,7 @@
   },
   "bundledDependencies": [
     "@ayulab/pi-clarify",
+    "@ayulab/pi-compact",
     "@ayulab/pi-rewind",
     "@ayulab/pi-trace-lab",
     "@ayulab/pi-undo-redo",
@@ -92,6 +94,7 @@
       "node_modules/@ayulab/pi-write-gate",
       "node_modules/@ayulab/pi-trace-lab",
       "node_modules/@ayulab/pi-clarify",
+      "!node_modules/@ayulab/pi-compact",
       "!node_modules/@ayulab/pi-workflow",
       "!node_modules/@ayulab/pi-rewind",
       "!node_modules/@ayulab/pi-undo-redo",

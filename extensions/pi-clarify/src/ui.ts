@@ -1,9 +1,10 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Editor, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Editor, Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { EditorTheme } from "@earendil-works/pi-tui";
 import type { AskUserAnswer, AskUserParams, PromptOption } from "./schema";
 
 const DEFAULT_CUSTOM_LABEL = "Custom...";
+const MIN_RENDER_WIDTH = 20;
 
 interface DisplayOption {
   readonly value: string;
@@ -11,29 +12,24 @@ interface DisplayOption {
   readonly hint?: string;
   readonly disabled?: boolean;
   readonly custom?: boolean;
-  readonly confirmValue?: boolean;
 }
 
 function withOptionalFields(
   base: { readonly value: string; readonly label: string },
-  option: Pick<DisplayOption, "hint" | "disabled" | "custom" | "confirmValue">,
+  option: Pick<DisplayOption, "hint" | "disabled" | "custom">,
 ): DisplayOption {
   return {
     ...base,
     ...(option.hint ? { hint: option.hint } : {}),
     ...(option.disabled ? { disabled: true } : {}),
     ...(option.custom ? { custom: true } : {}),
-    ...(typeof option.confirmValue === "boolean" ? { confirmValue: option.confirmValue } : {}),
   };
 }
 
 function selectOptions(params: AskUserParams): DisplayOption[] {
   const options = (params.options ?? []).map((option: PromptOption) =>
     withOptionalFields(
-      {
-        value: option.value,
-        label: option.label,
-      },
+      { value: option.value, label: option.label },
       {
         ...(option.hint ? { hint: option.hint } : {}),
         ...(option.disabled ? { disabled: true } : {}),
@@ -46,31 +42,25 @@ function selectOptions(params: AskUserParams): DisplayOption[] {
   return [
     ...options,
     withOptionalFields(
-      {
-        value: "__custom__",
-        label: params.customLabel?.trim() || DEFAULT_CUSTOM_LABEL,
-      },
+      { value: "__custom__", label: params.customLabel?.trim() || DEFAULT_CUSTOM_LABEL },
       { custom: true },
     ),
   ];
 }
 
-function confirmOptions(defaultValue: boolean): DisplayOption[] {
-  return [
-    withOptionalFields(
-      { value: "yes", label: "Yes" },
-      { ...(defaultValue ? { hint: "default" } : {}), confirmValue: true },
-    ),
-    withOptionalFields(
-      { value: "no", label: "No" },
-      { ...(!defaultValue ? { hint: "default" } : {}), confirmValue: false },
-    ),
-  ];
-}
-
 function promptOptions(params: AskUserParams): DisplayOption[] {
-  if (params.type === "confirm") return confirmOptions(params.defaultValue === true);
   if (params.type === "select") return selectOptions(params);
+  if (params.type === "multiselect") {
+    return (params.options ?? []).map((option: PromptOption) =>
+      withOptionalFields(
+        { value: option.value, label: option.label },
+        {
+          ...(option.hint ? { hint: option.hint } : {}),
+          ...(option.disabled ? { disabled: true } : {}),
+        },
+      ),
+    );
+  }
   return [];
 }
 
@@ -95,14 +85,6 @@ function firstEnabledIndex(options: readonly DisplayOption[], preferred: number)
   return found >= 0 ? found : 0;
 }
 
-function answerFromOption(option: DisplayOption): AskUserAnswer | undefined {
-  if (typeof option.confirmValue === "boolean") {
-    return { type: "confirm", value: option.confirmValue };
-  }
-  if (option.custom) return undefined;
-  return { type: "select", value: option.value, label: option.label };
-}
-
 function addTruncated(lines: string[], width: number, text: string): void {
   lines.push(truncateToWidth(text, width));
 }
@@ -111,86 +93,159 @@ export async function askWithClarifyUi(
   params: AskUserParams,
   ctx: ExtensionContext,
 ): Promise<AskUserAnswer | undefined> {
-  return ctx.ui.custom<AskUserAnswer | undefined>(
-    (tui, theme, _keybindings, done) => {
-      const options = promptOptions(params);
-      let selectedIndex = firstEnabledIndex(
-        options,
-        params.type === "confirm" && params.defaultValue === false ? 1 : 0,
-      );
-      let inputMode = params.type === "text";
-      let cachedLines: string[] | undefined;
-      let focused = false;
-      const editor = new Editor(tui, buildEditorTheme(ctx));
+  return ctx.ui.custom<AskUserAnswer | undefined>((tui, theme, _keybindings, done) => {
+    let cachedLines: string[] | undefined;
+    let focused = false;
 
-      function refresh(): void {
-        cachedLines = undefined;
-        tui.requestRender();
-      }
+    const options = promptOptions(params);
+    let selectedIndex = firstEnabledIndex(options, 0);
+    const selectedIndices = new Set<number>();
 
-      function submitText(value: string): void {
-        const trimmed = value.trim();
-        if (!trimmed) {
-          done(undefined);
+    let confirmIndex = params.defaultValue === true ? 0 : 1;
+
+    let inputMode = params.type === "text";
+    const editor = new Editor(tui, buildEditorTheme(ctx));
+
+    function refresh(): void {
+      cachedLines = undefined;
+      tui.requestRender();
+    }
+
+    function moveSelection(delta: number): void {
+      if (options.length === 0) return;
+
+      let next = selectedIndex;
+      for (let step = 0; step < options.length; step++) {
+        next = (next + delta + options.length) % options.length;
+        const candidate = options[next];
+        if (candidate && !candidate.disabled) {
+          selectedIndex = next;
+          refresh();
           return;
         }
+      }
+    }
 
-        done(
-          params.type === "select"
-            ? { type: "custom", value: trimmed }
-            : { type: "text", value: trimmed },
-        );
+    function moveToIndex(target: number): void {
+      if (target >= 0 && target < options.length && !options[target]?.disabled) {
+        selectedIndex = target;
+        refresh();
+      }
+    }
+
+    function toggleMultiselect(): void {
+      if (params.type !== "multiselect") return;
+      const opt = options[selectedIndex];
+      if (!opt || opt.disabled) return;
+
+      if (selectedIndices.has(selectedIndex)) {
+        selectedIndices.delete(selectedIndex);
+      } else {
+        selectedIndices.add(selectedIndex);
+      }
+      refresh();
+    }
+
+    function submitText(value: string): void {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        done(undefined);
+        return;
       }
 
-      editor.onSubmit = submitText;
+      done(
+        params.type === "select" || params.type === "multiselect"
+          ? { type: "custom", value: trimmed }
+          : { type: "text", value: trimmed },
+      );
+    }
 
-      function moveSelection(delta: number): void {
-        if (options.length === 0) return;
+    editor.onSubmit = submitText;
 
-        let next = selectedIndex;
-        for (let step = 0; step < options.length; step++) {
-          next = (next + delta + options.length) % options.length;
-          const candidate = options[next];
-          if (candidate && !candidate.disabled) {
-            selectedIndex = next;
+    function handleSelectEnter(): void {
+      const selected = options[selectedIndex];
+      if (!selected || selected.disabled) return;
+
+      if (selected.custom) {
+        inputMode = true;
+        editor.setText("");
+        refresh();
+        return;
+      }
+
+      if (params.type === "multiselect") {
+        toggleMultiselect();
+        return;
+      }
+
+      done({ type: "select", value: selected.value, label: selected.label });
+    }
+
+    function handleConfirmEnter(): void {
+      done({ type: "confirm", value: confirmIndex === 0 });
+    }
+
+    function handleMultiselectEnter(): void {
+      const values = Array.from(selectedIndices)
+        .sort((a, b) => a - b)
+        .reduce<Array<{ value: string; label: string }>>((acc, i) => {
+          const opt = options[i];
+          if (opt) acc.push({ value: opt.value, label: opt.label });
+          return acc;
+        }, []);
+      done({ type: "multiselect", values });
+    }
+
+    function handleInput(data: string): void {
+      if (inputMode) {
+        if (matchesKey(data, Key.escape)) {
+          if (params.type === "select" || params.type === "multiselect") {
+            inputMode = false;
+            editor.setText("");
             refresh();
             return;
           }
+          done(undefined);
+          return;
         }
+        editor.handleInput(data);
+        refresh();
+        return;
       }
 
-      function handleSelectEnter(): void {
-        const selected = options[selectedIndex];
-        if (!selected || selected.disabled) return;
-
-        if (selected.custom) {
-          inputMode = true;
-          editor.setText("");
+      if (params.type === "confirm") {
+        if (
+          matchesKey(data, Key.left) ||
+          matchesKey(data, Key.up) ||
+          matchesKey(data, Key.right) ||
+          matchesKey(data, Key.down)
+        ) {
+          confirmIndex = confirmIndex === 0 ? 1 : 0;
           refresh();
           return;
         }
-
-        done(answerFromOption(selected));
-      }
-
-      function handleInput(data: string): void {
-        if (inputMode) {
-          if (matchesKey(data, Key.escape)) {
-            if (params.type === "select") {
-              inputMode = false;
-              editor.setText("");
-              refresh();
-              return;
-            }
-            done(undefined);
-            return;
-          }
-
-          editor.handleInput(data);
+        if (data === "y" || data === "Y") {
+          confirmIndex = 0;
           refresh();
           return;
         }
+        if (data === "n" || data === "N") {
+          confirmIndex = 1;
+          refresh();
+          return;
+        }
+        if (matchesKey(data, Key.enter)) {
+          handleConfirmEnter();
+          return;
+        }
+        if (matchesKey(data, Key.escape)) {
+          done(undefined);
+          return;
+        }
+        return;
+      }
 
+      if (params.type === "select" || params.type === "multiselect") {
         if (matchesKey(data, Key.up)) {
           moveSelection(-1);
           return;
@@ -199,99 +254,188 @@ export async function askWithClarifyUi(
           moveSelection(1);
           return;
         }
+        if (matchesKey(data, Key.space) && params.type === "multiselect") {
+          toggleMultiselect();
+          return;
+        }
         if (matchesKey(data, Key.enter)) {
-          handleSelectEnter();
+          if (params.type === "multiselect") {
+            handleMultiselectEnter();
+          } else {
+            handleSelectEnter();
+          }
           return;
         }
         if (matchesKey(data, Key.escape)) {
           done(undefined);
+          return;
         }
+        const num = Number.parseInt(data, 10);
+        if (!Number.isNaN(num) && num >= 1 && num <= 6) {
+          moveToIndex(num - 1);
+          return;
+        }
+        return;
       }
 
-      function renderInput(width: number, lines: string[]): void {
-        const label = params.type === "select" ? "Custom answer:" : "Your answer:";
-        addTruncated(lines, width, theme.fg("muted", `│ ${label}`));
-        for (const line of editor.render(Math.max(1, width - 2))) {
-          addTruncated(lines, width, `│ ${line}`);
+      if (matchesKey(data, Key.escape)) {
+        done(undefined);
+      }
+    }
+
+    function renderTitle(width: number, lines: string[]): void {
+      const prefix = theme.fg("accent", "◆  ");
+      const contentWidth = Math.max(1, width - 3);
+      const wrapped = wrapTextWithAnsi(params.message, contentWidth);
+      for (let i = 0; i < wrapped.length; i++) {
+        const linePrefix = i === 0 ? prefix : "   ";
+        addTruncated(lines, width, linePrefix + wrapped[i]);
+      }
+    }
+
+    function renderSelectOptions(width: number, lines: string[]): void {
+      for (let i = 0; i < options.length; i++) {
+        const option = options[i];
+        if (!option) continue;
+
+        const isFocused = i === selectedIndex;
+        const num = `${i + 1}.`;
+        const prefix = isFocused ? theme.fg("accent", "● ") : theme.fg("dim", "○ ");
+        const label = option.disabled
+          ? theme.fg("dim", option.label)
+          : isFocused
+            ? theme.fg("accent", option.label)
+            : theme.fg("text", option.label);
+        addTruncated(lines, width, `  ${prefix}${num} ${label}`);
+
+        if (option.hint && width >= 40) {
+          const hint = isFocused ? theme.fg("muted", option.hint) : theme.fg("dim", option.hint);
+          addTruncated(lines, width, `      ${hint}`);
         }
       }
+    }
 
-      function renderOptions(width: number, lines: string[]): void {
-        for (let index = 0; index < options.length; index++) {
-          const option = options[index];
-          if (!option) continue;
+    function renderMultiselectOptions(width: number, lines: string[]): void {
+      for (let i = 0; i < options.length; i++) {
+        const option = options[i];
+        if (!option) continue;
 
-          const isSelected = index === selectedIndex;
-          const prefix = isSelected ? theme.fg("accent", "❯ ") : "  ";
-          const label = option.disabled
-            ? theme.fg("dim", `${option.label} (disabled)`)
-            : isSelected
-              ? theme.fg("accent", option.label)
-              : theme.fg("text", option.label);
-          addTruncated(lines, width, `│ ${prefix}${label}`);
+        const isFocused = i === selectedIndex;
+        const isChecked = selectedIndices.has(i);
+        const num = `${i + 1}.`;
+        const check = isChecked ? theme.fg("accent", "[x]") : theme.fg("dim", "[ ]");
+        const label = option.disabled
+          ? theme.fg("dim", option.label)
+          : isFocused
+            ? theme.fg("accent", option.label)
+            : theme.fg("text", option.label);
+        addTruncated(lines, width, `  ${check} ${num} ${label}`);
 
-          if (option.hint) {
-            addTruncated(lines, width, `│    ${theme.fg("muted", option.hint)}`);
-          }
+        if (option.hint && width >= 40) {
+          const hint = isFocused ? theme.fg("muted", option.hint) : theme.fg("dim", option.hint);
+          addTruncated(lines, width, `      ${hint}`);
         }
       }
+    }
 
-      function render(width: number): string[] {
-        if (cachedLines) return cachedLines;
+    function renderConfirm(width: number, lines: string[]): void {
+      const yesBullet = confirmIndex === 0 ? theme.fg("accent", "●") : theme.fg("dim", "○");
+      const noBullet = confirmIndex === 1 ? theme.fg("accent", "●") : theme.fg("dim", "○");
+      const yesLabel = confirmIndex === 0 ? theme.fg("accent", "Yes") : theme.fg("text", "Yes");
+      const noLabel = confirmIndex === 1 ? theme.fg("accent", "No") : theme.fg("text", "No");
 
-        const lines: string[] = [];
-        const horizontal = theme.fg("accent", "─".repeat(Math.max(1, width)));
-        addTruncated(lines, width, horizontal);
+      if (width < 35) {
+        addTruncated(lines, width, `    ${yesBullet} 1. ${yesLabel}`);
+        addTruncated(lines, width, `    ${noBullet} 2. ${noLabel}`);
+      } else {
         addTruncated(
           lines,
           width,
-          `${theme.fg("accent", "◇")} ${theme.fg("text", params.message)}`,
+          `    ${yesBullet} 1. ${yesLabel}      ${noBullet} 2. ${noLabel}`,
         );
-        lines.push("");
+      }
+    }
 
-        if (inputMode) {
-          renderInput(width, lines);
-        } else {
-          renderOptions(width, lines);
-        }
+    function renderInput(width: number, lines: string[]): void {
+      const label =
+        params.type === "select" || params.type === "multiselect" ? "Custom answer" : "Your answer";
+      addTruncated(lines, width, theme.fg("muted", `  ${label}:`));
+      for (const line of editor.render(Math.max(1, width - 4))) {
+        addTruncated(lines, width, `  ${line}`);
+      }
+    }
 
-        lines.push("");
-        const help = inputMode
-          ? params.type === "select"
-            ? "Enter submit • Esc back"
-            : "Enter submit • Esc cancel"
-          : "↑↓ navigate • Enter select • Esc cancel";
-        addTruncated(lines, width, theme.fg("dim", help));
-        addTruncated(lines, width, horizontal);
+    function renderHelp(width: number, lines: string[]): void {
+      let help = "";
+      if (inputMode) {
+        help =
+          params.type === "select" || params.type === "multiselect"
+            ? "Enter submit · Esc back"
+            : "Enter submit · Esc cancel";
+      } else if (params.type === "confirm") {
+        help =
+          width < 40
+            ? "←→ · y/n · Enter · Esc"
+            : "←→ switch · y/n jump · Enter confirm · Esc cancel";
+      } else if (params.type === "multiselect") {
+        help =
+          width < 40
+            ? "↑↓ · space · Enter · Esc"
+            : "↑↓ navigate · space toggle · Enter confirm · Esc cancel";
+      } else if (params.type === "select") {
+        help =
+          width < 40
+            ? "↑↓ · 1-6 · Enter · Esc"
+            : "↑↓ navigate · 1-6 jump · Enter confirm · Esc cancel";
+      } else {
+        help = "Enter submit · Esc cancel";
+      }
+      lines.push("");
+      lines.push(theme.fg("dim", `  ${help}`));
+    }
 
-        cachedLines = lines;
-        return lines;
+    function render(width: number): string[] {
+      if (cachedLines) return cachedLines;
+
+      if (width < MIN_RENDER_WIDTH) {
+        return [theme.fg("warning", "⚠  Terminal too narrow — please resize")];
       }
 
-      return {
-        get focused() {
-          return focused;
-        },
-        set focused(value: boolean) {
-          focused = value;
-          editor.focused = value;
-        },
-        render,
-        invalidate() {
-          cachedLines = undefined;
-          editor.invalidate();
-        },
-        handleInput,
-      };
-    },
-    {
-      overlay: true,
-      overlayOptions: {
-        width: "70%",
-        minWidth: 50,
-        maxHeight: "80%",
-        margin: 1,
+      const lines: string[] = [];
+
+      renderTitle(width, lines);
+      lines.push("");
+
+      if (inputMode) {
+        renderInput(width, lines);
+      } else if (params.type === "confirm") {
+        renderConfirm(width, lines);
+      } else if (params.type === "multiselect") {
+        renderMultiselectOptions(width, lines);
+      } else if (params.type === "select") {
+        renderSelectOptions(width, lines);
+      }
+
+      renderHelp(width, lines);
+
+      cachedLines = lines;
+      return lines;
+    }
+
+    return {
+      get focused() {
+        return focused;
       },
-    },
-  );
+      set focused(value: boolean) {
+        focused = value;
+        editor.focused = value;
+      },
+      render,
+      invalidate() {
+        cachedLines = undefined;
+        editor.invalidate();
+      },
+      handleInput,
+    };
+  });
 }

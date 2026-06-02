@@ -33,7 +33,8 @@ export function buildPromptGuidelines(): string[] {
   return [
     "Use ask_user when a missing decision would materially affect files, scope, public APIs, package metadata, safety posture, or release behavior.",
     "ask_user accepts exactly one prompt per tool call; ask the next question only after receiving the previous answer.",
-    "For ask_user select prompts, provide 2-6 concrete options with concise trade-offs and include allowCustom when the user's preference may not be listed.",
+    "Supported prompt types: select (single choice), multiselect (multiple choices), text (free-form), confirm (yes/no).",
+    "For select and multiselect prompts, provide 2-6 concrete options with concise trade-offs. Use allowCustom for select when the user's preference may not be listed.",
     "Do not use ask_user to request passwords, API keys, tokens, cookies, private keys, or other credentials.",
   ];
 }
@@ -96,7 +97,10 @@ export default function clarify(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       if (!trimmed || trimmed === "status") {
-        ctx.ui.notify("Pi Clarify: enabled\nSupported prompt types: select, text, confirm", "info");
+        ctx.ui.notify(
+          "Pi Clarify: enabled\nSupported prompt types: select, multiselect, text, confirm",
+          "info",
+        );
         return;
       }
 
@@ -129,9 +133,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function renderClarifyCall(args: unknown, theme: Pick<Theme, "fg" | "bold">) {
+  const promptType = isRecord(args) && typeof args.type === "string" ? args.type : "";
   const title = theme.fg("toolTitle", theme.bold("ask_user "));
   const message = isRecord(args) && typeof args.message === "string" ? args.message : "";
-  return new Text(title + theme.fg("muted", message), 0, 0);
+  const typeLabel = promptType === "multiselect" ? " [multiselect]" : "";
+  return new Text(title + theme.fg("muted", message) + theme.fg("dim", typeLabel), 0, 0);
 }
 
 export function renderClarifyResult(

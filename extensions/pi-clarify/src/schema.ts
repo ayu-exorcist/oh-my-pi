@@ -30,13 +30,22 @@ export const PromptOptionSchema = Type.Object({
 });
 
 export const AskUserParamsSchema = Type.Object({
-  type: Type.Union([Type.Literal("select"), Type.Literal("text"), Type.Literal("confirm")], {
-    description: "Prompt type to show to the user",
-  }),
+  type: Type.Union(
+    [
+      Type.Literal("select"),
+      Type.Literal("multiselect"),
+      Type.Literal("text"),
+      Type.Literal("confirm"),
+    ],
+    {
+      description: "Prompt type to show to the user",
+    },
+  ),
   message: Type.String({ description: "Exactly one answerable question to ask the user" }),
   options: Type.Optional(
     Type.Array(PromptOptionSchema, {
-      description: "Options for select prompts. Required when type is select.",
+      description:
+        "Options for select/multiselect prompts. Required when type is select or multiselect.",
     }),
   ),
   allowCustom: Type.Optional(
@@ -56,6 +65,10 @@ export type AskUserParams = Static<typeof AskUserParamsSchema>;
 
 export type AskUserAnswer =
   | { readonly type: "select"; readonly value: string; readonly label: string }
+  | {
+      readonly type: "multiselect";
+      readonly values: ReadonlyArray<{ readonly value: string; readonly label: string }>;
+    }
   | { readonly type: "custom"; readonly value: string }
   | { readonly type: "text"; readonly value: string }
   | { readonly type: "confirm"; readonly value: boolean };
@@ -91,41 +104,45 @@ export function validateAskUserParams(params: AskUserParams): ValidationResult {
     return { ok: false, reason: "Clarification prompts must not ask for secrets or credentials." };
   }
 
-  if (params.type === "select") {
+  if (params.type === "select" || params.type === "multiselect") {
     const options = params.options ?? [];
     if (options.length < 2) {
-      return { ok: false, reason: "Select prompts require at least two options." };
+      return { ok: false, reason: "Select and multiselect prompts require at least two options." };
     }
     if (options.length > 6) {
-      return { ok: false, reason: "Select prompts support at most six options." };
+      return { ok: false, reason: "Select and multiselect prompts support at most six options." };
     }
 
     const values = new Set<string>();
     for (const option of options) {
       if (isBlank(option.value) || isBlank(option.label)) {
-        return { ok: false, reason: "Select option values and labels must not be empty." };
+        return { ok: false, reason: "Option values and labels must not be empty." };
       }
       if (option.value === ASK_USER_CUSTOM_VALUE) {
         return { ok: false, reason: `${ASK_USER_CUSTOM_VALUE} is reserved for custom answers.` };
       }
       if (values.has(option.value)) {
-        return { ok: false, reason: `Duplicate select option value: ${option.value}` };
+        return { ok: false, reason: `Duplicate option value: ${option.value}` };
       }
       values.add(option.value);
 
       const secretText = `${option.value} ${option.label} ${option.hint ?? ""}`;
       if (hasSecretWord(secretText)) {
-        return { ok: false, reason: "Select options must not ask for secrets or credentials." };
+        return { ok: false, reason: "Options must not ask for secrets or credentials." };
       }
     }
   }
 
-  if (params.type !== "select" && params.options) {
-    return { ok: false, reason: "Only select prompts may include options." };
+  if (params.type !== "select" && params.type !== "multiselect" && params.options) {
+    return { ok: false, reason: "Only select and multiselect prompts may include options." };
   }
 
   if (params.type === "confirm" && params.allowCustom) {
     return { ok: false, reason: "Confirm prompts cannot allow custom answers." };
+  }
+
+  if (params.type === "multiselect" && params.allowCustom) {
+    return { ok: false, reason: "Multiselect prompts cannot allow custom answers." };
   }
 
   return { ok: true };
@@ -152,6 +169,8 @@ export function buildDetails(
 
 export function formatAnswer(answer: AskUserAnswer): string {
   if (answer.type === "select") return `User selected: ${answer.label}`;
+  if (answer.type === "multiselect")
+    return `User selected: ${answer.values.map((v) => v.label).join(", ")}`;
   if (answer.type === "custom") return `User wrote: ${answer.value}`;
   if (answer.type === "text") return `User answered: ${answer.value}`;
   return `User answered: ${answer.value ? "yes" : "no"}`;

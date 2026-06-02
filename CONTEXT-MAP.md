@@ -6,6 +6,7 @@
 - [Trace Engine](./sdk/pi-trace-engine/CONTEXT.md) — AI Engineering trace collection, analysis, and storage engine. Zero Pi runtime dependencies.
 - [Write Gate Extension](./extensions/pi-write-gate/CONTEXT.md) — Write authorization gate, editor label, system prompt injection, and `/write-gate` controls.
 - [Clarify Extension](./extensions/pi-clarify/CONTEXT.md) — `ask_user` structured one-question clarification tool and `/clarify` demo/status command.
+- [Compact Extension](./extensions/pi-compact/CONTEXT.md) — One-line compact summaries for built-in tool output. Pairs with Clarify to keep decision prompts visible amid exploration noise.
 - [Workflow Extension](./extensions/pi-workflow/CONTEXT.md) — `/ayu` workflow prompt router for task planning, review, docs sync, release checks, verification, and audits.
 - [Rewind Extension](./extensions/pi-rewind/CONTEXT.md) — Automatic per-turn checkpoint hooks and the `/rewind` command for interactive checkpoint navigation.
 - [UndoRedo Extension](./extensions/pi-undo-redo/CONTEXT.md) — `/undo` and `/redo` commands with in-memory redo stack management.
@@ -16,6 +17,7 @@
 
 - **Write Gate Extension ↔ Other Extensions**: Write Gate is independent of checkpoint packages. It may block mutating tool calls before Rewind or UndoRedo-related edits run unless Write Mode is On.
 - **Clarify Extension ↔ Other Extensions**: Clarify is independent of Write Mode and checkpointing. Other extensions and agents can use `ask_user` for structured user decisions without gaining write permissions.
+- **Compact Extension ↔ Clarify Extension**: Compact reduces exploration noise so Clarify decision prompts stand out. Compact does not modify Clarify rendering or behavior.
 - **Ayu Workflow Extension → Write Gate Extension**: Workflow prompts are independent from Write Mode state. Use Write Gate for write authorization and `/ayu` for planning/review/verification prompts.
 - **Checkpoint Engine → Rewind Extension**: Rewind depends on Checkpoint Engine for `RepoManager`, config loading, diff parsing, and `CheckpointEntry` extraction.
 - **Checkpoint Engine → UndoRedo Extension**: UndoRedo depends on Checkpoint Engine for `RepoManager`, `RepoProvider`, and `CheckpointEntry` reading. It does not create checkpoints; it consumes entries written by Rewind (or any other checkpoint-aware extension).

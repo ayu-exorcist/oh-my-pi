@@ -70,7 +70,8 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── extensions/           # Pi extensions (independently published)
 │   ├── pi-write-gate/    # @ayulab/pi-write-gate — Ayu Write Mode and Write Gate
 │   ├── pi-clarify/       # @ayulab/pi-clarify — structured one-question clarification
-│   ├── pi-workflow/  # @ayulab/pi-workflow — /ayu workflow prompt router
+│   ├── pi-compact/       # @ayulab/pi-compact — compact tool output summaries
+│   ├── pi-workflow/      # @ayulab/pi-workflow — /ayu workflow prompt router
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 │   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
 ├── sdk/                  # Shared infrastructure (independently published)
@@ -93,22 +94,23 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                             | Description                                         |
-| --------------------------------------------------- | --------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)        | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-write-gate`](extensions/pi-write-gate) | Write authorization gate with T0–T4 risk tiers.     |
-| [`@ayulab/pi-clarify`](extensions/pi-clarify)       | Structured one-question clarification prompts.      |
-| [`@ayulab/pi-workflow`](extensions/pi-workflow)     | `/ayu` workflow prompt router and Plan Mode.        |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)         | `/rewind` command — interactive checkpoint restore. |
-| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)   | `/undo` and `/redo` commands.                       |
-| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)   | Trace collection, review, and harness iteration.    |
-| [`claim-check`](skills/claim-check)                 | Audit strong claims and source mapping.             |
-| [`doc-audit`](skills/doc-audit)                     | Read-only doc structure and sync audit.             |
-| [`Purple Dream`](themes/purple-dream.json)          | Dark purple theme for long coding sessions.         |
+| Package                                             | Description                                          |
+| --------------------------------------------------- | ---------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)        | Git bare-repo checkpoint engine. Zero deps.          |
+| [`@ayulab/pi-write-gate`](extensions/pi-write-gate) | Write authorization gate with T0–T4 risk tiers.      |
+| [`@ayulab/pi-clarify`](extensions/pi-clarify)       | Structured one-question clarification prompts.       |
+| [`@ayulab/pi-compact`](extensions/pi-compact)       | Compact one-line summaries for built-in tool output. |
+| [`@ayulab/pi-workflow`](extensions/pi-workflow)     | `/ayu` workflow prompt router and Plan Mode.         |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)         | `/rewind` command — interactive checkpoint restore.  |
+| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)   | `/undo` and `/redo` commands.                        |
+| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)   | Trace collection, review, and harness iteration.     |
+| [`claim-check`](skills/claim-check)                 | Audit strong claims and source mapping.              |
+| [`doc-audit`](skills/doc-audit)                     | Read-only doc structure and sync audit.              |
+| [`Purple Dream`](themes/purple-dream.json)          | Dark purple theme for long coding sessions.          |
 
 ## Extension Management
 
-After installation, `pi-write-gate`, `pi-clarify`, `pi-claude-style-tools`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-write-gate`, `pi-clarify`, `pi-claude-style-tools`, and `pi-mcp-adapter` are enabled by default. `pi-compact`, `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config

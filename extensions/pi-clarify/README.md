@@ -8,6 +8,7 @@ Pi extension providing structured one-question user clarification prompts for ag
 - One prompt per tool call by design — no batch question walls.
 - Supports:
   - `select` with optional custom text answer;
+  - `multiselect` with space toggle and Enter confirm;
   - `text` single-line input;
   - `confirm` yes/no confirmation.
 - `/clarify status` and `/clarify demo` management commands.
@@ -49,29 +50,31 @@ The extension registers an `ask_user` tool for the agent and a `/clarify` comman
 ```text
 > /clarify status
 Pi Clarify: enabled
-Supported prompt types: select, text, confirm
+Supported prompt types: select, multiselect, text, confirm
 
 > /clarify demo
-# Opens a small interactive select prompt.
+# Opens an interactive select prompt.
 ```
 
 Agents should use `ask_user` when a missing decision would materially affect files, scope, public API, package metadata, safety posture, or release behavior.
 
 ### Tool behavior
 
-`select` asks the user to choose one option. If `allowCustom` is true, Pi shows a custom-answer option and then asks for text.
+`select` asks the user to choose one option with ↑↓ and 1-6 shortcuts. If `allowCustom` is true, a custom-answer option opens an inline editor.
+
+`multiselect` asks the user to choose multiple options with ↑↓ navigation and space toggle.
 
 `text` asks for one single-line answer.
 
-`confirm` asks for yes/no confirmation.
+`confirm` asks for yes/no confirmation with ←→ or y/n shortcuts.
 
-Esc cancels. The tool returns a structured cancellation result instead of guessing.
+Esc cancels in all modes. The tool returns a structured cancellation result instead of guessing.
 
 ## Out of Scope
 
 - Batch questions.
 - Password prompts.
-- Full `@clack/prompts` compatibility.
+- Full `@clack/prompts` compatibility (we use Pi's native TUI to emulate the visual style).
 - Intercepting or rewriting normal assistant Markdown output.
 - Write-mode or permission enforcement.
 

@@ -199,6 +199,52 @@ describe("pi-clarify extension", () => {
     expect(confirmResult.details.answer).toEqual({ type: "confirm", value: true });
   });
 
+  test("returns multiselect answer", async () => {
+    const { api, tools, appendEntry } = createMockApi();
+    clarify(api);
+    const tool = getTool(tools, "ask_user");
+    const ctx = createContext();
+    askWithClarifyUi.mockResolvedValue({
+      type: "multiselect",
+      values: [
+        { value: "a", label: "A" },
+        { value: "b", label: "B" },
+      ],
+    });
+
+    const result = await tool.execute(
+      "tool-1",
+      {
+        type: "multiselect",
+        message: "Pick items",
+        options: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+          { value: "c", label: "C" },
+        ],
+      } as never,
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.details).toMatchObject({
+      status: "answered",
+      answer: {
+        type: "multiselect",
+        values: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+      },
+    });
+    expect(result.content[0]?.text).toBe("User selected: A, B");
+    expect(appendEntry).toHaveBeenCalledWith(
+      "pi-clarify.answer",
+      expect.objectContaining({ status: "answered", promptType: "multiselect" }),
+    );
+  });
+
   test("returns cancellation for empty input", async () => {
     const { api, tools } = createMockApi();
     clarify(api);
@@ -284,7 +330,7 @@ describe("pi-clarify extension", () => {
 
     await command.handler("status", ctx);
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(
-      "Pi Clarify: enabled\nSupported prompt types: select, text, confirm",
+      "Pi Clarify: enabled\nSupported prompt types: select, multiselect, text, confirm",
       "info",
     );
 
@@ -446,6 +492,21 @@ describe("resultText", () => {
         answer: { type: "select", value: "a", label: "A" },
       }),
     ).toBe("User selected: A");
+
+    expect(
+      resultText({
+        status: "answered",
+        promptType: "multiselect",
+        message: "Test?",
+        answer: {
+          type: "multiselect",
+          values: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+      }),
+    ).toBe("User selected: A, B");
   });
 
   test("returns cancelled message", () => {
