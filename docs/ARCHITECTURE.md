@@ -9,9 +9,8 @@
 │  Content (skills, prompts, themes)      │  ← No runtime code; loaded by Pi
 ├─────────────────────────────────────────┤
 │  Extensions                             │  ← Pi event handlers and commands
-│  pi-write-gate  pi-clarify  pi-rewind   │
-│  pi-undo-redo   pi-workflow             │
-│  pi-trace-lab                           │
+│  pi-clarify   pi-rewind   pi-undo-redo  │
+│  pi-workflow  pi-trace-lab              │
 ├─────────────────────────────────────────┤
 │  SDK                                    │  ← Reusable engine; zero deps
 │  pi-checkpoint (git bare-repo engine)   │
@@ -60,7 +59,6 @@ pi-trace-engine (SDK)
   ▲
   └── pi-trace-lab   ──▶ trace collector, reviewer, pattern cluster
 
-pi-write-gate        ──▶ independent; blocks mutating tools
 pi-clarify           ──▶ independent; ask_user wrapper
 pi-workflow          ──▶ independent; prompt router
 ```

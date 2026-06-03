@@ -6,7 +6,6 @@
 
 `oh-my-pi` is a Pi package that turns personal AI-engineering practices into installable runtime harness components:
 
-- `@ayulab/pi-write-gate` controls write authorization through the Write Gate.
 - `@ayulab/pi-workflow` provides `/ayu` workflow prompts for planning, review, verification, docs sync, release checks, and audits.
 - `@ayulab/pi-clarify` provides `ask_user` structured one-question clarification prompts.
 - `@ayulab/pi-rewind` records per-turn checkpoints and provides `/rewind`.
@@ -18,13 +17,13 @@ This repository should dogfood the same rules it ships: small changes, explicit 
 
 ## Harness Layers
 
-| Layer                 | Repo mechanism                                                             | Rule                                                                         |
-| --------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Environment contract  | `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `CONTEXT-MAP.md`, `docs/adr/` | Agents read only relevant context before edits.                              |
-| Procedural skill      | `/ayu task`, `/ayu review`, `/ayu verify`, `/ayu audit`, extension prompts | Reusable workflows should live as package resources, not ad hoc chat memory. |
-| Action realization    | Pi extensions, bundled packages, MCP adapters, scripts                     | Treat tool-bearing code as privileged runtime code.                          |
-| Trajectory regulation | Write Gate, Clarify, Rewind, UndoRedo, checkpoint storage                  | Prefer reversible steps and explicit verification evidence.                  |
-| Evidence              | tests, coverage, CI, checkpoint entries, docs/ADRs                         | Do not claim completion without command/result evidence.                     |
+| Layer                 | Repo mechanism                                                                  | Rule                                                                         |
+| --------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Environment contract  | `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `CONTEXT-MAP.md`, `docs/adr/`      | Agents read only relevant context before edits.                              |
+| Procedural skill      | `/ayu task`, `/ayu review`, `/ayu verify`, `/ayu audit`, extension prompts      | Reusable workflows should live as package resources, not ad hoc chat memory. |
+| Action realization    | Pi extensions, bundled packages, MCP adapters, scripts                          | Treat tool-bearing code as privileged runtime code.                          |
+| Trajectory regulation | `@gotgenes/pi-permission-system`, Clarify, Rewind, UndoRedo, checkpoint storage | Prefer reversible steps and explicit verification evidence.                  |
+| Evidence              | tests, coverage, CI, checkpoint entries, docs/ADRs                              | Do not claim completion without command/result evidence.                     |
 
 ## Side-effect Tiers
 
@@ -143,7 +142,6 @@ These are intentionally not implemented by this document:
 
 - machine-readable capability registry;
 - registry validation script;
-- T0-T4 enforcement inside `pi-write-gate` while Write Mode is On;
 - trace export / benchmark report generation;
 - browser sandbox fixtures or browser safety gate.
 

@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 export const promptFiles: Record<string, string> = {
   audit: "audit.md",
+  goal: "goal.md",
   task: "task.md",
+  plan: "plan.md",
+  bug: "bug.md",
   review: "review-diff.md",
   "review-diff": "review-diff.md",
   docs: "docs-sync.md",
@@ -13,6 +16,8 @@ export const promptFiles: Record<string, string> = {
   "release-check": "release-check.md",
   verify: "verify.md",
   journal: "journal.md",
+  "harness-iteration": "harness-iteration.md",
+  benchmark: "benchmark.md",
 };
 
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");

@@ -107,4 +107,4 @@ Judge by side effect, not by tool name.
 - Before executing any task, determine if a relevant skill exists; if so, read and follow the corresponding `SKILL.md` first.
 - Do not skip workflows, checklists, or stop conditions defined in skills.
 - Pi reads user-level `~/.pi/agent/AGENTS.md` first, then searches upward for project-level `AGENTS.md`.
-- At the end of each session, update `.pi/workspace/journal.md` if it exists.
+- At the end of each session, update `~/.pi/agent/ayu/workspace/journal.md` if it exists.

@@ -43,14 +43,21 @@ interface RegisteredCommand {
   readonly handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void;
 }
 
+type InputHandler = (
+  event: { readonly text: string },
+  ctx: ExtensionCommandContext,
+) => Promise<{ readonly action: string }> | { readonly action: string };
+
 function createMockApi(): {
   readonly api: ExtensionAPI;
   readonly tools: Map<string, RegisteredTool>;
   readonly commands: Map<string, RegisteredCommand>;
+  readonly events: Map<string, InputHandler>;
   readonly appendEntry: ReturnType<typeof vi.fn>;
 } {
   const tools = new Map<string, RegisteredTool>();
   const commands = new Map<string, RegisteredCommand>();
+  const events = new Map<string, InputHandler>();
   const appendEntry = vi.fn();
 
   const api = {
@@ -61,15 +68,24 @@ function createMockApi(): {
       commands.set(name, command);
     },
     appendEntry,
+    on: (name: string, handler: InputHandler) => {
+      events.set(name, handler);
+    },
   } as unknown as ExtensionAPI;
 
-  return { api, tools, commands, appendEntry };
+  return { api, tools, commands, events, appendEntry };
 }
 
 const askWithClarifyUi = vi.hoisted(() => vi.fn());
+const cancelClarifyInput = vi.hoisted(() => vi.fn());
+const handleClarifyInput = vi.hoisted(() => vi.fn(() => ({ handled: false, valid: false })));
+const isClarifyPending = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("./ui", () => ({
   askWithClarifyUi,
+  cancelClarifyInput,
+  handleClarifyInput,
+  isClarifyPending,
 }));
 
 function createContext(options?: { readonly hasUI?: boolean }) {
@@ -106,14 +122,71 @@ function getCommand(
 describe("pi-clarify extension", () => {
   beforeEach(() => {
     askWithClarifyUi.mockReset();
+    cancelClarifyInput.mockReset();
+    handleClarifyInput.mockReset();
+    handleClarifyInput.mockReturnValue({ handled: false, valid: false });
+    isClarifyPending.mockReset();
+    isClarifyPending.mockReturnValue(false);
   });
 
-  test("registers ask_user tool and clarify command", () => {
-    const { api, tools, commands } = createMockApi();
+  test("registers ask_user tool, input handler, and clarify command", () => {
+    const { api, tools, commands, events } = createMockApi();
     clarify(api);
 
     expect(tools.has("ask_user")).toBe(true);
     expect(commands.has("clarify")).toBe(true);
+    expect(events.has("input")).toBe(true);
+  });
+
+  test("input handler continues when no clarification is pending", async () => {
+    const { api, events } = createMockApi();
+    clarify(api);
+    const handler = events.get("input");
+    if (!handler) throw new Error("missing input handler");
+
+    isClarifyPending.mockReturnValue(false);
+    await expect(handler({ text: "1" }, createContext())).resolves.toEqual({ action: "continue" });
+  });
+
+  test("input handler handles valid and invalid clarification replies", async () => {
+    const { api, events } = createMockApi();
+    clarify(api);
+    const handler = events.get("input");
+    if (!handler) throw new Error("missing input handler");
+    const ctx = createContext();
+
+    isClarifyPending.mockReturnValue(true);
+    handleClarifyInput.mockReturnValueOnce({ handled: true, valid: false });
+    await expect(handler({ text: "bad" }, ctx)).resolves.toEqual({ action: "handled" });
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Invalid input. Please try again or send empty message to cancel.",
+      "warning",
+    );
+
+    handleClarifyInput.mockReturnValueOnce({ handled: true, valid: true });
+    await expect(handler({ text: "1" }, ctx)).resolves.toEqual({ action: "handled" });
+
+    handleClarifyInput.mockReturnValueOnce({ handled: false, valid: false });
+    await expect(handler({ text: "noop" }, ctx)).resolves.toEqual({ action: "continue" });
+  });
+
+  test("registered tool render callbacks delegate to render helpers", () => {
+    const { api, tools } = createMockApi();
+    clarify(api);
+    const tool = getTool(tools, "ask_user");
+    const theme = createMockTheme();
+
+    expect(tool.renderCall?.({ type: "text", message: "Question?" }, theme)).toBeDefined();
+    expect(
+      tool.renderResult?.(
+        {
+          content: [{ type: "text", text: "Answered" }],
+          details: { status: "answered" },
+        },
+        undefined,
+        theme,
+      ),
+    ).toBeDefined();
   });
 
   test("returns selected answer", async () => {
@@ -261,6 +334,52 @@ describe("pi-clarify extension", () => {
     expect(result.details.status).toBe("cancelled");
   });
 
+  test("returns cancellation on UI rejection and abort", async () => {
+    const { api, tools } = createMockApi();
+    clarify(api);
+    const tool = getTool(tools, "ask_user");
+
+    const rejected = await tool.execute(
+      "tool-1",
+      { type: "text", message: "Name?" } as never,
+      undefined,
+      undefined,
+      (askWithClarifyUi.mockRejectedValueOnce(new Error("closed")), createContext()),
+    );
+    expect(rejected.details.status).toBe("cancelled");
+
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort();
+    const aborted = await tool.execute(
+      "tool-2",
+      { type: "text", message: "Name?" } as never,
+      alreadyAborted.signal,
+      undefined,
+      (askWithClarifyUi.mockResolvedValueOnce({ type: "text", value: "late" }), createContext()),
+    );
+    expect(aborted.details.status).toBe("cancelled");
+    expect(cancelClarifyInput).toHaveBeenCalled();
+
+    const controller = new AbortController();
+    let resolveUi: (value: unknown) => void = () => undefined;
+    askWithClarifyUi.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveUi = resolve;
+      }),
+    );
+    const pending = tool.execute(
+      "tool-3",
+      { type: "text", message: "Name?" } as never,
+      controller.signal,
+      undefined,
+      createContext(),
+    );
+    controller.abort();
+    resolveUi({ type: "text", value: "late" });
+    const abortedLater = await pending;
+    expect(abortedLater.details.status).toBe("cancelled");
+  });
+
   test("returns unavailable without reason fallback", async () => {
     const { api, tools } = createMockApi();
     clarify(api);
@@ -369,10 +488,50 @@ describe("pi-clarify extension", () => {
 describe("renderCall", () => {
   test("renders ask_user with message", () => {
     const theme = createMockTheme();
-    const result = renderClarifyCall({ message: "What should I do?" }, theme);
+    const result = renderClarifyCall({ type: "text", message: "What should I do?" }, theme);
     expect(result).toBeDefined();
-    expect(theme.fg).toHaveBeenCalledWith("toolTitle", expect.any(String));
-    expect(theme.bold).toHaveBeenCalledWith("ask_user ");
+    expect(theme.fg).toHaveBeenCalledWith("accent", expect.any(String));
+    expect(theme.fg).toHaveBeenCalledWith("text", expect.any(String));
+  });
+
+  test("renders select, multiselect, and confirm prompts", () => {
+    const selectTheme = createMockTheme();
+    renderClarifyCall(
+      {
+        type: "select",
+        message: "Choose",
+        options: [
+          { value: "a", label: "A", hint: "First" },
+          { value: "b", label: "B" },
+        ],
+        allowCustom: true,
+        customLabel: "Other",
+      },
+      selectTheme,
+    );
+    expect(selectTheme.fg).toHaveBeenCalledWith("text", "Custom: Other");
+    expect(selectTheme.fg).toHaveBeenCalledWith("muted", "First");
+
+    const multiselectTheme = createMockTheme();
+    renderClarifyCall(
+      {
+        type: "multiselect",
+        message: "Choose many",
+        options: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+      },
+      multiselectTheme,
+    );
+    expect(multiselectTheme.fg).toHaveBeenCalledWith(
+      "muted",
+      "Reply with numbers (e.g. 1 2 3) or 'all'. Empty message to cancel.",
+    );
+
+    const confirmTheme = createMockTheme();
+    renderClarifyCall({ type: "confirm", message: "Proceed?" }, confirmTheme);
+    expect(confirmTheme.fg).toHaveBeenCalledWith("text", "y/yes or n/no");
   });
 
   test("handles non-string message", () => {

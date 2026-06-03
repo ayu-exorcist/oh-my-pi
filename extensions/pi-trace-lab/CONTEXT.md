@@ -39,7 +39,7 @@ All data lives under `~/.pi/agent/ayu/trace-lab/<project-key>/`:
 
 ## Boundaries
 
-Trace Lab does not own checkpointing, Write Mode, or mutating tool protection. Those live in `@ayulab/pi-rewind`, `@ayulab/pi-undo-redo`, `@ayulab/pi-checkpoint`, and `@ayulab/pi-write-gate`.
+Trace Lab does not own checkpointing, permission enforcement, or mutating tool protection. Permission enforcement is handled by a user-installed permission system; checkpointing lives in `@ayulab/pi-rewind`, `@ayulab/pi-undo-redo`, and `@ayulab/pi-checkpoint`.
 
 Trace Lab does not write outside its own data directory. All traces, reviews, patterns, and iterations stay project-local until explicitly promoted.
 

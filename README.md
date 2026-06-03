@@ -38,7 +38,6 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
 Each extension is published independently. Install only what you need:
 
 ```bash
-pi install npm:@ayulab/pi-write-gate
 pi install npm:@ayulab/pi-clarify
 pi install npm:@ayulab/pi-workflow
 pi install npm:@ayulab/pi-rewind
@@ -68,7 +67,6 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ```
 @ayulab/oh-my-pi/
 ├── extensions/           # Pi extensions (independently published)
-│   ├── pi-write-gate/    # @ayulab/pi-write-gate — Ayu Write Mode and Write Gate
 │   ├── pi-clarify/       # @ayulab/pi-clarify — structured one-question clarification
 │   ├── pi-compact/       # @ayulab/pi-compact — compact tool output summaries
 │   ├── pi-workflow/      # @ayulab/pi-workflow — /ayu workflow prompt router
@@ -94,23 +92,22 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                             | Description                                          |
-| --------------------------------------------------- | ---------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)        | Git bare-repo checkpoint engine. Zero deps.          |
-| [`@ayulab/pi-write-gate`](extensions/pi-write-gate) | Write authorization gate with T0–T4 risk tiers.      |
-| [`@ayulab/pi-clarify`](extensions/pi-clarify)       | Structured one-question clarification prompts.       |
-| [`@ayulab/pi-compact`](extensions/pi-compact)       | Compact one-line summaries for built-in tool output. |
-| [`@ayulab/pi-workflow`](extensions/pi-workflow)     | `/ayu` workflow prompt router and Plan Mode.         |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)         | `/rewind` command — interactive checkpoint restore.  |
-| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)   | `/undo` and `/redo` commands.                        |
-| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)   | Trace collection, review, and harness iteration.     |
-| [`claim-check`](skills/claim-check)                 | Audit strong claims and source mapping.              |
-| [`doc-audit`](skills/doc-audit)                     | Read-only doc structure and sync audit.              |
-| [`Purple Dream`](themes/purple-dream.json)          | Dark purple theme for long coding sessions.          |
+| Package                                           | Description                                          |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)      | Git bare-repo checkpoint engine. Zero deps.          |
+| [`@ayulab/pi-clarify`](extensions/pi-clarify)     | Structured one-question clarification prompts.       |
+| [`@ayulab/pi-compact`](extensions/pi-compact)     | Compact one-line summaries for built-in tool output. |
+| [`@ayulab/pi-workflow`](extensions/pi-workflow)   | `/ayu` workflow prompt router and Plan Mode.         |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)       | `/rewind` command — interactive checkpoint restore.  |
+| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo) | `/undo` and `/redo` commands.                        |
+| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab) | Trace collection, review, and harness iteration.     |
+| [`claim-check`](skills/claim-check)               | Audit strong claims and source mapping.              |
+| [`doc-audit`](skills/doc-audit)                   | Read-only doc structure and sync audit.              |
+| [`Purple Dream`](themes/purple-dream.json)        | Dark purple theme for long coding sessions.          |
 
 ## Extension Management
 
-After installation, `pi-write-gate`, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config
@@ -118,44 +115,42 @@ pi config
 
 Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering) in `settings.json` for fine-grained control.
 
-## Using /write-gate
+## Permission & Safety
 
-After starting Pi, Write Gate registers automatically. Write Mode starts Off for each new session and can be toggled with `Alt+S`, `/write-gate on`, or `/write-gate off`.
+This package no longer bundles a custom write gate. Install `@gotgenes/pi-permission-system` separately for deterministic permission enforcement (allow/ask/deny) across tools, bash, MCP, and file paths.
 
-```text
-> /write-gate status
-Write Mode: Off
-
-> /write-gate on
-# Turns Write Mode On. Mutating tools are now allowed.
-
-> /write-gate off
-# Turns Write Mode Off. Mutating tools are blocked.
+```bash
+pi install npm:@gotgenes/pi-permission-system
 ```
 
-When Write Mode is Off, Write Gate blocks mutating tool calls and allows only read-only inspection, including a narrow git-inspection subset. `/write-gate on` and `Alt+S` stay enabled until you manually turn them Off. Resumed or reloaded sessions restore the last Write Mode you set.
-
-## Using /plan
-
-Plan Mode gives you a read-only research phase before any code is modified.
-
-```text
-> /plan refactor auth module
-# Agent researches the codebase, writes a plan, then asks you to choose:
-# A) Execute now   B) Edit plan   C) Refine   D) Cancel
-
-> /plan --local add OAuth support
-# Stores the plan in .pi/plans/ instead of ~/.pi/plans/
-```
+See the [permission-system docs](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system) for configuration (`~/.pi/agent/extensions/pi-permission-system/config.json`).
 
 ## Using /ayu
 
 ```text
+> /ayu plan refactor auth module
+# Read-only research and structured planning. No file edits.
+
 > /ayu task add validation tests
 # Sends a planning prompt and does not edit files by itself.
 
+> /ayu bug "token refresh fails after 401"
+# Structured diagnosis: reproduce → test → fix → verify.
+
 > /ayu review docs
 # Sends a diff-review prompt focused on documentation.
+
+> /ayu verify
+# Summarizes verification evidence after implementation.
+
+> /ayu journal
+# Updates the session journal with decisions, blockers, and next steps.
+
+> /ayu harness-iteration
+# Draft a harness iteration card from a recent failure.
+
+> /ayu benchmark [suite-path]
+# Draft a benchmark run report for a harness change.
 ```
 
 ## Using /trace-lab
@@ -188,7 +183,7 @@ Update the session journal with a concise summary:
 
 ```text
 > /ayu journal
-# Summarizes the session into .pi/workspace/journal.md
+# Summarizes the session into ~/.pi/agent/ayu/workspace/journal.md
 ```
 
 ## Using /rewind

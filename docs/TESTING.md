@@ -45,7 +45,6 @@ When normalizing paths from external systems (e.g., CodeGraph native bindings), 
 pnpm --filter @ayulab/pi-checkpoint test
 
 # Extensions
-pnpm --filter @ayulab/pi-write-gate test
 pnpm --filter @ayulab/pi-rewind test
 pnpm --filter @ayulab/pi-undo-redo test
 pnpm --filter @ayulab/pi-clarify test

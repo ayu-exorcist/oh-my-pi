@@ -33,7 +33,7 @@ Use pnpm and mise; do not switch package managers.
 
 - Check `.pi/skills/` and `.agents/skills/` at session start; follow any relevant `SKILL.md`.
 - Do not skip skill workflows, checklists, or stop conditions.
-- Update `.pi/workspace/journal.md` at session end if it exists.
+- Update `~/.pi/agent/ayu/workspace/journal.md` at session end if it exists.
 
 ## Change Scope
 
@@ -61,9 +61,11 @@ Judge by side effect, not by tool name. See `docs/agents/ai-harness.md` for the 
 - **T3 irreversible**: Bulk delete, data migration, rename/move directories. Default deny; provide dry-run if required.
 - **T4 production-mutating**: Publish, release, push, modify production config. Default deny; requires explicit approval.
 
+Permission enforcement is handled by `@gotgenes/pi-permission-system` (user-installed). This project no longer bundles a custom write gate.
+
 ## Constraints
 
-- Keep Write Gate / Write Mode, Clarify, Rewind, UndoRedo, and checkpoint semantics intact.
+- Keep Clarify, Rewind, UndoRedo, and checkpoint semantics intact.
 - Do not weaken safety gates or release validation without explicit approval and regression tests.
 - Do not add network, filesystem, shell, MCP, browser, publish, or release side effects without calling out the risk tier and verification plan (see `docs/agents/ai-harness.md` for T0–T4 tiers).
 - Do not commit, tag, push, publish, or run `pnpm run release` unless explicitly requested.

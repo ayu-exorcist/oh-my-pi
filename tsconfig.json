@@ -16,8 +16,6 @@
     "paths": {
       "@ayulab/pi-compact": ["./extensions/pi-compact/src/index.ts"],
       "@ayulab/pi-compact/*": ["./extensions/pi-compact/src/*"],
-      "@ayulab/pi-write-gate": ["./extensions/pi-write-gate/src/index.ts"],
-      "@ayulab/pi-write-gate/*": ["./extensions/pi-write-gate/src/*"],
       "@ayulab/pi-checkpoint": ["./sdk/pi-checkpoint/src/index.ts"],
       "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"],
       "@ayulab/pi-checkpoint/testing": ["./sdk/pi-checkpoint/src/testing/index.ts"],

@@ -2,7 +2,7 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { AskUserParamsSchema, buildDetails, formatAnswer, validateAskUserParams } from "./schema";
 import type { AskUserDetails, AskUserParams } from "./schema";
-import { askWithClarifyUi } from "./ui";
+import { askWithClarifyUi, cancelClarifyInput, handleClarifyInput, isClarifyPending } from "./ui";
 
 export function appendClarifyEntry(pi: ExtensionAPI, details: AskUserDetails): void {
   pi.appendEntry("pi-clarify.answer", {
@@ -39,7 +39,68 @@ export function buildPromptGuidelines(): string[] {
   ];
 }
 
+const DEFAULT_CUSTOM_LABEL = "Custom...";
+
+function buildClackPrompt(params: AskUserParams, theme: Pick<Theme, "fg">): string {
+  const lines: string[] = [];
+
+  lines.push(theme.fg("accent", "◇  ") + theme.fg("text", params.message));
+  lines.push(theme.fg("dim", "│"));
+
+  if (params.type === "select" || params.type === "multiselect") {
+    const options = params.options ?? [];
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (!opt) continue;
+      const num = `${i + 1}.`;
+      lines.push(theme.fg("dim", "│  ") + theme.fg("text", `${num} ${opt.label}`));
+      if (opt.hint) {
+        lines.push(theme.fg("dim", "│     ") + theme.fg("muted", opt.hint));
+      }
+    }
+    if (params.allowCustom && params.type === "select") {
+      const label = params.customLabel?.trim() || DEFAULT_CUSTOM_LABEL;
+      lines.push(theme.fg("dim", "│  ") + theme.fg("text", `Custom: ${label}`));
+    }
+  } else if (params.type === "confirm") {
+    lines.push(theme.fg("dim", "│  ") + theme.fg("text", "y/yes or n/no"));
+  }
+
+  lines.push(theme.fg("dim", "│"));
+
+  let hint = "";
+  if (params.type === "select") {
+    hint = params.allowCustom
+      ? "Reply with option number or custom text. Empty message to cancel."
+      : "Reply with option number. Empty message to cancel.";
+  } else if (params.type === "multiselect") {
+    hint = "Reply with numbers (e.g. 1 2 3) or 'all'. Empty message to cancel.";
+  } else if (params.type === "confirm") {
+    hint = "Reply with y/yes or n/no. Empty message to cancel.";
+  } else {
+    hint = "Reply with your answer. Empty message to cancel.";
+  }
+  lines.push(theme.fg("dim", "│  ") + theme.fg("muted", hint));
+
+  return lines.join("\n");
+}
+
 export default function clarify(pi: ExtensionAPI) {
+  pi.on("input", async (event, ctx) => {
+    if (!isClarifyPending()) return { action: "continue" };
+    const result = handleClarifyInput(event.text);
+    if (result.handled) {
+      if (!result.valid) {
+        ctx.ui.notify(
+          "Invalid input. Please try again or send empty message to cancel.",
+          "warning",
+        );
+      }
+      return { action: "handled" };
+    }
+    return { action: "continue" };
+  });
+
   pi.registerTool({
     name: "ask_user",
     label: "Ask User",
@@ -51,7 +112,7 @@ export default function clarify(pi: ExtensionAPI) {
     parameters: AskUserParamsSchema,
     executionMode: "sequential",
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const validation = validateAskUserParams(params);
       if (!validation.ok) {
         const details = buildDetails(params, "rejected", undefined, validation.reason);
@@ -70,17 +131,42 @@ export default function clarify(pi: ExtensionAPI) {
         return toolResult(details);
       }
 
-      const answer = await askWithClarifyUi(params, ctx);
-      const details = answer
-        ? buildDetails(params, "answered", answer)
-        : buildDetails(
-            params,
-            "cancelled",
-            undefined,
-            "User cancelled or submitted an empty answer.",
-          );
-      appendClarifyEntry(pi, details);
-      return toolResult(details);
+      return new Promise((resolve) => {
+        let resolved = false;
+
+        const doResolve = (answer: import("./schema").AskUserAnswer | undefined) => {
+          if (resolved) return;
+          resolved = true;
+          const details = answer
+            ? buildDetails(params, "answered", answer)
+            : buildDetails(
+                params,
+                "cancelled",
+                undefined,
+                "User cancelled or submitted an empty answer.",
+              );
+          appendClarifyEntry(pi, details);
+          resolve(toolResult(details));
+        };
+
+        askWithClarifyUi(params, ctx)
+          .then(doResolve)
+          .catch(() => doResolve(undefined));
+
+        if (signal) {
+          if (signal.aborted) {
+            cancelClarifyInput();
+            doResolve(undefined);
+          } else {
+            const abortHandler = () => {
+              signal.removeEventListener("abort", abortHandler);
+              cancelClarifyInput();
+              doResolve(undefined);
+            };
+            signal.addEventListener("abort", abortHandler);
+          }
+        }
+      });
     },
 
     renderCall(args, theme) {
@@ -110,7 +196,7 @@ export default function clarify(pi: ExtensionAPI) {
           message: "What should Pi Clarify demo return?",
           options: [
             { value: "continue", label: "Continue", hint: "Return a selected answer" },
-            { value: "cancel", label: "Cancel", hint: "Use Esc to test cancellation instead" },
+            { value: "cancel", label: "Cancel", hint: "Send empty message to test cancellation" },
           ],
           allowCustom: true,
         };
@@ -133,11 +219,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function renderClarifyCall(args: unknown, theme: Pick<Theme, "fg" | "bold">) {
-  const promptType = isRecord(args) && typeof args.type === "string" ? args.type : "";
-  const title = theme.fg("toolTitle", theme.bold("ask_user "));
-  const message = isRecord(args) && typeof args.message === "string" ? args.message : "";
-  const typeLabel = promptType === "multiselect" ? " [multiselect]" : "";
-  return new Text(title + theme.fg("muted", message) + theme.fg("dim", typeLabel), 0, 0);
+  if (!isRecord(args)) return new Text("", 0, 0);
+  const params = args as AskUserParams;
+  const prompt = buildClackPrompt(params, theme);
+  return new Text(prompt, 0, 0);
 }
 
 export function renderClarifyResult(
@@ -165,5 +250,5 @@ export {
   formatAnswer,
   validateAskUserParams,
 } from "./schema";
-export { askWithClarifyUi } from "./ui";
+export { askWithClarifyUi, cancelClarifyInput, handleClarifyInput, isClarifyPending } from "./ui";
 export type { AskUserAnswer, AskUserDetails, AskUserParams, PromptOption } from "./schema";

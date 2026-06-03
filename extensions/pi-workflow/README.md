@@ -6,7 +6,7 @@ Pi extension providing the `/ayu` workflow command router.
 
 - `/ayu` workflow prompts for task planning, diff review, docs sync, release checks, verification reports, and AI-engineering audits
 - Prompts are sent immediately when Pi is idle or queued as follow-up while an agent is running
-- Write Mode controls are intentionally owned by `@ayulab/pi-write-gate`
+- Permission enforcement is intentionally left to a user-installed permission system
 
 ## Dependencies
 
@@ -26,12 +26,6 @@ Or standalone:
 pi install npm:@ayulab/pi-workflow
 ```
 
-For Write Mode and mutating tool protection, also install:
-
-```bash
-pi install npm:@ayulab/pi-write-gate
-```
-
 ## Usage
 
 The extension registers automatically after Pi starts.
@@ -49,27 +43,23 @@ The extension registers automatically after Pi starts.
 | Command                  | Behavior                                                        |
 | ------------------------ | --------------------------------------------------------------- |
 | `/ayu help`              | Show help                                                       |
+| `/ayu goal <objective>`  | Persist until the goal is complete and verified                 |
 | `/ayu task <goal>`       | Plan a task before edits                                        |
+| `/ayu plan <goal>`       | Research read-only and produce a structured proposed plan       |
+| `/ayu bug <description>` | Diagnose with reproduce→test→fix→verify                         |
 | `/ayu review [focus]`    | Review current git diff                                         |
 | `/ayu docs [scope]`      | Check documentation sync needs                                  |
 | `/ayu release [scope]`   | Run release-readiness review without publishing/tagging/pushing |
 | `/ayu verify [criteria]` | Produce a verification report                                   |
 | `/ayu audit [scope]`     | Audit project AI-engineering workflow                           |
+| `/ayu journal`           | Update session journal                                          |
+| `/ayu harness-iteration` | Draft a harness iteration card                                  |
+| `/ayu benchmark [suite]` | Run benchmark evaluation and produce a report                   |
 
-## Write Mode
+## Permission Enforcement
 
-Write Mode moved to `@ayulab/pi-write-gate` so it can evolve into a reusable safety gate independent of Ayu workflow prompts.
-
-Use:
-
-```text
-/write-gate on
-/write-gate off
-/write-gate status
-Alt+S
-```
-
-If users call old Write Mode commands through `/ayu`, this workflow extension reports a migration warning and points them to `/write-gate`.
+This extension only sends workflow prompts. It does not own Write Mode, tool gating, or filesystem permission checks.
+Install and configure a permission system separately when deterministic allow/ask/deny enforcement is required.
 
 ## Development
 

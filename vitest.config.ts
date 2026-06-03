@@ -12,7 +12,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     alias: {
-      "@ayulab/pi-write-gate": "extensions/pi-write-gate/src/index.ts",
       "@ayulab/pi-checkpoint": "sdk/pi-checkpoint/src/index.ts",
       "@ayulab/pi-checkpoint/testing": "sdk/pi-checkpoint/src/testing/index.ts",
 

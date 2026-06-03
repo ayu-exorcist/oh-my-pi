@@ -60,15 +60,17 @@ Agents should use `ask_user` when a missing decision would materially affect fil
 
 ### Tool behavior
 
-`select` asks the user to choose one option with ↑↓ and 1-6 shortcuts. If `allowCustom` is true, a custom-answer option opens an inline editor.
+Questions are rendered in the conversation stream with a clack-style prompt (`◇` / `│`). The user replies directly in the input box — no modal popup.
 
-`multiselect` asks the user to choose multiple options with ↑↓ navigation and space toggle.
+`select` — reply with the option number. If `allowCustom` is true, any non-number reply is treated as a custom answer.
 
-`text` asks for one single-line answer.
+`multiselect` — reply with numbers separated by spaces or commas (e.g. `1 2 3`), or `all` to select everything.
 
-`confirm` asks for yes/no confirmation with ←→ or y/n shortcuts.
+`text` — reply with a single-line free-form answer.
 
-Esc cancels in all modes. The tool returns a structured cancellation result instead of guessing.
+`confirm` — reply with `y`/`yes` or `n`/`no`.
+
+Send an empty message to cancel in all modes. The tool returns a structured cancellation result instead of guessing.
 
 ## Out of Scope
 

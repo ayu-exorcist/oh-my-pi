@@ -2,7 +2,7 @@
 description: Update the session journal with a concise summary of the current session
 ---
 
-Based on the full session trajectory, update the session journal at `.pi/workspace/journal.md`. Only record:
+Based on the full session trajectory, update the session journal at `~/.pi/agent/ayu/workspace/journal.md`. Only record:
 
 1. **Completed decisions** — decisions that will not be revisited.
 2. **In-progress tasks** — current task and progress percentage.

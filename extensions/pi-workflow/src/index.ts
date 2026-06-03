@@ -15,12 +15,18 @@ export function buildHelpText(): string {
   return `Ayu workflow
 
 Commands:
+  /ayu goal <objective>      Autonomous execution: persist until fully complete and verified
   /ayu task <goal>           Discuss/plan: clarify scope and verification; no edits
-  /ayu review [focus]        Review current git diff and decide whether more work is needed
+  /ayu plan <goal>           Read-only research and structured planning before implementation
+  /ayu bug <description>     Diagnose and fix bug following reproduce→test→fix→verify
+  /ayu review [focus]        Review current git diff for spec compliance and code quality
   /ayu docs [scope]          Check README/docs/CHANGELOG sync need before editing docs
   /ayu release [scope]       Check release readiness; never publish/tag/push
   /ayu verify [criteria]     Summarize verification evidence after implementation
   /ayu audit [scope]         Audit project AI engineering setup using Ayu workflow
+  /ayu journal               Update session journal with decisions, blockers, and next steps
+  /ayu harness-iteration     Draft a harness iteration card from a recent failure
+  /ayu benchmark [suite]     Run benchmark evaluation and produce a run report
   /ayu help                  Show this help`;
 }
 
