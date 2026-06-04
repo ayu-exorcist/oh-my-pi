@@ -229,7 +229,7 @@ async function handleReview(ctx: ExtensionContext): Promise<void> {
   const trace = await getStorage(ctx.cwd).loadSessionTrace(sessionId);
   if (!trace) {
     ctx.ui.notify(
-      "Trace Lab: No trace found for this session. Wait for session to end.",
+      "Trace Lab: No trace found for this session. Wait for session to end, or check ~/.pi/agent/ayu/trace-lab/<project-key>/sessions/.",
       "warning",
     );
     return;

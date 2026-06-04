@@ -8,3 +8,4 @@ allowBuilds:
   koffi: true
   protobufjs: true
   simple-git-hooks: true
+  tree-sitter-bash: true

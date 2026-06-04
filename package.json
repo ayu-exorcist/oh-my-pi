@@ -55,6 +55,7 @@
   "dependencies": {
     "@ayulab/pi-clarify": "workspace:*",
     "@ayulab/pi-compact": "workspace:*",
+    "@ayulab/pi-permission-system": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
     "@ayulab/pi-trace-lab": "workspace:*",
     "@ayulab/pi-undo-redo": "workspace:*",
@@ -75,6 +76,7 @@
   "bundledDependencies": [
     "@ayulab/pi-clarify",
     "@ayulab/pi-compact",
+    "@ayulab/pi-permission-system",
     "@ayulab/pi-rewind",
     "@ayulab/pi-trace-lab",
     "@ayulab/pi-undo-redo",
@@ -87,6 +89,7 @@
   "packageManager": "pnpm@11.4.0",
   "pi": {
     "extensions": [
+      "node_modules/@ayulab/pi-permission-system",
       "node_modules/@ayulab/pi-trace-lab",
       "node_modules/@ayulab/pi-clarify",
       "node_modules/@ayulab/pi-compact",

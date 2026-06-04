@@ -61,7 +61,7 @@ Judge by side effect, not by tool name. See `docs/agents/ai-harness.md` for the 
 - **T3 irreversible**: Bulk delete, data migration, rename/move directories. Default deny; provide dry-run if required.
 - **T4 production-mutating**: Publish, release, push, modify production config. Default deny; requires explicit approval.
 
-Permission enforcement is handled by `@gotgenes/pi-permission-system` (user-installed). This project no longer bundles a custom write gate.
+Permission enforcement is handled by bundled local extension `@ayulab/pi-permission-system`.
 
 ## Constraints
 

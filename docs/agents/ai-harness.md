@@ -17,13 +17,13 @@ This repository should dogfood the same rules it ships: small changes, explicit 
 
 ## Harness Layers
 
-| Layer                 | Repo mechanism                                                                  | Rule                                                                         |
-| --------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Environment contract  | `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `CONTEXT-MAP.md`, `docs/adr/`      | Agents read only relevant context before edits.                              |
-| Procedural skill      | `/ayu task`, `/ayu review`, `/ayu verify`, `/ayu audit`, extension prompts      | Reusable workflows should live as package resources, not ad hoc chat memory. |
-| Action realization    | Pi extensions, bundled packages, MCP adapters, scripts                          | Treat tool-bearing code as privileged runtime code.                          |
-| Trajectory regulation | `@gotgenes/pi-permission-system`, Clarify, Rewind, UndoRedo, checkpoint storage | Prefer reversible steps and explicit verification evidence.                  |
-| Evidence              | tests, coverage, CI, checkpoint entries, docs/ADRs                              | Do not claim completion without command/result evidence.                     |
+| Layer                 | Repo mechanism                                                                | Rule                                                                         |
+| --------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Environment contract  | `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `CONTEXT-MAP.md`, `docs/adr/`    | Agents read only relevant context before edits.                              |
+| Procedural skill      | `/ayu task`, `/ayu review`, `/ayu verify`, `/ayu audit`, extension prompts    | Reusable workflows should live as package resources, not ad hoc chat memory. |
+| Action realization    | Pi extensions, bundled packages, MCP adapters, scripts                        | Treat tool-bearing code as privileged runtime code.                          |
+| Trajectory regulation | `@ayulab/pi-permission-system`, Clarify, Rewind, UndoRedo, checkpoint storage | Prefer reversible steps and explicit verification evidence.                  |
+| Evidence              | tests, coverage, CI, checkpoint entries, docs/ADRs                            | Do not claim completion without command/result evidence.                     |
 
 ## Side-effect Tiers
 

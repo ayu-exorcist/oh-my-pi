@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   StorageManager,
@@ -56,10 +58,13 @@ describe("StorageManager", () => {
     expect(mockMkdir).toHaveBeenCalledTimes(4);
   });
 
-  it("returns base directory", () => {
+  it("returns base directory under ~/.pi/agent/ayu/trace-lab", () => {
     const storage = new StorageManager("/project");
-    expect(typeof storage.getBaseDir()).toBe("string");
-    expect(storage.getBaseDir()).toContain("trace-lab");
+    const baseDir = storage.getBaseDir();
+    expect(typeof baseDir).toBe("string");
+    expect(baseDir.startsWith(path.join(os.homedir(), ".pi", "agent", "ayu", "trace-lab"))).toBe(
+      true,
+    );
   });
 
   it("saves and loads a valid session trace", async () => {

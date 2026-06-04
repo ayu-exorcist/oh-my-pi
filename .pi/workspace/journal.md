@@ -73,3 +73,7 @@
 - [x] Manually remove the orphaned `extensions/pi-write-gate` directory; user completed this manually and `PI_WRITE_GATE_DIR_EXISTS=0` was confirmed.
 - [x] Remove untracked `tasks/` trace-lab session artifact.
 - [ ] Investigate unrelated root test timeouts in `@ayulab/pi-rewind` and `@ayulab/pi-checkpoint` if root `pnpm run check` must pass.
+
+- 2026-06-03: Vendored pi-permission-system as @ayulab/pi-permission-system, started Ayu path migration. Package tests currently paused after two failures: alias fixed, remaining failures are mostly Windows/POSIX path assertions plus a few Ayu path expectations.
+
+- 2026-06-03: Completed local @ayulab/pi-permission-system vendoring and Ayu path migration. Verified package typecheck/test/build plus root fmt/typecheck/lint/test.

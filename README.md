@@ -92,22 +92,23 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                           | Description                                          |
-| ------------------------------------------------- | ---------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)      | Git bare-repo checkpoint engine. Zero deps.          |
-| [`@ayulab/pi-clarify`](extensions/pi-clarify)     | Structured one-question clarification prompts.       |
-| [`@ayulab/pi-compact`](extensions/pi-compact)     | Compact one-line summaries for built-in tool output. |
-| [`@ayulab/pi-workflow`](extensions/pi-workflow)   | `/ayu` workflow prompt router and Plan Mode.         |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)       | `/rewind` command — interactive checkpoint restore.  |
-| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo) | `/undo` and `/redo` commands.                        |
-| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab) | Trace collection, review, and harness iteration.     |
-| [`claim-check`](skills/claim-check)               | Audit strong claims and source mapping.              |
-| [`doc-audit`](skills/doc-audit)                   | Read-only doc structure and sync audit.              |
-| [`Purple Dream`](themes/purple-dream.json)        | Dark purple theme for long coding sessions.          |
+| Package                                                           | Description                                               |
+| ----------------------------------------------------------------- | --------------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)                      | Git bare-repo checkpoint engine. Zero deps.               |
+| [`@ayulab/pi-clarify`](extensions/pi-clarify)                     | Structured one-question clarification prompts.            |
+| [`@ayulab/pi-compact`](extensions/pi-compact)                     | Compact one-line summaries for built-in tool output.      |
+| [`@ayulab/pi-permission-system`](extensions/pi-permission-system) | Permission gates for tools, bash, MCP, skills, and paths. |
+| [`@ayulab/pi-workflow`](extensions/pi-workflow)                   | `/ayu` workflow prompt router and Plan Mode.              |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)                       | `/rewind` command — interactive checkpoint restore.       |
+| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)                 | `/undo` and `/redo` commands.                             |
+| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)                 | Trace collection, review, and harness iteration.          |
+| [`claim-check`](skills/claim-check)                               | Audit strong claims and source mapping.                   |
+| [`doc-audit`](skills/doc-audit)                                   | Read-only doc structure and sync audit.                   |
+| [`Purple Dream`](themes/purple-dream.json)                        | Dark purple theme for long coding sessions.               |
 
 ## Extension Management
 
-After installation, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-permission-system`, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config
@@ -117,13 +118,15 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
 
 ## Permission & Safety
 
-This package no longer bundles a custom write gate. Install `@gotgenes/pi-permission-system` separately for deterministic permission enforcement (allow/ask/deny) across tools, bash, MCP, and file paths.
+This package bundles `@ayulab/pi-permission-system`, a local workspace fork of `@gotgenes/pi-permission-system@7.4.1` adapted for Ayu paths. No separate npm install is required.
 
-```bash
-pi install npm:@gotgenes/pi-permission-system
-```
+- local package: `extensions/pi-permission-system`
+- bundled extension entry: `node_modules/@ayulab/pi-permission-system`
+- global config: `~/.pi/agent/ayu/extensions/pi-permission-system/config.json`
+- project config: `<cwd>/.pi/ayu/extensions/pi-permission-system/config.json`
+- project template in this repo: `.pi/ayu/extensions/pi-permission-system/config.example.json`
 
-See the [permission-system docs](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system) for configuration (`~/.pi/agent/extensions/pi-permission-system/config.json`).
+Copy the project template to `config.json` if you want a repo-local baseline policy. See `extensions/pi-permission-system/README.md` for the full policy format and path rules.
 
 ## Using /ayu
 
