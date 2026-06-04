@@ -9,7 +9,7 @@ Accepted
 The first checkpoint design stored a single commit hash per turn. This worked for simple "restore to this point" semantics but broke down when we needed:
 
 1. **Undo** — revert to the state _before_ a turn, then optionally redo back to the state _after_ that turn.
-2. **Rewind** — jump to any historical turn and restore the workspace to its pre-turn state.
+2. **Rewind** — jump to any historical turn and restore the workspace to the state before the selected turn, so it can be run again.
 3. **Dirty guard** — compare the current working tree against a known-good snapshot to warn about unsaved changes.
 
 A single commit hash cannot represent both "before" and "after" states.

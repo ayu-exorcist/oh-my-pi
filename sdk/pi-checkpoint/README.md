@@ -121,19 +121,23 @@ const checkpoints = filterCheckpointEntries(dataList);
 
 ## Configuration
 
-Via the `checkpoint` object in `.pi/settings.json` or `~/.pi/agent/settings.json`:
+Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settings live under `checkpoint`; Ayu extension behavior settings live under top-level `ayu`.
 
 ```json
 {
   "checkpoint": {
     "enabled": true,
     "autoCheckpoint": true,
-    "restoreOnTree": "never",
     "restoreOnFork": "always",
-    "restoreOnClone": "never",
-    "restoreOnResume": "never",
+    "restoreOnClone": "always",
+    "restoreOnResume": "always",
     "defaultSummaryInstructions": "",
     "exclude": ["node_modules/", ".git/", "*.log"]
+  },
+  "ayu": {
+    "rewind": {
+      "restoreOnTree": "never"
+    }
   }
 }
 ```

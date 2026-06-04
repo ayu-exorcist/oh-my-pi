@@ -2,12 +2,23 @@ import { describe, test, expect, vi, type Mock } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
-import { registerRewind, buildCheckpointItem } from "./rewind";
+import {
+  registerRewind,
+  buildCheckpointItem,
+  findConversationEntryIdForCheckpoint,
+} from "./rewind";
 
-function createMockCtx(checkpointEntries: CheckpointEntry[] = []): {
+function createMockCtx(
+  checkpointEntries: CheckpointEntry[] = [],
+  branchUserEntryIds: readonly string[] = checkpointEntries.map((cp) => cp.userEntryId),
+): {
   ui: { notify: Mock; select: Mock; input: Mock };
   navigateTree: Mock;
-  sessionManager: { getEntries: () => unknown[]; getSessionId: () => string };
+  sessionManager: {
+    getEntries: () => unknown[];
+    getBranch: () => unknown[];
+    getSessionId: () => string;
+  };
 } {
   return {
     ui: {
@@ -22,6 +33,12 @@ function createMockCtx(checkpointEntries: CheckpointEntry[] = []): {
           type: "custom",
           customType: "pi-checkpoint",
           data,
+        })),
+      getBranch: () =>
+        branchUserEntryIds.map((id) => ({
+          type: "message",
+          id,
+          message: { role: "user" },
         })),
       getSessionId: () => "test-session",
     },
@@ -60,6 +77,69 @@ function createEntry(
   };
 }
 
+describe("buildCheckpointItem", () => {
+  test("renders no code changes line", () => {
+    const cp = createEntry({
+      userEntryId: "entry-1",
+      beforeCommit: "before",
+      prompt: "ask question",
+      createdAt: "2026-01-02T03:04:05.000Z",
+      fileCount: 0,
+      fileChanges: [],
+    });
+
+    expect(buildCheckpointItem(cp)).toBe(
+      `ask question\n   \u001b[38;5;245mNo code changes\u001b[0m\n`,
+    );
+  });
+
+  test("summarizes multiple file changes", () => {
+    const cp = createEntry({
+      userEntryId: "entry-1",
+      beforeCommit: "before",
+      prompt: "refactor",
+      createdAt: "2026-01-02T03:04:05.000Z",
+      fileCount: 2,
+      fileChanges: [
+        { path: "a.ts", added: 5, removed: 1 },
+        { path: "b.ts", added: 7, removed: 2 },
+      ],
+    });
+
+    expect(buildCheckpointItem(cp)).toBe(
+      `refactor\n   \u001b[38;5;245m2 files changed  \u001b[38;5;2m+12\u001b[38;5;245m \u001b[38;5;1m-3\u001b[0m\n`,
+    );
+  });
+
+  test("renders local checkpoint time and vertical spacing", () => {
+    const cp = createEntry({
+      userEntryId: "entry-1",
+      beforeCommit: "before",
+      prompt: "make file",
+      createdAt: "2026-01-02T03:04:05.000Z",
+      fileCount: 1,
+      fileChanges: [{ path: "file.ts", added: 1, removed: 0 }],
+    });
+
+    expect(buildCheckpointItem(cp)).toBe(
+      `make file\n   \u001b[38;5;245mfile.ts \u001b[38;5;2m+1\u001b[38;5;245m \u001b[38;5;1m-0\u001b[0m\n`,
+    );
+  });
+});
+
+describe("findConversationEntryIdForCheckpoint", () => {
+  test("returns the turn end entry instead of the user entry", () => {
+    const branch = [
+      { type: "message", id: "user-1", message: { role: "user" } },
+      { type: "message", id: "assistant-1", message: { role: "assistant" } },
+      { type: "custom", id: "checkpoint-1", customType: "pi-checkpoint" },
+      { type: "message", id: "user-2", message: { role: "user" } },
+    ];
+
+    expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("assistant-1");
+  });
+});
+
 describe("registerRewind", () => {
   test("registers /rewind command", () => {
     const pi = createMockPi();
@@ -86,6 +166,53 @@ describe("registerRewind", () => {
     const ctx = createMockCtx([]);
     await handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith("No checkpoints available", "warning");
+  });
+
+  test("shows only checkpoints whose user decision is on the active branch", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "branch-entry", beforeCommit: "abc", prompt: "on branch" }),
+      createEntry({ userEntryId: "other-entry", beforeCommit: "def", prompt: "other branch" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries, ["branch-entry"]);
+    ctx.ui.select.mockResolvedValueOnce(undefined);
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenCalledWith("Rewind to checkpoint:", [
+      "(current)\n",
+      buildCheckpointItem(firstEntry(entries)),
+    ]);
+  });
+
+  test("shows current first followed by newest checkpoints", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "old-entry", beforeCommit: "old", prompt: "old prompt" }),
+      createEntry({ userEntryId: "new-entry", beforeCommit: "new", prompt: "new prompt" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select.mockResolvedValueOnce(undefined);
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenCalledWith("Rewind to checkpoint:", [
+      "(current)\n",
+      buildCheckpointItem(entries[1] ?? firstEntry(entries)),
+      buildCheckpointItem(firstEntry(entries)),
+    ]);
+  });
+
+  test("returns early when user selects current", async () => {
+    const pi = createMockPi();
+    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select.mockResolvedValueOnce("(current)\n");
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenCalledTimes(1);
+    expect(ctx.navigateTree).not.toHaveBeenCalled();
   });
 
   test("returns early when user cancels checkpoint selection", async () => {
@@ -124,7 +251,7 @@ describe("registerRewind", () => {
     expect(ctx.navigateTree).not.toHaveBeenCalled();
   });
 
-  test("returns early when user selects Never mind", async () => {
+  test("hides code restore modes when checkpoints have no file changes", async () => {
     const pi = createMockPi();
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
     registerRewind(pi, () => createMockRepo());
@@ -132,10 +259,13 @@ describe("registerRewind", () => {
     const ctx = createMockCtx(entries);
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Never mind");
+      .mockResolvedValueOnce(undefined);
     await handler("", ctx);
-    expect(ctx.ui.select).toHaveBeenCalledTimes(2);
-    expect(ctx.navigateTree).not.toHaveBeenCalled();
+    expect(ctx.ui.select).toHaveBeenLastCalledWith("Restore mode:", [
+      "Restore conversation",
+      "Restore conversation with summary",
+      "Restore conversation with custom summary",
+    ]);
   });
 
   test("conversation restore fails gracefully", async () => {
@@ -242,11 +372,124 @@ describe("registerRewind", () => {
     const ctx = createMockCtx(entries);
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Restore conversation only");
+      .mockResolvedValueOnce("Restore conversation");
     await handler("", ctx);
     expect(stageAll).not.toHaveBeenCalled();
     expect(checkoutCommit).not.toHaveBeenCalled();
     expect(ctx.navigateTree).toHaveBeenCalledWith("e1", { summarize: false });
+  });
+
+  test("uses matching checkpoint outside active branch as dirty guard base after clone", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const stageAll = vi.fn();
+    const diffAgainst = vi
+      .fn()
+      .mockImplementation((commit: string) =>
+        Promise.resolve(commit === "outside-after" ? "" : "1\t0\tfile.ts\n"),
+      );
+    const createSafetyCommit = vi.fn().mockResolvedValue("safety");
+    const entries = [
+      createEntry({
+        userEntryId: "active-entry",
+        beforeCommit: "active-before",
+        afterCommit: "active-after",
+        fileCount: 1,
+        fileChanges: [{ path: "active.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({
+        userEntryId: "outside-entry",
+        beforeCommit: "outside-before",
+        afterCommit: "outside-after",
+        fileCount: 1,
+        fileChanges: [{ path: "outside.ts", added: 1, removed: 0 }],
+      }),
+    ];
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, stageAll, diffAgainst, createSafetyCommit }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries, ["active-entry"]);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+    await handler("", ctx);
+    expect(checkoutCommit).toHaveBeenCalledWith("active-before");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("uses matching checkpoint as dirty guard base after tree navigation", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const stageAll = vi.fn();
+    const diffAgainst = vi
+      .fn()
+      .mockImplementation((commit: string) =>
+        Promise.resolve(commit === "old-after" ? "" : "1\t0\tfile.ts\n"),
+      );
+    const createSafetyCommit = vi.fn().mockResolvedValue("safety");
+    const entries = [
+      createEntry({
+        userEntryId: "old-entry",
+        beforeCommit: "old-before",
+        afterCommit: "old-after",
+        fileCount: 1,
+        fileChanges: [{ path: "old.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({
+        userEntryId: "new-entry",
+        beforeCommit: "new-before",
+        afterCommit: "new-after",
+        fileCount: 1,
+        fileChanges: [{ path: "new.ts", added: 1, removed: 0 }],
+      }),
+    ];
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, stageAll, diffAgainst, createSafetyCommit }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+    await handler("", ctx);
+    expect(checkoutCommit).toHaveBeenCalledWith("old-before");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("uses newest visible checkpoint as dirty guard base with newest-first display", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const stageAll = vi.fn();
+    const diffAgainst = vi.fn().mockResolvedValue("");
+    const createSafetyCommit = vi.fn().mockResolvedValue("safety");
+    const entries = [
+      createEntry({
+        userEntryId: "old-entry",
+        beforeCommit: "old-before",
+        afterCommit: "old-after",
+        fileCount: 1,
+        fileChanges: [{ path: "old.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({
+        userEntryId: "new-entry",
+        beforeCommit: "new-before",
+        afterCommit: "new-after",
+        fileCount: 1,
+        fileChanges: [{ path: "new.ts", added: 1, removed: 0 }],
+      }),
+    ];
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, stageAll, diffAgainst, createSafetyCommit }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+    await handler("", ctx);
+    expect(diffAgainst).toHaveBeenCalledWith("new-after");
+    expect(checkoutCommit).toHaveBeenCalledWith("old-before");
   });
 
   test("restore code only", async () => {
@@ -269,7 +512,7 @@ describe("registerRewind", () => {
     expect(ctx.navigateTree).not.toHaveBeenCalled();
   });
 
-  test("summarize from here handles error", async () => {
+  test("restore conversation with summary handles error", async () => {
     const pi = createMockPi();
     const navigateTree = vi.fn().mockRejectedValue(new Error("nav error"));
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
@@ -278,13 +521,12 @@ describe("registerRewind", () => {
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Summarize from here");
-    ctx.ui.input.mockResolvedValueOnce("");
+      .mockResolvedValueOnce("Restore conversation with summary");
     await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: nav error", "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Conversation restore failed: nav error", "error");
   });
 
-  test("summarize from here handles non-Error failure", async () => {
+  test("restore conversation with summary handles non-Error failure", async () => {
     const pi = createMockPi();
     const navigateTree = vi.fn().mockRejectedValue("string error");
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
@@ -293,13 +535,15 @@ describe("registerRewind", () => {
     const ctx = { ...createMockCtx(entries), navigateTree };
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Summarize from here");
-    ctx.ui.input.mockResolvedValueOnce("");
+      .mockResolvedValueOnce("Restore conversation with summary");
     await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: string error", "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Conversation restore failed: string error",
+      "error",
+    );
   });
 
-  test("summarize from here with custom input", async () => {
+  test("restore conversation with custom summary input", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn();
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
@@ -308,7 +552,7 @@ describe("registerRewind", () => {
     const ctx = createMockCtx(entries);
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Summarize from here");
+      .mockResolvedValueOnce("Restore conversation with custom summary");
     ctx.ui.input.mockResolvedValueOnce("focus on API");
     await handler("", ctx);
     expect(ctx.navigateTree).toHaveBeenCalledWith("e1", {
@@ -318,7 +562,7 @@ describe("registerRewind", () => {
     expect(checkoutCommit).not.toHaveBeenCalled();
   });
 
-  test("summarize from here with empty input uses undefined", async () => {
+  test("restore conversation with custom summary and empty input uses default summary", async () => {
     const pi = createMockPi();
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
     registerRewind(pi, () => createMockRepo({ checkoutCommit: vi.fn() }));
@@ -326,13 +570,10 @@ describe("registerRewind", () => {
     const ctx = createMockCtx(entries);
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Summarize from here");
+      .mockResolvedValueOnce("Restore conversation with custom summary");
     ctx.ui.input.mockResolvedValueOnce("");
     await handler("", ctx);
-    expect(ctx.navigateTree).toHaveBeenCalledWith("e1", {
-      summarize: true,
-      customInstructions: undefined,
-    });
+    expect(ctx.navigateTree).toHaveBeenCalledWith("e1", { summarize: true });
   });
 
   test("dirty guard blocks rewind when workspace has changes", async () => {

@@ -33,6 +33,7 @@ Use pnpm and mise; do not switch package managers.
 
 - Check `.pi/skills/` and `.agents/skills/` at session start; follow any relevant `SKILL.md`.
 - Do not skip skill workflows, checklists, or stop conditions.
+- If a user request is a concrete operation with a safe default, execute it without clarification; only clarify when the missing detail changes the outcome or no safe default exists.
 - Update `~/.pi/agent/ayu/workspace/journal.md` at session end if it exists.
 
 ## Change Scope

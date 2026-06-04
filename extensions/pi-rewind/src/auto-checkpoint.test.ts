@@ -25,13 +25,15 @@ describe("AutoCheckpointProducer", () => {
     });
 
     const start = await producer.turnStart({ userEntryId: "entry-1", prompt: "test" });
-    const end = await producer.turnEnd();
+    const end = await producer.turnEnd({ userEntryId: "entry-1", prompt: "test" });
+    const final = await producer.finalizeRun();
 
     expect(start).toEqual({ ok: false, message: "Checkpoint failed: git missing" });
     expect(end).toEqual({ ok: false });
+    expect(final).toEqual({ ok: false });
   });
 
-  test("reuses beforeCommit when the Turn has no file changes", async () => {
+  test("reuses beforeCommit when the agent run has no file changes", async () => {
     const checkpoint = vi.fn().mockResolvedValue("before-hash");
     const producer = createProducer({
       ensureReady: vi.fn().mockResolvedValue(undefined),
@@ -41,10 +43,12 @@ describe("AutoCheckpointProducer", () => {
     });
 
     await producer.turnStart({ userEntryId: "entry-1", prompt: "no changes" });
-    const end = await producer.turnEnd();
+    const end = await producer.turnEnd({ userEntryId: "entry-1", prompt: "no changes" });
+    const final = await producer.finalizeRun();
 
     expect(checkpoint).toHaveBeenCalledTimes(1);
-    expect(end).toEqual({
+    expect(end).toEqual({ ok: true });
+    expect(final).toEqual({
       ok: true,
       entry: expect.objectContaining({
         beforeCommit: "before-hash",
@@ -55,7 +59,7 @@ describe("AutoCheckpointProducer", () => {
     });
   });
 
-  test("captures a CheckpointEntry around a Turn with File Change Stats", async () => {
+  test("captures a CheckpointEntry around an agent run with File Change Stats", async () => {
     const ensureReady = vi.fn().mockResolvedValue(undefined);
     const checkpoint = vi
       .fn()
@@ -69,14 +73,19 @@ describe("AutoCheckpointProducer", () => {
       userEntryId: "entry-1",
       prompt: "refactor checkpoint handling",
     });
-    const end = await producer.turnEnd();
+    const end = await producer.turnEnd({
+      userEntryId: "entry-1",
+      prompt: "refactor checkpoint handling",
+    });
+    const final = await producer.finalizeRun();
 
-    expect(start).toEqual({ ok: true });
+    expect(start).toEqual({ ok: true, entries: [] });
+    expect(end).toEqual({ ok: true });
     expect(ensureReady).toHaveBeenCalledWith(["node_modules/**"]);
     expect(checkpoint).toHaveBeenCalledWith("entry-1");
     expect(stageAll).toHaveBeenCalled();
     expect(diffAgainst).toHaveBeenCalledWith("before-hash");
-    expect(end).toEqual({
+    expect(final).toEqual({
       ok: true,
       entry: {
         v: 2,
@@ -91,5 +100,64 @@ describe("AutoCheckpointProducer", () => {
         createdAt: "2026-01-02T03:04:05.000Z",
       },
     });
+  });
+
+  test("finalizeRun preserves the pending user decision label", async () => {
+    const checkpoint = vi
+      .fn()
+      .mockResolvedValueOnce("before-hash")
+      .mockResolvedValueOnce("after-hash");
+    const producer = createProducer({
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      checkpoint,
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue("1\t0\tsrc/app.ts\n"),
+    });
+
+    await producer.turnStart({ userEntryId: "entry-1", prompt: "initial" });
+    const end = await producer.turnEnd({ userEntryId: "entry-2", prompt: "follow-up" });
+    const final = await producer.finalizeRun();
+
+    expect(end).toEqual({ ok: true });
+    expect(checkpoint).toHaveBeenCalledWith("entry-1");
+    expect(final).toEqual({
+      ok: true,
+      entry: expect.objectContaining({ userEntryId: "entry-1", prompt: "initial" }),
+    });
+  });
+
+  test("turnStart finalizes the previous user decision before opening the next one", async () => {
+    const checkpoint = vi
+      .fn()
+      .mockResolvedValueOnce("before-1")
+      .mockResolvedValueOnce("after-1")
+      .mockResolvedValueOnce("before-2")
+      .mockResolvedValueOnce("after-2");
+    const producer = createProducer({
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      checkpoint,
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue("1\t0\tsrc/app.ts\n"),
+    });
+
+    const first = await producer.turnStart({ userEntryId: "entry-1", prompt: "initial" });
+    const second = await producer.turnStart({ userEntryId: "entry-2", prompt: "follow-up" });
+    await producer.turnEnd({ userEntryId: "entry-2", prompt: "follow-up" });
+    const final = await producer.finalizeRun();
+
+    expect(first).toEqual({ ok: true, entries: [] });
+    expect(second).toEqual({
+      ok: true,
+      entries: [expect.objectContaining({ userEntryId: "entry-1", prompt: "initial" })],
+    });
+    expect(final).toEqual({
+      ok: true,
+      entry: expect.objectContaining({ userEntryId: "entry-2", prompt: "follow-up" }),
+    });
+    expect(checkpoint).toHaveBeenCalledTimes(4);
+    expect(checkpoint).toHaveBeenNthCalledWith(1, "entry-1");
+    expect(checkpoint).toHaveBeenNthCalledWith(2, "entry-1");
+    expect(checkpoint).toHaveBeenNthCalledWith(3, "entry-2");
+    expect(checkpoint).toHaveBeenNthCalledWith(4, "entry-2");
   });
 });

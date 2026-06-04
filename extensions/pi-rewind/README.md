@@ -5,13 +5,16 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
 ## Features
 
 - Interactive checkpoint list with file-change statistics
-- Five interactive options:
+- Rewind restores a selected prompt to its pre-run code state (`beforeCommit`), so the turn can be run again
+- Restore options for checkpoints with file changes:
   1. Restore code and conversation
-  2. Restore conversation only
-  3. Restore code only
-  4. Generate summary from selected point
-  5. Never mind
-- Auto-copy checkpoint repo on fork / clone; clone can restore code to the selected checkpoint's `afterCommit` when `checkpoint.restoreOnClone` is `"always"`
+  2. Restore conversation
+  3. Restore code
+  4. Restore conversation with summary
+  5. Restore conversation with custom summary
+- Conversation-only restore options when the checkpoint list has no file changes
+- Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree: "always"`)
+- Auto-copy checkpoint repo on fork / clone; clone restores code to the selected checkpoint's `afterCommit` by default
 - Real-time file-change counter for the current turn
 
 ## Dependencies
@@ -41,24 +44,54 @@ The extension registers automatically after Pi starts. A checkpoint is created i
 > /rewind
 
 Recent checkpoints:
-[1] refactor auth        10:23
-   src/auth.ts +5 -2
-   src/utils.ts +1 -0
+[1] (current)
 
-[2] add tests            10:25
+[2] add tests
    src/auth.test.ts +1 -0
+
+[3] refactor auth
+   2 files changed  +6 -2
 
 Select checkpoint: 2
 Restore mode:
 [1] Restore code and conversation
-[2] Restore conversation only
+[2] Restore conversation
 [3] Restore code
-[4] Summarize from here
-[5] Never mind
+[4] Restore conversation with summary
+[5] Restore conversation with custom summary
 
 Select mode: 1
 ✓ Rewind completed
 ```
+
+## Configuration
+
+By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files. To make `/tree` also restore files to the selected record's checkpoint state, opt in with `ayu.rewind.restoreOnTree`:
+
+```json
+{
+  "ayu": {
+    "rewind": {
+      "restoreOnTree": "always"
+    }
+  }
+}
+```
+
+Supported values:
+
+| Setting    | Behavior                                                        |
+| ---------- | --------------------------------------------------------------- |
+| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files. |
+| `"always"` | Restore files when `/tree` navigates to a session record.       |
+
+`/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
+
+## Session deletion
+
+Pi currently exposes session switch, resume, tree, fork, and clone hooks to extensions, but not a dedicated session deletion hook for `pi -r` / `/resume` `Ctrl+D` deletion. Because checkpoint storage deletion is irreversible, `pi-rewind` does not infer deleted sessions or automatically garbage-collect orphan checkpoint repositories.
+
+If Pi adds a deletion lifecycle event such as `session_before_delete` or `session_deleted`, `pi-rewind` should use that exact hook to remove only the deleted session's matching checkpoint storage and clear related in-memory state. Until then, deleting a session may leave orphan checkpoint storage on disk, while `/rewind` metadata disappears with the deleted session JSONL.
 
 ## Development
 

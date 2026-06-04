@@ -13,6 +13,13 @@ Format:
 **Verification:** <how we know it's fixed>
 ```
 
+## 2026-06-04 — explicit operation should not be blocked by clarification
+
+**Failure mode:** The assistant treated explicit file-generation commands like `生成 test1.txt` as missing-content requests and asked for clarification instead of applying a safe default.
+**Context:** Harness/prompt behavior for file-creation commands in `pi` sessions; impacted user expectations and `/rewind` checkpoint granularity.
+**Fix:** Add a project rule that explicit concrete operations with safe defaults should execute without clarification; only ask when the missing detail changes the outcome or no safe default exists.
+**Verification:** Re-run a held-out set of explicit file-creation prompts after the rule change and confirm empty-file defaults are applied consistently; record pass/fail and any regressions.
+
 ## Entries
 
 ### 2026-05-29 — pi-trace-lab SDK/Extension split (ADR-0002 compliance)

@@ -89,12 +89,12 @@
   "packageManager": "pnpm@11.4.0",
   "pi": {
     "extensions": [
-      "node_modules/@ayulab/pi-permission-system",
-      "node_modules/@ayulab/pi-trace-lab",
-      "node_modules/@ayulab/pi-clarify",
-      "node_modules/@ayulab/pi-compact",
+      "!node_modules/@ayulab/pi-permission-system",
+      "!node_modules/@ayulab/pi-trace-lab",
+      "!node_modules/@ayulab/pi-clarify",
+      "!node_modules/@ayulab/pi-compact",
       "!node_modules/@ayulab/pi-workflow",
-      "!node_modules/@ayulab/pi-rewind",
+      "node_modules/@ayulab/pi-rewind",
       "!node_modules/@ayulab/pi-undo-redo",
       "node_modules/pi-mcp-adapter"
     ],

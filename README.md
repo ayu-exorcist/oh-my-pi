@@ -191,27 +191,28 @@ Update the session journal with a concise summary:
 
 ## Using /rewind
 
-After starting Pi, the Rewind extension registers automatically. Every prompt you send triggers a background checkpoint.
+After starting Pi, the Rewind extension registers automatically. Every prompt you send triggers a background checkpoint. Selecting a checkpoint rewinds code to the state before that prompt ran, so the selected turn can be run again. Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"always"` if you want `/tree` to restore files too.
 
 ```
 > /rewind
 
 Recent checkpoints:
-[1] refactor auth        10:23
-   src/auth.ts +5 -2
-   src/utils.ts +1 -0
+[1] (current)
 
-[2] add tests            10:25
+[2] add tests
    src/auth.test.ts +1 -0
+
+[3] refactor auth
+   2 files changed  +6 -2
 
 Select checkpoint: 2
 
 Restore mode:
 [1] Restore code and conversation
-[2] Restore conversation only
+[2] Restore conversation
 [3] Restore code
-[4] Summarize from here
-[5] Never mind
+[4] Restore conversation with summary
+[5] Restore conversation with custom summary
 
 Select mode: 1
 ✓ Rewind completed

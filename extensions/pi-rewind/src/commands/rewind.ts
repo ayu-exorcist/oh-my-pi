@@ -1,42 +1,115 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkpoint";
 import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
+import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkpoint";
+import { getBranchCheckpointEntries } from "../utils/branch-checkpoints";
 import { runRestoreMode } from "./restore-mode";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isEntryWithId(value: unknown): value is { readonly id: string } {
+  return isRecord(value) && typeof value.id === "string";
+}
+
+function isUserMessageEntry(value: unknown): value is { readonly id: string } {
+  if (!isRecord(value) || typeof value.id !== "string" || !isRecord(value.message)) {
+    return false;
+  }
+  return value.type === "message" && value.message.role === "user";
+}
+
+function isCheckpointCustomEntry(value: unknown): boolean {
+  return isRecord(value) && value.type === "custom" && value.customType === "pi-checkpoint";
+}
+
+async function findCleanDirtyBaseCommit(
+  repo: RepoManager,
+  checkpoints: readonly CheckpointEntry[],
+  fallbackCommit: string,
+): Promise<string> {
+  const commits = new Set<string>();
+  for (const cp of [...checkpoints].reverse()) {
+    commits.add(cp.afterCommit);
+    commits.add(cp.beforeCommit);
+  }
+
+  try {
+    await repo.stageAll();
+    for (const commit of commits) {
+      const diff = await repo.diffAgainst(commit);
+      if (diff.trim().length === 0) return commit;
+    }
+  } catch {
+    return fallbackCommit;
+  }
+
+  return fallbackCommit;
+}
+
+export function findConversationEntryIdForCheckpoint(
+  branch: readonly unknown[],
+  userEntryId: string,
+): string {
+  const userIndex = branch.findIndex(
+    (entry) => isUserMessageEntry(entry) && entry.id === userEntryId,
+  );
+  if (userIndex < 0) return userEntryId;
+
+  let conversationEntryId = userEntryId;
+  for (const entry of branch.slice(userIndex + 1)) {
+    if (isUserMessageEntry(entry)) break;
+    if (isEntryWithId(entry) && !isCheckpointCustomEntry(entry)) {
+      conversationEntryId = entry.id;
+    }
+  }
+
+  return conversationEntryId;
+}
 
 /** Render a single file change with ANSI colour codes for terminal display. */
 export function formatChangeLine(change: FileChange): string {
-  const added = `\x1b[32m+${change.added}\x1b[0m`;
-  const removed = `\x1b[31m-${change.removed}\x1b[0m`;
-  return `${change.path} ${added} ${removed}`;
+  return `\x1b[38;5;245m${change.path} \x1b[38;5;2m+${change.added}\x1b[38;5;245m \x1b[38;5;1m-${change.removed}\x1b[0m`;
 }
 
 /**
  * Build a multi-line display string for a checkpoint entry.
  *
  * Includes the prompt and per-file change stats so that the user can
- * see exactly what happened during that turn.
+ * see exactly what happened during that turn. Blank lines deliberately
+ * add vertical breathing room in Pi's select dialog.
  */
 export function buildCheckpointItem(cp: CheckpointEntry): string {
+  const header = cp.prompt;
   if (cp.fileCount === 0) {
-    return cp.prompt;
+    return `${header}\n   \x1b[38;5;245mNo code changes\x1b[0m\n`;
   }
   if (cp.fileChanges.length === 0) {
-    return `${cp.prompt}\n   ${cp.fileCount} file${cp.fileCount > 1 ? "s" : ""} changed`;
+    return `${header}\n   \x1b[38;5;245m${cp.fileCount} file${cp.fileCount > 1 ? "s" : ""} changed\x1b[0m\n`;
   }
 
-  const changeLines = cp.fileChanges.map((c) => `   ${formatChangeLine(c)}`).join("\n");
-  return `${cp.prompt}\n${changeLines}`;
+  if (cp.fileChanges.length === 1) {
+    const change = cp.fileChanges[0];
+    return `${header}\n   ${change ? formatChangeLine(change) : ""}\n`;
+  }
+
+  const totalAdded = cp.fileChanges.reduce((sum, change) => sum + change.added, 0);
+  const totalRemoved = cp.fileChanges.reduce((sum, change) => sum + change.removed, 0);
+  return `${header}\n   \x1b[38;5;245m${cp.fileCount} files changed  \x1b[38;5;2m+${totalAdded}\x1b[38;5;245m \x1b[38;5;1m-${totalRemoved}\x1b[0m\n`;
 }
 
 /**
  * Register the `/rewind` command.
  *
- * Presents an interactive list of checkpoints and supports five options:
+ * Presents an interactive list of checkpoints. When the active checkpoint
+ * list contains file changes, it supports five options:
  *   1. Restore code and conversation
- *   2. Restore conversation only
- *   3. Restore code only
- *   4. Summarize from here
- *   5. Never mind
+ *   2. Restore conversation
+ *   3. Restore code
+ *   4. Restore conversation with summary
+ *   5. Restore conversation with custom summary
+ *
+ * If the checkpoint list has no file changes, code restore options are hidden.
  *
  * Dirty-guard: if the workspace has unsnapshotted changes, warns the user
  * before checking out an old commit. A safety commit is created before
@@ -45,6 +118,8 @@ export function buildCheckpointItem(cp: CheckpointEntry): string {
 export function registerRewind(
   pi: ExtensionAPI,
   getRepo: (sessionId: string) => RepoManager | undefined,
+  suppressTreeRestore: (sessionId: string) => void = () => undefined,
+  clearTreeRestoreSuppression: (sessionId: string) => void = () => undefined,
 ) {
   pi.registerCommand("rewind", {
     description: "Rewind files to a previous checkpoint",
@@ -56,44 +131,65 @@ export function registerRewind(
       }
 
       const entries = ctx.sessionManager.getEntries();
-      const cps = getCheckpointEntries(entries);
+      const branch = ctx.sessionManager.getBranch();
+      const branchCps = getBranchCheckpointEntries(entries, branch);
+      const cps = [...branchCps].reverse();
       if (cps.length === 0) {
         ctx.ui.notify("No checkpoints available", "warning");
         return;
       }
 
-      const items = cps.map((cp) => buildCheckpointItem(cp));
+      const currentItem = "(current)\n";
+      const items = [currentItem, ...cps.map((cp) => buildCheckpointItem(cp))];
 
       const selected = await ctx.ui.select("Rewind to checkpoint:", items);
       if (!selected) return;
 
       const idx = items.indexOf(selected);
-      const targetCp = cps[idx];
+      const targetCp = cps[idx - 1];
       if (!targetCp) return;
 
-      const modes = [
-        "Restore code and conversation",
-        "Restore conversation only",
-        "Restore code",
-        "Summarize from here",
-        "Never mind",
-      ];
+      const hasFileChanges = cps.some((cp) => cp.fileCount > 0);
+      const modes = hasFileChanges
+        ? [
+            "Restore code and conversation",
+            "Restore conversation",
+            "Restore code",
+            "Restore conversation with summary",
+            "Restore conversation with custom summary",
+          ]
+        : [
+            "Restore conversation",
+            "Restore conversation with summary",
+            "Restore conversation with custom summary",
+          ];
 
       const mode = await ctx.ui.select("Restore mode:", modes);
       if (!mode) return;
 
-      let latest = targetCp;
-      for (const cp of cps) {
-        latest = cp;
-      }
+      const latest = branchCps[branchCps.length - 1] ?? targetCp;
+      const restoresCode = mode === "Restore code" || mode === "Restore code and conversation";
+      const dirtyBaseCommit = restoresCode
+        ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latest.afterCommit)
+        : latest.afterCommit;
 
+      const sessionId = ctx.sessionManager.getSessionId();
       await runRestoreMode({
         mode,
         repo,
         ui: ctx.ui,
-        navigateTree: ctx.navigateTree,
+        navigateTree: async (entryId, options) => {
+          suppressTreeRestore(sessionId);
+          try {
+            return await ctx.navigateTree(entryId, options);
+          } finally {
+            clearTreeRestoreSuppression(sessionId);
+          }
+        },
         targetCp,
         latestCp: latest,
+        conversationEntryId: targetCp.userEntryId,
+        dirtyBaseCommit,
       });
     },
   });

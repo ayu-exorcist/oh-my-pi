@@ -44,6 +44,26 @@
 
 ---
 
+## 2026-06-04 Session
+
+### Decisions
+
+- Explicit concrete operations with safe defaults should not be blocked by clarification.
+- Missing details should only trigger clarification when they change the outcome or no safe default exists.
+
+### Key Changes
+
+| File                        | Summary                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AGENTS.md`                 | Added a shorter rule that concrete operations with safe defaults should execute without clarification. |
+| `.pi/ayu/tasks/ai-notes.md` | Recorded the failure hypothesis and verification plan for the rule change.                             |
+
+### Open Todos
+
+- [ ] Define a held-out benchmark or prompt suite for this clarification rule so future harness changes can be evaluated consistently.
+
+---
+
 ## 2026-06-03 Session
 
 ### Decisions
@@ -77,3 +97,27 @@
 - 2026-06-03: Vendored pi-permission-system as @ayulab/pi-permission-system, started Ayu path migration. Package tests currently paused after two failures: alias fixed, remaining failures are mostly Windows/POSIX path assertions plus a few Ayu path expectations.
 
 - 2026-06-03: Completed local @ayulab/pi-permission-system vendoring and Ayu path migration. Verified package typecheck/test/build plus root fmt/typecheck/lint/test.
+
+## 2026-06-04 Session
+
+### Decisions
+
+- Rewind checkpoint prompt attribution should use `before_agent_start.event.prompt` when available, not only branch backtracking.
+- `/rewind` should flush a pending checkpoint at `turn_end` and keep `agent_end` only as a fallback, to avoid checkpoint append lag across consecutive prompts.
+
+### Key Changes
+
+| File                                     | Summary                                                                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `extensions/pi-rewind/src/index.ts`      | Captures prompt at `before_agent_start`, flushes checkpoints at `turn_end`, and prevents duplicate finalization. |
+| `extensions/pi-rewind/src/index.test.ts` | Added regression coverage for prompt/branch drift and turn-end flush timing.                                     |
+
+### Verification
+
+- `pnpm exec vitest run extensions/pi-rewind/src/index.test.ts`
+- `pnpm exec vitest run extensions/pi-rewind/src/auto-checkpoint.test.ts extensions/pi-rewind/src/commands/rewind.test.ts`
+
+### Open Todos
+
+- [ ] Consider whether `/rewind` should also surface the captured turn prompt in the UI for easier diagnosis.
+- [ ] Investigate queued-turn checkpoint lag under rapid follow-up prompts: added session-level serialization and turn-id de-duplication to prevent duplicate or shifted `/rewind` entries.

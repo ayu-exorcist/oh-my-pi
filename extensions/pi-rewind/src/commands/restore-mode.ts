@@ -16,40 +16,27 @@ interface RunRestoreModeOptions {
   ) => Promise<unknown>;
   readonly targetCp: CheckpointEntry;
   readonly latestCp: CheckpointEntry;
+  readonly conversationEntryId?: string;
+  readonly dirtyBaseCommit?: string;
 }
 
 export async function runRestoreMode(options: RunRestoreModeOptions): Promise<void> {
-  if (options.mode.includes("Never mind")) return;
+  const conversationEntryId = options.conversationEntryId ?? options.targetCp.userEntryId;
+  const restoreCode = options.mode === "Restore code";
+  const restoreCodeAndConversation = options.mode === "Restore code and conversation";
+  const restoreConversation = options.mode === "Restore conversation";
+  const restoreConversationWithSummary = options.mode === "Restore conversation with summary";
+  const restoreConversationWithCustomSummary =
+    options.mode === "Restore conversation with custom summary";
 
-  if (options.mode === "Summarize from here") {
-    try {
-      const custom = await options.ui.input(
-        "Summary focus (optional, press Enter for default):",
-        "",
-      );
-      await options.navigateTree(
-        options.targetCp.userEntryId,
-        custom ? { summarize: true, customInstructions: custom } : { summarize: true },
-      );
-      options.ui.notify("Summarized and restored conversation", "info");
-      return;
-    } catch (err) {
-      options.ui.notify(`Rewind failed: ${errorMessage(err)}`, "error");
-      return;
-    }
-  }
-
-  const restoreCode = options.mode.includes("code");
-  const restoreConversation = options.mode.includes("conversation");
-
-  if (restoreCode && restoreConversation) {
+  if (restoreCodeAndConversation) {
     await safeRestore({
       repo: options.repo,
       ui: options.ui,
       navigateTree: options.navigateTree,
       targetCommit: options.targetCp.beforeCommit,
-      dirtyBaseCommit: options.latestCp.afterCommit,
-      targetLeafId: options.targetCp.userEntryId,
+      dirtyBaseCommit: options.dirtyBaseCommit ?? options.latestCp.afterCommit,
+      targetLeafId: conversationEntryId,
       dirtyMessage:
         "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
       failedPrefix: "Rewind failed",
@@ -60,32 +47,42 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   }
 
   if (restoreCode) {
-    const result = await options.repo.safeCheckout(
-      options.targetCp.beforeCommit,
-      options.latestCp.afterCommit,
-    );
-
-    if (!result.ok) {
-      if (result.reason === "dirty") {
-        options.ui.notify(
-          "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
-          "warning",
-        );
-      } else if (result.rollbackError) {
-        options.ui.notify(
-          `Rewind failed and rollback also failed: ${result.rollbackError}`,
-          "error",
-        );
-      } else {
-        options.ui.notify(`Rewind failed: ${result.error}`, "error");
-      }
-      return;
-    }
+    const result = await safeRestore({
+      repo: options.repo,
+      ui: options.ui,
+      navigateTree: async () => undefined,
+      targetCommit: options.targetCp.beforeCommit,
+      dirtyBaseCommit: options.dirtyBaseCommit ?? options.latestCp.afterCommit,
+      targetLeafId: conversationEntryId,
+      dirtyMessage:
+        "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      failedPrefix: "Rewind failed",
+      rollbackFailedPrefix: "Rewind failed and rollback also failed",
+      successMessage: "Rewind completed",
+    });
+    if (!result.ok) return;
   }
 
-  if (restoreConversation) {
+  if (
+    restoreConversation ||
+    restoreConversationWithSummary ||
+    restoreConversationWithCustomSummary
+  ) {
     try {
-      await options.navigateTree(options.targetCp.userEntryId, { summarize: false });
+      if (restoreConversationWithCustomSummary) {
+        const custom = await options.ui.input(
+          "Summary focus (optional, press Enter for default):",
+          "",
+        );
+        await options.navigateTree(
+          conversationEntryId,
+          custom ? { summarize: true, customInstructions: custom } : { summarize: true },
+        );
+      } else {
+        await options.navigateTree(conversationEntryId, {
+          summarize: restoreConversationWithSummary,
+        });
+      }
     } catch (err) {
       options.ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");
       return;

@@ -19,10 +19,10 @@ function isRestoreOption(value: unknown): value is RestoreOption {
 export const defaultConfig: CheckpointConfig = {
   enabled: true,
   autoCheckpoint: true,
-  restoreOnTree: "never",
   restoreOnFork: "always",
-  restoreOnClone: "never",
-  restoreOnResume: "never",
+  restoreOnClone: "always",
+  restoreOnResume: "always",
+  restoreOnTree: "never",
   defaultSummaryInstructions: "",
   exclude: [
     "node_modules/**",
@@ -44,14 +44,13 @@ export const defaultConfig: CheckpointConfig = {
  */
 export function loadConfig(settings: Record<string, unknown>): CheckpointConfig {
   const checkpoint = isRecord(settings.checkpoint) ? settings.checkpoint : {};
+  const ayu = isRecord(settings.ayu) ? settings.ayu : {};
+  const rewind = isRecord(ayu.rewind) ? ayu.rewind : {};
   return {
     enabled: isBoolean(checkpoint.enabled) ? checkpoint.enabled : defaultConfig.enabled,
     autoCheckpoint: isBoolean(checkpoint.autoCheckpoint)
       ? checkpoint.autoCheckpoint
       : defaultConfig.autoCheckpoint,
-    restoreOnTree: isRestoreOption(checkpoint.restoreOnTree)
-      ? checkpoint.restoreOnTree
-      : defaultConfig.restoreOnTree,
     restoreOnFork: isRestoreOption(checkpoint.restoreOnFork)
       ? checkpoint.restoreOnFork
       : defaultConfig.restoreOnFork,
@@ -61,6 +60,9 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
     restoreOnResume: isRestoreOption(checkpoint.restoreOnResume)
       ? checkpoint.restoreOnResume
       : defaultConfig.restoreOnResume,
+    restoreOnTree: isRestoreOption(rewind.restoreOnTree)
+      ? rewind.restoreOnTree
+      : defaultConfig.restoreOnTree,
     defaultSummaryInstructions: isString(checkpoint.defaultSummaryInstructions)
       ? checkpoint.defaultSummaryInstructions
       : defaultConfig.defaultSummaryInstructions,

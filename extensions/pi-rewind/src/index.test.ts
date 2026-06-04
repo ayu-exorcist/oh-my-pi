@@ -79,10 +79,57 @@ function createUserEntry(id: string, text: string): SessionEntry {
   };
 }
 
+function createCheckpointEntry(partial: Partial<CheckpointEntry> = {}): CheckpointEntry {
+  return {
+    v: 2,
+    kind: "checkpoint",
+    turnId: "turn-1",
+    userEntryId: "entry-1",
+    beforeCommit: "before-hash",
+    afterCommit: "after-hash",
+    prompt: "test",
+    fileCount: 0,
+    fileChanges: [],
+    createdAt: "2026-01-02T03:04:05.000Z",
+    ...partial,
+  };
+}
+
 function getAgentMessage(branch: SessionEntry[]) {
   const entry = branch[0];
   if (!entry || entry.type !== "message") throw new Error("expected message entry");
   return entry.message;
+}
+
+function createAssistantMessage() {
+  return {
+    role: "assistant",
+    content: [],
+    api: "test",
+    provider: "test",
+    model: "test",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "toolUse",
+    timestamp: Date.now(),
+  };
+}
+
+async function emitAssistantStart(
+  events: Record<string, Array<(...args: unknown[]) => unknown>>,
+  ctx: ExtensionContext,
+): Promise<void> {
+  const message = createAssistantMessage();
+  const messageStartHandlers = events["message_start"] || [];
+  for (const h of messageStartHandlers) {
+    await h({ message }, ctx);
+  }
 }
 
 function createMockContext(sessionFile: string, branch: unknown[], cwd: string): ExtensionContext {
@@ -96,6 +143,15 @@ function createMockContext(sessionFile: string, branch: unknown[], cwd: string):
 
 async function createTmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "pi-rewind-test-"));
+}
+
+async function enableTreeRestore(cwd: string): Promise<void> {
+  await fs.mkdir(path.join(cwd, ".pi"), { recursive: true });
+  await fs.writeFile(
+    path.join(cwd, ".pi", "settings.json"),
+    JSON.stringify({ ayu: { rewind: { restoreOnTree: "always" } } }),
+    "utf8",
+  );
 }
 
 describe("checkpoint extension", () => {
@@ -168,14 +224,16 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).toHaveBeenCalledWith(
@@ -187,6 +245,58 @@ describe("checkpoint extension", () => {
         prompt: "refactor auth",
       }),
     );
+  });
+
+  test("fork without selected checkpoint restores latest branch completed state", async () => {
+    const root = createUserEntry("root-entry", "create file");
+    const pending = { ...createUserEntry("pending-entry", "next prompt"), parentId: "root-entry" };
+    const checkpointEntry = createCheckpointEntry({
+      userEntryId: "root-entry",
+      beforeCommit: "root-before",
+      afterCommit: "root-after",
+    });
+    const branch = [
+      root,
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+      pending,
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ checkpoint: { restoreOnFork: "always" } }),
+      "utf8",
+    );
+
+    const sessionStartHandlers = events["session_start"] || [];
+    const srcCtx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
+    await fs.writeFile(forkSessionFile, "", "utf8");
+
+    const beforeForkHandlers = events["session_before_fork"] || [];
+    for (const h of beforeForkHandlers) {
+      await h({ entryId: "pending-entry", position: "before" }, srcCtx);
+    }
+
+    const shutdownHandlers = events["session_shutdown"] || [];
+    for (const h of shutdownHandlers) {
+      await h({ reason: "fork", targetSessionFile: forkSessionFile }, srcCtx);
+    }
+
+    const checkoutCommit = vi.spyOn(RepoManager.prototype, "checkoutCommit").mockResolvedValue();
+    const forkCtx = createMockContext(forkSessionFile, branch, tmpDir);
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
+    }
+
+    expect(checkoutCommit).toHaveBeenCalledWith("root-after");
   });
 
   test("fork copies repo and restores code to fork point", async () => {
@@ -212,10 +322,7 @@ describe("checkpoint extension", () => {
     }
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
@@ -282,12 +389,6 @@ describe("checkpoint extension", () => {
 
     const projectDir = path.join(tmpDir, "project");
     await fs.mkdir(projectDir, { recursive: true });
-    await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
-    await fs.writeFile(
-      path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnClone: "always" } }),
-      "utf8",
-    );
 
     const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
 
@@ -297,15 +398,17 @@ describe("checkpoint extension", () => {
     }
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, srcCtx);
     }
 
     const checkpointEntry = appendEntry.mock.calls
@@ -368,15 +471,17 @@ describe("checkpoint extension", () => {
     }
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, srcCtx);
     }
 
     const checkpointEntry = appendEntry.mock.calls
@@ -461,10 +566,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, srcCtx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
     await fs.writeFile(forkSessionFile, "", "utf8");
@@ -504,10 +606,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, srcCtx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
@@ -582,10 +681,7 @@ describe("checkpoint extension", () => {
     }
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
 
@@ -653,10 +749,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, srcCtx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
     await fs.writeFile(forkSessionFile, "", "utf8");
@@ -684,6 +777,48 @@ describe("checkpoint extension", () => {
     expect(markerContent).toBe("original");
   });
 
+  test("queued user decisions create separate checkpoint entries", async () => {
+    const branch = [createUserEntry("entry-1", "generate test3.txt")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+
+    await fs.writeFile(path.join(tmpDir, "test3.txt"), "test3\n", "utf8");
+    branch.push(createUserEntry("entry-2", "generate test4.txt"));
+
+    await emitAssistantStart(events, ctx);
+
+    await fs.writeFile(path.join(tmpDir, "test4.txt"), "test4\n", "utf8");
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    const first = expectCheckpointEntryCall(appendEntry, 0);
+    const second = expectCheckpointEntryCall(appendEntry, 1);
+    expect(first[1].userEntryId).toBe("entry-1");
+    expect(first[1].prompt).toBe("generate test3.txt");
+    expect(first[1].fileChanges.map((c) => c.path)).toContain("test3.txt");
+    expect(second[1].userEntryId).toBe("entry-2");
+    expect(second[1].prompt).toBe("generate test4.txt");
+    expect(second[1].fileChanges.map((c) => c.path)).toContain("test4.txt");
+  }, 15000);
+
   test("turn_end detects actual file changes", async () => {
     const branch = [createUserEntry("entry-1", "write file")];
     const { api, events, appendEntry } = createMockApi();
@@ -697,10 +832,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     await fs.writeFile(path.join(tmpDir, "test.ts"), "content", "utf8");
 
@@ -709,8 +841,58 @@ describe("checkpoint extension", () => {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
     const call = expectCheckpointEntryCall(appendEntry, 0);
     expect(call[1].fileCount).toBe(1);
+  });
+
+  test("queued turn_end and agent_end do not duplicate checkpoints", async () => {
+    const branch = [createUserEntry("entry-1", "生成空 test5.txt")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation(
+      async () => new Promise((resolve) => setTimeout(() => resolve("1\t0\ttest6.txt\n"), 10)),
+    );
+
+    await emitAssistantStart(events, ctx);
+
+    await fs.writeFile(path.join(tmpDir, "test5.txt"), "", "utf8");
+    branch.push(createUserEntry("entry-2", "生成空 test6.txt"));
+    await fs.writeFile(path.join(tmpDir, "test6.txt"), "", "utf8");
+
+    const turnEndHandlers = events["turn_end"] || [];
+    const agentEndHandlers = events["agent_end"] || [];
+    await Promise.all([
+      (async () => {
+        for (const h of turnEndHandlers) {
+          await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+        }
+      })(),
+      (async () => {
+        for (const h of agentEndHandlers) {
+          await h({ messages: [] }, ctx);
+        }
+      })(),
+    ]);
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    expect(call[1].userEntryId).toBe("entry-1");
+    expect(call[1].prompt).toBe("生成空 test5.txt");
+    expect(call[1].fileChanges.map((c) => c.path)).toContain("test6.txt");
   });
 
   test("turn_end parses diff stats correctly", async () => {
@@ -726,16 +908,18 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     await fs.writeFile(path.join(tmpDir, "b.ts"), "export const b = 2;\n", "utf8");
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     const call = expectCheckpointEntryCall(appendEntry, 0);
@@ -755,10 +939,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     await fs.writeFile(path.join(tmpDir, "test.ts"), "", "utf8");
 
@@ -767,6 +948,11 @@ describe("checkpoint extension", () => {
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     const call = expectCheckpointEntryCall(appendEntry, 0);
@@ -789,10 +975,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     await fs.writeFile(path.join(tmpDir, "test.ts"), "", "utf8");
 
@@ -801,6 +984,11 @@ describe("checkpoint extension", () => {
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     const call = expectCheckpointEntryCall(appendEntry, 0);
@@ -823,14 +1011,16 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).toHaveBeenCalled();
@@ -854,6 +1044,7 @@ describe("checkpoint extension", () => {
             customType: call[0],
             data: call[1],
           })),
+        getBranch: () => branch,
         getSessionId: () => "test-session",
       },
     } as unknown as ExtensionCommandContext;
@@ -882,10 +1073,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     expect(appendEntry).not.toHaveBeenCalled();
   });
@@ -901,6 +1089,11 @@ describe("checkpoint extension", () => {
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).not.toHaveBeenCalled();
@@ -922,6 +1115,11 @@ describe("checkpoint extension", () => {
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).not.toHaveBeenCalled();
@@ -963,10 +1161,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     expect(appendEntry).not.toHaveBeenCalled();
   });
@@ -994,10 +1189,7 @@ describe("checkpoint extension", () => {
     }
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, srcCtx);
-    }
+    await emitAssistantStart(events, srcCtx);
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
     const turnEndHandlers = events["turn_end"] || [];
@@ -1056,16 +1248,17 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     expect(appendEntry).not.toHaveBeenCalled();
   });
 
-  test("resume session_start with restoreOnResume always", async () => {
-    const branch = [createUserEntry("entry-1", "test")];
+  test("resume session_start restores latest branch checkpoint when workspace matches known checkpoint", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
     const { api, events } = createMockApi();
     const ext = await import("./index");
     ext.default(api);
@@ -1073,10 +1266,17 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnResume: "always", exclude: [] } }),
+      JSON.stringify({ checkpoint: { exclude: [] } }),
       "utf8",
     );
 
+    vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
+    vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation((commit: string) =>
+      Promise.resolve(commit === "resume-after" ? "" : "1\t0\tfile.ts\n"),
+    );
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
     const ctx = createMockContext(sessionFile, branch, tmpDir);
 
     const sessionStartHandlers = events["session_start"] || [];
@@ -1090,6 +1290,328 @@ describe("checkpoint extension", () => {
       .then(() => true)
       .catch(() => false);
     expect(gitExists).toBe(true);
+    expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
+  });
+
+  test("session_tree keeps Pi-native behavior by default", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    for (const h of treeHandlers) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("rewind conversation navigation suppresses tree file restore", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      userEntryId: "entry-1",
+      beforeCommit: "before",
+      afterCommit: "after",
+      fileCount: 0,
+      fileChanges: [],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    const rewindCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "rewind");
+    expect(rewindCall).toBeDefined();
+    if (!rewindCall) throw new Error("rewind command not registered");
+
+    const cmdCtx = {
+      ui: {
+        notify: vi.fn(),
+        select: vi
+          .fn()
+          .mockImplementationOnce((_title: string, options: string[]) => options[1])
+          .mockResolvedValueOnce("Restore conversation"),
+        input: vi.fn(),
+      },
+      navigateTree: vi.fn(async () => {
+        for (const h of treeHandlers) {
+          await h({ oldLeafId: "entry-1", newLeafId: "entry-1" }, ctx);
+        }
+      }),
+      sessionManager: {
+        getEntries: () => branch,
+        getBranch: () => branch,
+        getSessionId: () => "test-session",
+      },
+    } as unknown as ExtensionCommandContext;
+
+    await rewindCall[1].handler("", cmdCtx);
+
+    expect(cmdCtx.navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree restores latest branch checkpoint when ayu rewind restoreOnTree is always", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    for (const h of treeHandlers) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after", undefined);
+  });
+
+  test("session_tree uses old branch dirty base and target user before commit", async () => {
+    const root = { ...createUserEntry("root-user", "root"), parentId: "model" };
+    const oldUser = { ...createUserEntry("old-user", "old"), parentId: "root-user" };
+    const oldLeaf = { ...createUserEntry("old-leaf", "old leaf"), parentId: "old-user" };
+    const targetUser = { ...createUserEntry("target-user", "target"), parentId: "root-user" };
+    const unrelatedUser = {
+      ...createUserEntry("unrelated-user", "unrelated"),
+      parentId: "root-user",
+    };
+    const oldCheckpoint = createCheckpointEntry({
+      userEntryId: "old-user",
+      beforeCommit: "old-before",
+      afterCommit: "old-after",
+    });
+    const targetCheckpoint = createCheckpointEntry({
+      userEntryId: "target-user",
+      beforeCommit: "target-before",
+      afterCommit: "target-after",
+    });
+    const unrelatedLatestCheckpoint = createCheckpointEntry({
+      userEntryId: "unrelated-user",
+      beforeCommit: "unrelated-before",
+      afterCommit: "unrelated-after",
+    });
+    const entries = [
+      root,
+      oldUser,
+      oldLeaf,
+      targetUser,
+      unrelatedUser,
+      { type: "custom", customType: "pi-checkpoint", data: oldCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: targetCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: unrelatedLatestCheckpoint },
+    ];
+    const newBranch = [root, targetUser];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = {
+      ...createMockContext(sessionFile, newBranch, tmpDir),
+      sessionManager: {
+        ...createMockSessionManager(sessionFile, newBranch),
+        getEntries: () => entries,
+      },
+    } as unknown as ExtensionContext;
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const beforeTreeHandlers = events["session_before_tree"] || [];
+    for (const h of beforeTreeHandlers) {
+      await h({ preparation: { targetId: "target-user" } }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    for (const h of treeHandlers) {
+      await h({ oldLeafId: "old-leaf", newLeafId: "root-user" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("target-before", "old-after");
+  });
+
+  test("session_tree uses matching checkpoint outside old branch as dirty base", async () => {
+    const root = { ...createUserEntry("root-user", "root"), parentId: "model" };
+    const oldUser = { ...createUserEntry("old-user", "old"), parentId: "root-user" };
+    const oldLeaf = { ...createUserEntry("old-leaf", "old leaf"), parentId: "old-user" };
+    const targetUser = { ...createUserEntry("target-user", "target"), parentId: "root-user" };
+    const outsideUser = { ...createUserEntry("outside-user", "outside"), parentId: "root-user" };
+    const oldCheckpoint = createCheckpointEntry({
+      userEntryId: "old-user",
+      beforeCommit: "old-before",
+      afterCommit: "old-after",
+    });
+    const targetCheckpoint = createCheckpointEntry({
+      userEntryId: "target-user",
+      beforeCommit: "target-before",
+      afterCommit: "target-after",
+    });
+    const outsideCheckpoint = createCheckpointEntry({
+      userEntryId: "outside-user",
+      beforeCommit: "outside-before",
+      afterCommit: "outside-after",
+    });
+    const entries = [
+      root,
+      oldUser,
+      oldLeaf,
+      targetUser,
+      outsideUser,
+      { type: "custom", customType: "pi-checkpoint", data: oldCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: targetCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: outsideCheckpoint },
+    ];
+    const newBranch = [root, targetUser];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
+    vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation((commit: string) =>
+      Promise.resolve(commit === "outside-after" ? "" : "1\t0\tfile.ts\n"),
+    );
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = {
+      ...createMockContext(sessionFile, newBranch, tmpDir),
+      sessionManager: {
+        ...createMockSessionManager(sessionFile, newBranch),
+        getEntries: () => entries,
+      },
+    } as unknown as ExtensionContext;
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const beforeTreeHandlers = events["session_before_tree"] || [];
+    for (const h of beforeTreeHandlers) {
+      await h({ preparation: { targetId: "target-user" } }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    for (const h of treeHandlers) {
+      await h({ oldLeafId: "old-leaf", newLeafId: "root-user" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("target-before", "outside-after");
+  });
+
+  test("session_tree restores non-user target branch after commit", async () => {
+    const root = { ...createUserEntry("root-user", "root"), parentId: "model" };
+    const oldUser = { ...createUserEntry("old-user", "old"), parentId: "root-user" };
+    const oldLeaf = { ...createUserEntry("old-leaf", "old leaf"), parentId: "old-user" };
+    const targetUser = { ...createUserEntry("target-user", "target"), parentId: "root-user" };
+    const targetAssistant = {
+      type: "message",
+      id: "target-assistant",
+      parentId: "target-user",
+      timestamp: new Date().toISOString(),
+      message: { role: "assistant", content: "done" },
+    };
+    const oldCheckpoint = createCheckpointEntry({
+      userEntryId: "old-user",
+      beforeCommit: "old-before",
+      afterCommit: "old-after",
+    });
+    const targetCheckpoint = createCheckpointEntry({
+      userEntryId: "target-user",
+      beforeCommit: "target-before",
+      afterCommit: "target-after",
+    });
+    const entries = [
+      root,
+      oldUser,
+      oldLeaf,
+      targetUser,
+      targetAssistant,
+      { type: "custom", customType: "pi-checkpoint", data: oldCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: targetCheckpoint },
+    ];
+    const staleBranch = [root, oldUser, oldLeaf];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = {
+      ...createMockContext(sessionFile, staleBranch, tmpDir),
+      sessionManager: {
+        ...createMockSessionManager(sessionFile, staleBranch),
+        getEntries: () => entries,
+      },
+    } as unknown as ExtensionContext;
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const beforeTreeHandlers = events["session_before_tree"] || [];
+    for (const h of beforeTreeHandlers) {
+      await h({ preparation: { targetId: "target-assistant" } }, ctx);
+    }
+
+    const treeHandlers = events["session_tree"] || [];
+    for (const h of treeHandlers) {
+      await h({ oldLeafId: "old-leaf", newLeafId: "target-assistant" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("target-after", "old-after");
   });
 
   test("turn_start notifies checkpoint failure with UI", async () => {
@@ -1108,10 +1630,7 @@ describe("checkpoint extension", () => {
     vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
     vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     expect(ctx.ui.notify).toHaveBeenCalledWith("Checkpoint failed: checkpoint fail", "warning");
   });
@@ -1132,10 +1651,7 @@ describe("checkpoint extension", () => {
     vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
     vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     expect(true).toBe(true);
   });
@@ -1160,29 +1676,61 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
     expect(appendEntry).toHaveBeenCalled();
   });
 
-  test("turn_start handles plain string content", async () => {
-    const branch: SessionEntry[] = [
-      {
-        type: "message",
-        id: "entry-1",
-        parentId: null,
-        timestamp: new Date().toISOString(),
-        message: { role: "user", content: "plain text prompt", timestamp: Date.now() },
-      },
-    ];
+  test("assistant start uses the current persisted user entry instead of stale preflight prompt", async () => {
+    const branch = [createUserEntry("entry-1", "生成 test4.txt")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const beforeAgentStartHandlers = events["before_agent_start"] || [];
+    for (const h of beforeAgentStartHandlers) {
+      await h({ prompt: "生成 test4.txt", images: undefined, systemPrompt: "" }, ctx);
+    }
+
+    branch.push(createUserEntry("entry-2", "生成 test5.txt"));
+
+    await emitAssistantStart(events, ctx);
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    expect(call[1].userEntryId).toBe("entry-2");
+    expect(call[1].prompt).toBe("生成 test5.txt");
+  });
+
+  test("queued user checkpoint waits until the queued user entry is persisted", async () => {
+    const branch = [createUserEntry("entry-1", "生成 test1.txt")];
     const { api, events, appendEntry } = createMockApi();
     const ext = await import("./index");
     ext.default(api);
@@ -1196,16 +1744,111 @@ describe("checkpoint extension", () => {
 
     const turnStartHandlers = events["turn_start"] || [];
     for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
+      await h({ turnIndex: 1, timestamp: Date.now() }, ctx);
     }
+
+    branch.push(createUserEntry("entry-2", "生成 test2.txt"));
+    await emitAssistantStart(events, ctx);
+    await fs.writeFile(path.join(tmpDir, "test2.txt"), "", "utf8");
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 1, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    expect(call[1].userEntryId).toBe("entry-2");
+    expect(call[1].prompt).toBe("生成 test2.txt");
+    expect(call[1].fileChanges.map((c) => c.path)).toContain("test2.txt");
+  });
+
+  test("final assistant summary turn does not create a duplicate checkpoint", async () => {
+    const branch = [createUserEntry("entry-1", "生成一个空文件 test5.txt")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+    await fs.writeFile(path.join(tmpDir, "test5.txt"), "", "utf8");
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
     }
 
+    await emitAssistantStart(events, ctx);
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 1, message: createAssistantMessage(), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
     const call = expectCheckpointEntryCall(appendEntry, 0);
-    expect(call[1].prompt).toBe("plain text prompt");
+    expect(call[1].userEntryId).toBe("entry-1");
+    expect(call[1].prompt).toBe("生成一个空文件 test5.txt");
+    expect(call[1].fileChanges.map((c) => c.path)).toContain("test5.txt");
+  });
+
+  test("turn_end flushes checkpoint before branch advances", async () => {
+    const branch = [createUserEntry("entry-1", "生成 test4.txt")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const beforeAgentStartHandlers = events["before_agent_start"] || [];
+    for (const h of beforeAgentStartHandlers) {
+      await h({ prompt: "生成 test4.txt", images: undefined, systemPrompt: "" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+
+    branch.push(createUserEntry("entry-2", "生成 test5.txt"));
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h(
+        {
+          turnIndex: 0,
+          message: { role: "assistant", content: [], timestamp: Date.now() },
+          toolResults: [],
+        },
+        ctx,
+      );
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    expect(call[1].userEntryId).toBe("entry-1");
+    expect(call[1].prompt).toBe("生成 test4.txt");
   });
 
   test("turn_end keeps checkpoint when diffAgainst throws", async () => {
@@ -1221,16 +1864,18 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     vi.spyOn(RepoManager.prototype, "diffAgainst").mockRejectedValue(new Error("diff fail"));
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).not.toHaveBeenCalled();
@@ -1252,14 +1897,16 @@ describe("checkpoint extension", () => {
     vi.spyOn(RepoManager.prototype, "ensureReady").mockResolvedValue(undefined);
     vi.spyOn(RepoManager.prototype, "checkpoint").mockRejectedValue(new Error("checkpoint fail"));
 
-    const turnStartHandlers = events["turn_start"] || [];
-    for (const h of turnStartHandlers) {
-      await h({ turnIndex: 0, timestamp: Date.now() }, ctx);
-    }
+    await emitAssistantStart(events, ctx);
 
     const turnEndHandlers = events["turn_end"] || [];
     for (const h of turnEndHandlers) {
       await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
     }
 
     expect(appendEntry).not.toHaveBeenCalled();

@@ -17,12 +17,13 @@ The interactive selection UI presented by `/rewind`, showing historical Checkpoi
 _Avoid_: history, timeline, snapshot list
 
 **Restore Mode**:
-The four options presented after selecting a Checkpoint in `/rewind`:
+The options presented after selecting a Checkpoint in `/rewind`. When the active Checkpoint List has file changes, all five options are shown; when it has no file changes, code restore options are hidden.
 
-1. **Restore code and conversation** — checkout `beforeCommit` and navigate to the Turn's conversation entry.
-2. **Restore conversation only** — navigate to the Turn's conversation entry without checking out files. Bypasses dirty guard because no filesystem changes occur.
+1. **Restore code and conversation** — checkout `beforeCommit` and navigate to the Turn's user entry with `summarize: false`, so the selected prompt is ready to run again.
+2. **Restore conversation** — navigate to the Turn's user entry with `summarize: false` without checking out files. Bypasses dirty guard because no filesystem changes occur.
 3. **Restore code** — checkout `beforeCommit` without changing the conversation position.
-4. **Summarize from here** — navigate to the Turn with `summarize: true`, optionally accepting custom summary instructions. Does not modify files.
+4. **Restore conversation with summary** — navigate to the Turn with `summarize: true` using Pi's default branch-summary behavior. Does not modify files.
+5. **Restore conversation with custom summary** — navigate to the Turn with `summarize: true` and custom summary focus instructions. Does not modify files.
    _Avoid_: restore option, recovery mode, action
 
 **Prompt Preview**:
@@ -35,9 +36,11 @@ _Avoid_: diff stats, change metrics, file metrics
 
 ## Flagged ambiguities
 
-- **"Restore conversation only" bypasses dirty guard**: This is deliberate. Because no filesystem checkout occurs, there is no risk of overwriting unsaved work. The user's working tree remains untouched.
+- **"Restore conversation" bypasses dirty guard**: This is deliberate. Because no filesystem checkout occurs, there is no risk of overwriting unsaved work. The user's working tree remains untouched.
 - **"Restore code" does not include "only" in its name**: While it only affects files, the name is intentionally "Restore code" (not "Restore code only") to keep the UI labels concise and natural.
 - **Rewind is not undo**: `/rewind` lets the user pick any historical Checkpoint. `/undo` (provided by the UndoRedo Extension) always reverts to the most recent Checkpoint. They are different UX surfaces over the same Checkpoint data.
+- **Tree file restore is opt-in**: Pi-native `/tree` only changes conversation state. `pi-rewind` preserves that by default; set `ayu.rewind.restoreOnTree` to `"always"` to make `/tree` also restore files to the selected record's checkpoint state.
+- **Session deletion is not inferred**: If users delete sessions via `pi -r` or `/resume` with `Ctrl+D`, Pi currently has no documented deletion lifecycle hook for extensions. Do not auto-delete checkpoint storage by guessing from missing JSONL files. If Pi later adds `session_before_delete` / `session_deleted`, use that exact hook to delete only the matching session's checkpoint storage and clear related in-memory state.
 
 ## Example dialogue
 
@@ -47,7 +50,7 @@ _Avoid_: diff stats, change metrics, file metrics
 >
 > **Dev**: Should my new mode run the dirty guard?
 >
-> **Domain expert**: Only if it modifies files. Look at "Restore conversation only" — it bypasses dirty guard because it only calls `navigateTree`. If your mode writes files (like exporting a patch to disk), you should pass `latest.afterCommit` as the `dirtyBaseCommit` to `safeCheckout` or an equivalent check.
+> **Domain expert**: Only if it modifies files. Look at "Restore conversation" — it bypasses dirty guard because it only calls `navigateTree`. If your mode writes files (like exporting a patch to disk), you should pass `latest.afterCommit` as the `dirtyBaseCommit` to `safeCheckout` or an equivalent check.
 >
 > **Dev**: What if Auto Checkpoint is disabled? Should `/rewind` still work?
 >

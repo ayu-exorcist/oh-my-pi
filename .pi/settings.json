@@ -1,4 +1,9 @@
 {
+  "ayu": {
+    "rewind": {
+      "restoreOnTree": "always"
+    }
+  },
   "theme": "purple-dream",
   "sessionDir": ".pi/sessions",
   "skills": ["skills"],

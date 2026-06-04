@@ -15,16 +15,22 @@ describe("loadConfig", () => {
       checkpoint: {
         enabled: false,
         autoCheckpoint: false,
-        restoreOnTree: "always",
         restoreOnClone: "always",
+        restoreOnResume: "never",
         defaultSummaryInstructions: "focus on API",
         exclude: ["custom/**"],
+      },
+      ayu: {
+        rewind: {
+          restoreOnTree: "always",
+        },
       },
     });
     expect(config.enabled).toBe(false);
     expect(config.autoCheckpoint).toBe(false);
-    expect(config.restoreOnTree).toBe("always");
     expect(config.restoreOnClone).toBe("always");
+    expect(config.restoreOnResume).toBe("never");
+    expect(config.restoreOnTree).toBe("always");
     expect(config.defaultSummaryInstructions).toBe("focus on API");
     expect(config.exclude).toEqual(["custom/**"]);
   });
@@ -32,17 +38,21 @@ describe("loadConfig", () => {
   test("invalid restore options and missing fields fall back to defaults", () => {
     const config = loadConfig({
       checkpoint: {
-        restoreOnTree: "invalid",
         restoreOnFork: null,
         restoreOnClone: 123,
         restoreOnResume: undefined,
         defaultSummaryInstructions: null,
       },
+      ayu: {
+        rewind: {
+          restoreOnTree: "invalid",
+        },
+      },
     });
-    expect(config.restoreOnTree).toBe("never");
     expect(config.restoreOnFork).toBe("always");
-    expect(config.restoreOnClone).toBe("never");
-    expect(config.restoreOnResume).toBe("never");
+    expect(config.restoreOnClone).toBe("always");
+    expect(config.restoreOnResume).toBe("always");
+    expect(config.restoreOnTree).toBe("never");
     expect(config.defaultSummaryInstructions).toBe("");
   });
 
@@ -53,9 +63,11 @@ describe("loadConfig", () => {
         autoCheckpoint: "no",
         exclude: "not-an-array",
       },
+      ayu: "not-an-object",
     });
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
+    expect(config.restoreOnTree).toBe("never");
     expect(config.exclude).toEqual(defaultConfig.exclude);
   });
 });

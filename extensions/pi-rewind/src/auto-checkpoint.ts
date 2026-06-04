@@ -2,10 +2,12 @@ import type { CheckpointEntry, RepoManager } from "@ayulab/pi-checkpoint";
 import { errorMessage, parseDiffStats } from "@ayulab/pi-checkpoint";
 
 export type AutoCheckpointStartResult =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly entries: readonly CheckpointEntry[] }
   | { readonly ok: false; readonly message: string };
 
-export type AutoCheckpointEndResult =
+export type AutoCheckpointEndResult = { readonly ok: true } | { readonly ok: false };
+
+export type AutoCheckpointFinalizeResult =
   | { readonly ok: true; readonly entry: CheckpointEntry }
   | { readonly ok: false };
 
@@ -21,6 +23,11 @@ export interface AutoCheckpointTurnStartInput {
   readonly prompt: string;
 }
 
+export interface AutoCheckpointTurnEndInput {
+  readonly userEntryId: string;
+  readonly prompt: string;
+}
+
 export class AutoCheckpointProducer {
   private pendingTurnId: string | undefined;
 
@@ -32,7 +39,25 @@ export class AutoCheckpointProducer {
 
   constructor(private readonly options: AutoCheckpointProducerOptions) {}
 
+  beginRun(): void {
+    this.pendingTurnId = undefined;
+    this.pendingUserEntryId = undefined;
+    this.pendingBeforeCommit = undefined;
+    this.pendingPrompt = "";
+  }
+
   async turnStart(input: AutoCheckpointTurnStartInput): Promise<AutoCheckpointStartResult> {
+    const entries: CheckpointEntry[] = [];
+
+    if (this.pendingBeforeCommit) {
+      if (this.pendingUserEntryId === input.userEntryId) {
+        return { ok: true, entries };
+      }
+
+      const finalized = await this.finalizeRun();
+      if (finalized.ok) entries.push(finalized.entry);
+    }
+
     this.pendingTurnId = this.options.createTurnId();
     this.pendingUserEntryId = input.userEntryId;
     this.pendingPrompt = input.prompt;
@@ -40,13 +65,25 @@ export class AutoCheckpointProducer {
     try {
       await this.options.repo.ensureReady(this.options.exclude);
       this.pendingBeforeCommit = await this.options.repo.checkpoint(input.userEntryId);
-      return { ok: true };
+      return { ok: true, entries };
     } catch (err) {
+      this.beginRun();
       return { ok: false, message: `Checkpoint failed: ${errorMessage(err)}` };
     }
   }
 
-  async turnEnd(): Promise<AutoCheckpointEndResult> {
+  async turnEnd(input: AutoCheckpointTurnEndInput): Promise<AutoCheckpointEndResult> {
+    if (!this.pendingTurnId || !this.pendingUserEntryId || !this.pendingBeforeCommit) {
+      return { ok: false };
+    }
+
+    if (this.pendingUserEntryId === input.userEntryId) {
+      this.pendingPrompt = input.prompt;
+    }
+    return { ok: true };
+  }
+
+  async finalizeRun(): Promise<AutoCheckpointFinalizeResult> {
     if (!this.pendingTurnId || !this.pendingUserEntryId || !this.pendingBeforeCommit) {
       return { ok: false };
     }
@@ -78,10 +115,7 @@ export class AutoCheckpointProducer {
     } catch {
       return { ok: false };
     } finally {
-      this.pendingTurnId = undefined;
-      this.pendingUserEntryId = undefined;
-      this.pendingBeforeCommit = undefined;
-      this.pendingPrompt = "";
+      this.beginRun();
     }
   }
 }

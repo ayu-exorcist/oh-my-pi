@@ -84,7 +84,32 @@ describe("Rewind Restore Mode", () => {
     expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
   });
 
-  test("summarizes from here with custom instructions", async () => {
+  test("restores code and conversation via shared restore path", async () => {
+    const ui = createUi();
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: true });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+    const latest = entry({
+      userEntryId: "entry-2",
+      beforeCommit: "latest-before",
+      afterCommit: "latest-after",
+    });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: latest,
+    });
+
+    expect(repo.safeCheckout).toHaveBeenCalledWith("before", "latest-after");
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("restores conversation with custom summary instructions", async () => {
     const ui = createUi();
     ui.input.mockResolvedValue("focus on tests");
     const navigateTree = vi.fn().mockResolvedValue(undefined);
@@ -92,7 +117,7 @@ describe("Rewind Restore Mode", () => {
     const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
 
     await runRestoreMode({
-      mode: "Summarize from here",
+      mode: "Restore conversation with custom summary",
       repo,
       ui,
       navigateTree,
@@ -105,7 +130,7 @@ describe("Rewind Restore Mode", () => {
       summarize: true,
       customInstructions: "focus on tests",
     });
-    expect(ui.notify).toHaveBeenCalledWith("Summarized and restored conversation", "info");
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
   });
 
   test("reports Dirty Workspace", async () => {
@@ -134,7 +159,7 @@ describe("Rewind Restore Mode", () => {
     const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
 
     await runRestoreMode({
-      mode: "Restore conversation only",
+      mode: "Restore conversation",
       repo,
       ui,
       navigateTree: vi.fn().mockRejectedValue(new Error("nav error")),
@@ -145,14 +170,14 @@ describe("Rewind Restore Mode", () => {
     expect(ui.notify).toHaveBeenCalledWith("Conversation restore failed: nav error", "error");
   });
 
-  test("restores conversation only without checkout", async () => {
+  test("restores conversation without checkout", async () => {
     const ui = createUi();
     const navigateTree = vi.fn().mockResolvedValue(undefined);
     const repo = mockRepo({ ok: true });
     const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
 
     await runRestoreMode({
-      mode: "Restore conversation only",
+      mode: "Restore conversation",
       repo,
       ui,
       navigateTree,
