@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createReleasePlan } from "./release-plan";
+import { collectDependencies, createReleasePlan } from "./release-plan";
 import type { PackageInfo } from "./types";
 
 function pkg(
@@ -212,5 +212,16 @@ describe("Release Plan", () => {
         registryVersions: new Map([["pkg", "0.9.0"]]),
       },
     });
+  });
+
+  test("collectDependencies returns the transitive workspace closure", () => {
+    const packages = [
+      pkg("root", "1.0.0", { ext: "workspace:*" }),
+      pkg("ext", "1.0.0", { sdk: "workspace:*" }),
+      pkg("sdk", "1.0.0"),
+    ];
+    const nameMap = new Map(packages.map((p) => [p.name, p]));
+
+    expect(collectDependencies("ext", nameMap, new Set<string>())).toEqual(new Set(["ext", "sdk"]));
   });
 });

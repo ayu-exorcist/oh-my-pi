@@ -1,5 +1,76 @@
 import { execSync } from "node:child_process";
 
+function quote(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+function pathArgs(paths: readonly string[]): string {
+  return paths.length > 0 ? ` -- ${paths.map(quote).join(" ")}` : "";
+}
+
+/** Return whether a git ref exists. */
+export function hasRef(root: string, ref: string): boolean {
+  try {
+    execSync(`git rev-parse --verify ${ref}`, {
+      cwd: root,
+      stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect whether files under `paths` changed since `ref` or remain dirty in the
+ * current worktree.
+ */
+export function hasPathChangesSinceRef(
+  root: string,
+  ref: string,
+  paths: readonly string[],
+): boolean {
+  const scoped = pathArgs(paths);
+
+  try {
+    const committed = execSync(`git diff --name-only ${ref}..HEAD${scoped}`, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (committed.trim().length > 0) return true;
+  } catch {
+    // If the ref does not exist or the diff fails, fall back to a dirty check.
+  }
+
+  try {
+    const dirty = execSync(`git status --porcelain --untracked-files=all${scoped}`, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return dirty.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/** Stage the given paths for commit. */
+export function stagePaths(root: string, paths: readonly string[]): void {
+  if (paths.length === 0) return;
+  execSync(`git add -A -- ${paths.map(quote).join(" ")}`, { cwd: root, stdio: "pipe" });
+}
+
+/** Create a commit. */
+export function commit(root: string, message: string): void {
+  execSync(`git commit -m ${quote(message)}`, { cwd: root, stdio: "pipe" });
+}
+
+/** Push the current branch to origin. */
+export function pushCurrentBranch(root: string): void {
+  execSync("git push origin HEAD", { cwd: root, stdio: "pipe" });
+}
+
 /** Create a git tag for a single published package, skip if already exists. */
 export function createTag(root: string, name: string, version: string): string | null {
   const tag = `${name}@${version}`;

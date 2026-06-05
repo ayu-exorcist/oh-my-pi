@@ -20,7 +20,7 @@ function shouldPublish(version: string, registryVersion: string | null): boolean
   return version !== registryVersion;
 }
 
-function collectDependencies(
+export function collectDependencies(
   target: string,
   packagesByName: ReadonlyMap<string, PackageInfo>,
   visited: Set<string>,
