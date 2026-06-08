@@ -247,18 +247,22 @@ describe("createExtensionRuntime", () => {
   // ── Logger is created with runtime-derived paths ─────────────────────────
 
   it("creates the logger with derived debugLogPath and reviewLogPath", () => {
-    const agentDir = "/test/agent";
-    const expectedLogsDir = getGlobalLogsDir(agentDir);
-    createExtensionRuntime({ agentDir });
-    expect(mockCreateLogger).toHaveBeenCalledOnce();
-    const opts = mockCreateLogger.mock.calls[0][0] as {
-      debugLogPath: string;
-      reviewLogPath: string;
-      ensureLogsDirectory: () => string | undefined;
-    };
-    expect(opts.debugLogPath).toContain(expectedLogsDir);
-    expect(opts.reviewLogPath).toContain(expectedLogsDir);
-    expect(opts.ensureLogsDirectory()).toBeUndefined();
+    const agentDir = mkdtempSync(join(tmpdir(), "runtime-agent-"));
+    try {
+      const expectedLogsDir = getGlobalLogsDir(agentDir);
+      createExtensionRuntime({ agentDir });
+      expect(mockCreateLogger).toHaveBeenCalledOnce();
+      const opts = mockCreateLogger.mock.calls[0][0] as {
+        debugLogPath: string;
+        reviewLogPath: string;
+        ensureLogsDirectory: () => string | undefined;
+      };
+      expect(opts.debugLogPath).toContain(expectedLogsDir);
+      expect(opts.reviewLogPath).toContain(expectedLogsDir);
+      expect(opts.ensureLogsDirectory()).toBeUndefined();
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
   });
 
   it("passes getConfig that reads current runtime.config", () => {
