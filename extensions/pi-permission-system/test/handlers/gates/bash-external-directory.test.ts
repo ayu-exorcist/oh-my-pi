@@ -61,6 +61,15 @@ describe("describeBashExternalDirectoryGate", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null when command is blank", async () => {
+    const result = await describeBashExternalDirectoryGate(
+      makeTcc({ input: { command: "   " } }),
+      vi.fn().mockReturnValue(makeCheckResult("ask")),
+      vi.fn().mockReturnValue([]),
+    );
+    expect(result).toBeNull();
+  });
+
   it("returns GateBypass when all external paths are session-covered", async () => {
     const checkPermission = vi
       .fn()

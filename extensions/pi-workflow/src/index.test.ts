@@ -73,6 +73,9 @@ describe("Ayu workflow extension", () => {
     await command.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("Ayu workflow"), "info");
 
+    await command.handler("   ", ctx);
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("Ayu workflow"), "info");
+
     await command.handler("help", ctx);
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("/ayu task"), "info");
   });
@@ -86,6 +89,11 @@ describe("Ayu workflow extension", () => {
     await command.handler("task add tests", idleCtx);
     expect(sendUserMessage).toHaveBeenLastCalledWith(
       expect.stringContaining("Task input:\nadd tests"),
+    );
+
+    await command.handler("  goal   finish coverage  ", idleCtx);
+    expect(sendUserMessage).toHaveBeenLastCalledWith(
+      expect.stringContaining("Goal: finish coverage"),
     );
 
     const busyCtx = createContext({ idle: false });
@@ -103,6 +111,24 @@ describe("Ayu workflow extension", () => {
     const ctx = createContext();
 
     await command.handler("missing", ctx);
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(
+      expect.stringContaining("Ayu workflow"),
+      "warning",
+    );
+  });
+
+  test("falls back when split returns no first command", async () => {
+    const { api, commands } = createMockApi();
+    ayu(api);
+    const command = getCommand(commands, "ayu");
+    const ctx = createContext();
+    const args = {
+      trim: () => ({
+        split: () => [],
+      }),
+    };
+
+    await command.handler(args as never, ctx);
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(
       expect.stringContaining("Ayu workflow"),
       "warning",

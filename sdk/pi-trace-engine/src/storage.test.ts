@@ -67,6 +67,11 @@ describe("StorageManager", () => {
     );
   });
 
+  it("uses unknown as the trace-lab base name for cwd without a basename", () => {
+    const storage = new StorageManager(path.parse(process.cwd()).root);
+    expect(path.basename(storage.getBaseDir()).startsWith("unknown-")).toBe(true);
+  });
+
   it("saves and loads a valid session trace", async () => {
     mockReadFile.mockResolvedValueOnce(JSON.stringify(makeTrace("s1")));
     const storage = new StorageManager("/project");
@@ -251,6 +256,13 @@ notes2
     expect(reviews).toHaveLength(2);
     expect(reviews[0]?.outcome).toBe("success");
     expect(reviews[1]?.outcome).toBe("failure");
+  });
+
+  it("returns no reviews when the reviews directory cannot be read", async () => {
+    mockReaddir.mockRejectedValueOnce(new Error("ENOENT"));
+    const storage = new StorageManager("/project");
+    const reviews = await storage.loadAllReviews();
+    expect(reviews).toEqual([]);
   });
 
   it("handles corrupt review files gracefully", async () => {

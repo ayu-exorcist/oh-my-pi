@@ -55,4 +55,28 @@ describe("auto bump plan", () => {
 
     expect(plan).toEqual([]);
   });
+
+  test("skips packages that do not have a published tag", () => {
+    const packages = [pkg("a", "1.0.0")];
+
+    const plan = planAutoBumps(packages, {
+      getRegistryVersion: () => "1.0.0",
+      hasPublishedTag: () => false,
+      hasChangedInputs: () => true,
+    });
+
+    expect(plan).toEqual([]);
+  });
+
+  test("skips packages with unchanged inputs", () => {
+    const packages = [pkg("a", "1.0.0")];
+
+    const plan = planAutoBumps(packages, {
+      getRegistryVersion: () => "1.0.0",
+      hasPublishedTag: () => true,
+      hasChangedInputs: () => false,
+    });
+
+    expect(plan).toEqual([]);
+  });
 });

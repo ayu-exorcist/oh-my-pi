@@ -60,6 +60,11 @@ describe("describeSkillReadGate", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null when cwd is unavailable", () => {
+    const result = describeSkillReadGate(makeTcc({ cwd: undefined }), () => [makeSkillEntry()]);
+    expect(result).toBeNull();
+  });
+
   it("returns GateDescriptor with preResolved.state matching skill entry state (ask)", () => {
     const result = describeSkillReadGate(makeTcc(), () => [makeSkillEntry({ state: "ask" })]);
     expect(result).not.toBeNull();

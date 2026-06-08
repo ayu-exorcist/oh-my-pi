@@ -62,4 +62,18 @@ describe("release preview", () => {
       },
     ]);
   });
+
+  test("marks packages as skip when they are neither bumped nor published", () => {
+    const rows = buildReleasePreviewRows([pkg("solo", "1.0.0")], [], []);
+    expect(rows).toEqual([
+      {
+        name: "solo",
+        currentVersion: "1.0.0",
+        nextVersion: "—",
+        bump: false,
+        publish: false,
+        status: "skip",
+      },
+    ]);
+  });
 });

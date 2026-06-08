@@ -38,7 +38,22 @@ pi install npm:@ayulab/pi-rewind
 
 ## Usage
 
-The extension registers automatically after Pi starts. A checkpoint is created in the background every time you send a prompt.
+The extension registers automatically after Pi starts, and quietly captures a checkpoint for every prompt.
+
+Use `/rewind` to jump back to any earlier turn and choose the exact restore scope you want:
+
+- **Restore code and conversation** — roll both the workspace and the conversation back to the selected checkpoint
+- **Restore conversation** — revisit an earlier idea without touching files
+- **Restore code** — bring files back while keeping the current conversation position
+- **Restore conversation with summary** — move the conversation back with Pi's default summary flow
+- **Restore conversation with custom summary** — move the conversation back with custom summary focus instructions
+
+It fits the moments when you want to:
+
+- retry a prompt after fixing the code it generated
+- inspect an earlier branch of thought without changing the workspace
+- restore files from a checkpoint while staying on the current conversation path
+- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is enabled
 
 ```
 > /rewind

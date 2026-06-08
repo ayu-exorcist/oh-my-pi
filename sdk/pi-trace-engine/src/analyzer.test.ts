@@ -16,6 +16,15 @@ describe("analyzeTurn", () => {
     expect(errorLoop!.turnIndex).toBe(1);
   });
 
+  it("normalizes bash commands before counting error loops", () => {
+    const turn = new TurnCollector(1, "fix bug");
+    turn.recordToolCall({ toolName: "bash", input: { command: "pnpm test --runInBand" } });
+    turn.recordToolCall({ toolName: "bash", input: { command: "pnpm test --runInBand" } });
+
+    const trace = turn.finalize();
+    expect(trace.failureSignals.some((s) => s.type === "error_loop")).toBe(true);
+  });
+
   it("escalates error loop to critical after 4 repetitions", () => {
     const turn = new TurnCollector(1, "fix bug");
     for (let i = 0; i < 5; i++) {
@@ -100,6 +109,17 @@ describe("analyzeTurn", () => {
     expect(heuristic!.severity).toBe("info");
   });
 
+  it("does not detect verification heuristic when verification is near the end", () => {
+    const turn = new TurnCollector(1, "implement");
+    for (let i = 0; i < 5; i++) {
+      turn.recordToolCall({ toolName: "bash", input: { command: `echo ${i}` } });
+    }
+    turn.recordToolCall({ toolName: "bash", input: { command: "pnpm test" } });
+
+    const trace = turn.finalize();
+    expect(trace.failureSignals.some((s) => s.type === "verification_heuristic")).toBe(false);
+  });
+
   it("returns empty signals for clean turn", () => {
     const turn = new TurnCollector(1, "simple task");
     turn.recordToolCall({ toolName: "read", input: { path: "a.ts" } });
@@ -153,20 +173,32 @@ describe("formatSessionStats", () => {
     expect(text).toContain("Files read: 1");
   });
 
-  it("includes warning signals in output", () => {
-    const turn = new TurnCollector(1, "buggy");
+  it("includes warning and critical signal icons in output", () => {
+    const warningTurn = new TurnCollector(1, "buggy");
     for (let i = 0; i < 35; i++) {
-      turn.recordToolCall({ toolName: "read", input: { path: `f${i}.ts` } });
+      warningTurn.recordToolCall({ toolName: "read", input: { path: `f${i}.ts` } });
     }
 
-    const finalized = turn.finalize();
+    const criticalTurn = new TurnCollector(2, "very buggy");
+    for (let i = 0; i < 55; i++) {
+      criticalTurn.recordToolCall({ toolName: "read", input: { path: `f${i}.ts` } });
+    }
+
+    const infoTurn = new TurnCollector(3, "confused");
+    for (let i = 0; i < 4; i++) {
+      infoTurn.recordToolCall({ toolName: "read", input: { path: "same.ts" } });
+    }
+
+    const finalized = [warningTurn.finalize(), criticalTurn.finalize(), infoTurn.finalize()];
     const trace = {
-      turns: [finalized],
-      summary: buildSessionSummary([finalized]),
+      turns: finalized,
+      summary: buildSessionSummary(finalized),
     };
 
     const text = formatSessionStats(trace);
     expect(text).toContain("Signals:");
-    expect(text).toContain("high_retry");
+    expect(text).toContain("🟡 [T1] high_retry");
+    expect(text).toContain("🔴 [T2] high_retry");
+    expect(text).toContain("🔵 [T3] repeated_read");
   });
 });

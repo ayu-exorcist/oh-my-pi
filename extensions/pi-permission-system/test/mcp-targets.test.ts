@@ -42,6 +42,7 @@ describe("parseQualifiedMcpToolName", () => {
 
   it("returns null when tool part is empty after trimming", () => {
     expect(parseQualifiedMcpToolName("exa: ")).toBeNull();
+    expect(parseQualifiedMcpToolName("exa:   ")).toBeNull();
   });
 });
 
@@ -70,10 +71,23 @@ describe("createMcpPermissionTargets", () => {
     });
 
     it("derives server targets from configured server names when tool name ends with _<server>", () => {
+      const targets = createMcpPermissionTargets({ tool: "search_exa" }, ["", "exa"]);
+      expect(targets).toContain("exa_search_exa");
+      expect(targets).toContain("exa:search_exa");
+      expect(targets).toContain("exa");
+      expect(targets).toContain("search_exa");
+    });
+
+    it("does not derive configured-server targets when the tool does not end with the server suffix", () => {
       const targets = createMcpPermissionTargets({ tool: "exa_search" }, ["exa"]);
-      // exa_search ends with _exa? No — it ends with _search. This tool name
-      // does NOT trigger server derivation because it does not end with _exa.
+      expect(targets).not.toContain("exa_exa_search");
       expect(targets).toContain("exa_search");
+    });
+
+    it("does not derive configured-server targets when the tool already starts with the server prefix", () => {
+      const targets = createMcpPermissionTargets({ tool: "exa_search_exa" }, ["exa"]);
+      expect(targets).not.toContain("exa_exa_search_exa");
+      expect(targets).toContain("exa_search_exa");
     });
 
     it("does not include duplicate entries", () => {
@@ -145,6 +159,14 @@ describe("createMcpPermissionTargets", () => {
     it("produces mcp_status when no server/tool/connect/describe/search present", () => {
       const targets = createMcpPermissionTargets({ unrelated: "value" }, ["exa"]);
       expect(targets).toContain("mcp_status");
+    });
+
+    it("prefers connect over server and search over status", () => {
+      const connectTargets = createMcpPermissionTargets({ connect: "exa", server: "ignored" }, []);
+      expect(connectTargets[0]).toBe("mcp_connect_exa");
+
+      const searchTargets = createMcpPermissionTargets({ search: "weather", server: "exa" }, []);
+      expect(searchTargets[0]).toBe("mcp_server_exa");
     });
   });
 

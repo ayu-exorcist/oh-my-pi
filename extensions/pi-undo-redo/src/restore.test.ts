@@ -97,6 +97,25 @@ describe("UndoRedo restore", () => {
     expect(ui.notify).toHaveBeenCalledWith("Conversation restore failed: nav error", "error");
   });
 
+  test("restoreUndoTarget reports non-Error conversation failure", async () => {
+    const ui = createUi();
+
+    const result = await restoreUndoTarget({
+      repo: mockRepo({ ok: true }),
+      ui,
+      navigateTree: vi.fn().mockRejectedValue("string nav error"),
+      targetCommit: "before",
+      dirtyBaseCommit: "after",
+      targetLeafId: "entry-1",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Conversation restore failed: string nav error",
+      "error",
+    );
+  });
+
   test("restoreRedoTarget uses Redo messages", async () => {
     const ui = createUi();
     const navigateTree = vi.fn().mockResolvedValue(undefined);
@@ -115,6 +134,24 @@ describe("UndoRedo restore", () => {
     expect(repo.safeCheckout).toHaveBeenCalledWith("after", "latest-after");
     expect(navigateTree).toHaveBeenCalledWith("leaf-1", { summarize: false });
     expect(ui.notify).toHaveBeenCalledWith("Redo complete. Workspace restored.", "info");
+  });
+
+  test("restoreRedoTarget supports missing dirty base commit", async () => {
+    const ui = createUi();
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: true });
+
+    const result = await restoreRedoTarget({
+      repo,
+      ui,
+      navigateTree,
+      targetCommit: "after",
+      dirtyBaseCommit: undefined,
+      targetLeafId: "leaf-1",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(repo.safeCheckout).toHaveBeenCalledWith("after", undefined);
   });
 
   test("restoreRedoTarget reports Dirty Workspace with Redo text", async () => {

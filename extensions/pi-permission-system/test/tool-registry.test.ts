@@ -126,6 +126,21 @@ describe("checkRequestedToolRegistration", () => {
     expect(result.status).toBe("registered");
   });
 
+  test("resolves canonical request when the registered tool entry is an alias", () => {
+    const aliases = { Execute: "bash" };
+    const result = checkRequestedToolRegistration("bash", ["Execute"], aliases);
+    expect(result.status).toBe("registered");
+    if (result.status === "registered") {
+      expect(result.normalizedToolName).toBe("bash");
+    }
+  });
+
+  test("handles multiple aliases for the same canonical tool", () => {
+    const aliases = { Execute: "bash", Shell: "bash" };
+    const result = checkRequestedToolRegistration("Shell", ["Execute"], aliases);
+    expect(result.status).toBe("registered");
+  });
+
   test("returns unregistered with empty availableToolNames for empty tool list", () => {
     const result = checkRequestedToolRegistration("read", []);
     expect(result.status).toBe("unregistered");

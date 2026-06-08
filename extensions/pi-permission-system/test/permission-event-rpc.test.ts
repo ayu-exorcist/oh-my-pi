@@ -222,6 +222,47 @@ describe("registerPermissionRpcHandlers — permissions:rpc:check", () => {
     expect(reply.success).toBe(true); // good request still handled
   });
 
+  it("replies with error when surface is missing", async () => {
+    const bus = createEventBus();
+    registerPermissionRpcHandlers(bus, makeDeps());
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_CHECK_CHANNEL}:reply:req-no-surface`,
+    );
+    bus.emit(PERMISSIONS_RPC_CHECK_CHANNEL, { requestId: "req-no-surface" });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    if (!reply.success) {
+      expect(reply.error).toBe("surface is required");
+    }
+  });
+
+  it("replies with error when checkPermission throws", async () => {
+    const bus = createEventBus();
+    const deps = makeDeps({
+      getPermissionManager: vi.fn().mockReturnValue({
+        checkPermission: vi.fn().mockImplementation(() => {
+          throw new Error("check failed");
+        }),
+      }),
+    });
+    registerPermissionRpcHandlers(bus, deps);
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_CHECK_CHANNEL}:reply:req-throw`,
+    );
+    bus.emit(PERMISSIONS_RPC_CHECK_CHANNEL, { requestId: "req-throw", surface: "bash" });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    if (!reply.success) {
+      expect(reply.error).toBe("check failed");
+    }
+  });
+
   it("unsubCheck stops the handler from firing", async () => {
     const checkPermission = vi.fn().mockReturnValue(makeCheckResult("allow"));
     const bus = createEventBus();
@@ -291,6 +332,79 @@ describe("registerPermissionRpcHandlers — permissions:rpc:prompt", () => {
     if (reply.success) {
       expect(reply.data?.approved).toBe(true);
       expect(reply.data?.state).toBe("approved");
+    }
+  });
+
+  it("ignores prompt requests without requestId", async () => {
+    const bus = createEventBus();
+    const deps = makeDeps();
+    registerPermissionRpcHandlers(bus, deps);
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_PROMPT_CHANNEL}:reply:req-after-missing-id`,
+    );
+    bus.emit(PERMISSIONS_RPC_PROMPT_CHANNEL, { surface: "bash", message: "Allow?" });
+    bus.emit(PERMISSIONS_RPC_PROMPT_CHANNEL, {
+      requestId: "req-after-missing-id",
+      surface: "bash",
+      message: "Allow?",
+    });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    expect(deps.requestPermissionDecisionFromUi).not.toHaveBeenCalled();
+  });
+
+  it("replies with message required when message is missing", async () => {
+    const bus = createEventBus();
+    const ctx = makeCtxWithUi();
+    const deps = makeDeps({ getRuntimeContext: vi.fn().mockReturnValue(ctx) });
+    registerPermissionRpcHandlers(bus, deps);
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_PROMPT_CHANNEL}:reply:req-no-message`,
+    );
+    bus.emit(PERMISSIONS_RPC_PROMPT_CHANNEL, {
+      requestId: "req-no-message",
+      surface: "bash",
+      value: "git push",
+    });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    if (!reply.success) {
+      expect(reply.error).toBe("message is required");
+    }
+  });
+
+  it("replies with an error envelope when prompt UI throws", async () => {
+    const bus = createEventBus();
+    const ctx = makeCtxWithUi();
+    const deps = makeDeps({
+      getRuntimeContext: vi.fn().mockReturnValue(ctx),
+      requestPermissionDecisionFromUi: vi.fn(() => {
+        throw new Error("dialog failed");
+      }),
+    });
+    registerPermissionRpcHandlers(bus, deps);
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_PROMPT_CHANNEL}:reply:req-throw`,
+    );
+    bus.emit(PERMISSIONS_RPC_PROMPT_CHANNEL, {
+      requestId: "req-throw",
+      surface: "bash",
+      value: "git push",
+      message: "Allow git push?",
+    });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    if (!reply.success) {
+      expect(reply.error).toBe("dialog failed");
     }
   });
 
@@ -400,6 +514,29 @@ describe("registerPermissionRpcHandlers — permissions:rpc:prompt", () => {
     const reply = await replyPromise;
     expect(reply.success).toBe(false);
     expect((reply as { success: false; error: string }).error).toBe("no_ui");
+  });
+
+  it("replies with no_ui error when context is null", async () => {
+    const bus = createEventBus();
+    const deps = makeDeps({ getRuntimeContext: vi.fn().mockReturnValue(null) });
+    registerPermissionRpcHandlers(bus, deps);
+
+    const replyPromise = waitForReply<PermissionsRpcReply>(
+      bus,
+      `${PERMISSIONS_RPC_PROMPT_CHANNEL}:reply:req-null`,
+    );
+    bus.emit(PERMISSIONS_RPC_PROMPT_CHANNEL, {
+      requestId: "req-null",
+      surface: "bash",
+      value: "git push",
+      message: "Allow git push?",
+    });
+
+    const reply = await replyPromise;
+    expect(reply.success).toBe(false);
+    if (!reply.success) {
+      expect(reply.error).toBe("no_ui");
+    }
   });
 
   it("writes to the review log after a prompt decision", async () => {

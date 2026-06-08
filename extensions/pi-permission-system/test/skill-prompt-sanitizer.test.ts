@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PermissionManager } from "#src/permission-manager";
-import { findSkillPathMatch, resolveSkillPromptEntries } from "#src/skill-prompt-sanitizer";
+import {
+  findSkillPathMatch,
+  parseAllSkillPromptSections,
+  resolveSkillPromptEntries,
+} from "#src/skill-prompt-sanitizer";
 import type { PermissionCheckResult } from "#src/types";
 
 afterEach(() => {
@@ -137,6 +141,53 @@ describe("resolveSkillPromptEntries", () => {
     const result = resolveSkillPromptEntries(input, manager, null, CWD);
     expect(result.entries.map((e) => e.name)).toContain("alpha");
     expect(result.entries.map((e) => e.name)).not.toContain("beta");
+  });
+
+  test("ignores malformed skill blocks and unterminated sections", () => {
+    const malformed = [
+      "<available_skills>",
+      "  <skill><name>missing-location</name><description>desc</description></skill>",
+      "  <skill><name>   </name><description>desc</description><location>/skills/blank/SKILL.md</location></skill>",
+      "  <skill><name>valid</name><description>desc</description><location>SKILL.md</location></skill>",
+      "</available_skills>",
+      "<available_skills>",
+    ].join("\n");
+
+    const sections = parseAllSkillPromptSections(malformed);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].entries.map((entry) => entry.name)).toEqual(["valid"]);
+
+    const result = resolveSkillPromptEntries(malformed, makeManager("allow"), null, CWD);
+    expect(result.entries[0].normalizedBaseDir).toBe(CWD);
+  });
+
+  test("sets root as the parent directory for root-level skill locations", () => {
+    const input = [
+      "<available_skills>",
+      skillBlock("root", "/SKILL.md"),
+      "</available_skills>",
+    ].join("\n");
+    const result = resolveSkillPromptEntries(input, makeManager("allow"), null, CWD);
+    expect(result.entries[0].normalizedBaseDir).toBe("/");
+  });
+
+  test("decodes and re-encodes XML entities in visible skill entries", () => {
+    const input = [
+      "<available_skills>",
+      "  <skill>",
+      "    <name>research&amp;write</name>",
+      "    <description>Use &lt;docs&gt; &quot;carefully&quot; &apos;now&apos;</description>",
+      "    <location>/skills/research&amp;write/SKILL.md</location>",
+      "  </skill>",
+      "</available_skills>",
+    ].join("\n");
+
+    const result = resolveSkillPromptEntries(input, makeManager("allow"), null, CWD);
+    expect(result.entries[0].name).toBe("research&write");
+    expect(result.prompt).toContain("research&amp;write");
+    expect(result.prompt).toContain("&lt;docs&gt;");
+    expect(result.prompt).toContain("&quot;carefully&quot;");
+    expect(result.prompt).toContain("&apos;now&apos;");
   });
 });
 

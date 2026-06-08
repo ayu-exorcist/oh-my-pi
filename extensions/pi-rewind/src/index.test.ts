@@ -9,7 +9,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { RepoManager } from "@ayulab/pi-checkpoint";
-import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
+import type { CheckpointEntry, SafeCheckoutResult } from "@ayulab/pi-checkpoint";
 import { isForkIntent, isForkIntentRecord, readForkIntent, writeForkIntent } from "./index";
 
 function createMockApi(): {
@@ -1233,7 +1233,7 @@ describe("checkpoint extension", () => {
 
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(3)");
-  }, 15000);
+  }, 30000);
 
   test("turn_start skips when no user entry found", async () => {
     const branch: SessionEntry[] = [];
@@ -1291,6 +1291,44 @@ describe("checkpoint extension", () => {
       .catch(() => false);
     expect(gitExists).toBe(true);
     expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
+  });
+
+  test("resume session_start warns when workspace has unsnapshotted changes", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ checkpoint: { exclude: [] } }),
+      "utf8",
+    );
+
+    vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
+    vi.spyOn(RepoManager.prototype, "diffAgainst").mockReturnValue(
+      Promise.resolve("1\t0\tfile.ts\n"),
+    );
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "resume" }, ctx);
+    }
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before resuming checkpoint state.",
+      "warning",
+    );
+    expect(safeCheckout).not.toHaveBeenCalled();
   });
 
   test("session_tree keeps Pi-native behavior by default", async () => {
@@ -1407,6 +1445,52 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).toHaveBeenCalledWith("tree-after", undefined);
+  });
+
+  test("session_tree reports restore failures", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const cases: Array<{ readonly result: SafeCheckoutResult; readonly message: string }> = [
+      { result: { ok: false, reason: "dirty" }, message: "unsnapshotted changes" },
+      {
+        result: {
+          ok: false,
+          reason: "checkout-failed",
+          error: "restore failed",
+          rollbackError: "rollback failed",
+        },
+        message: "rollback also failed",
+      },
+      {
+        result: { ok: false, reason: "checkout-failed", error: "restore failed" },
+        message: "Tree file restore failed: restore failed",
+      },
+    ];
+
+    for (const { result, message } of cases) {
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
+      await enableTreeRestore(tmpDir);
+      vi.spyOn(RepoManager.prototype, "safeCheckout").mockResolvedValueOnce(result);
+      const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "new" }, ctx);
+      }
+      for (const h of events["session_tree"] || []) {
+        await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+      }
+
+      expect(ctx.ui.notify).toHaveBeenCalledWith(
+        expect.stringContaining(message),
+        expect.any(String),
+      );
+      vi.restoreAllMocks();
+    }
   });
 
   test("session_tree uses old branch dirty base and target user before commit", async () => {

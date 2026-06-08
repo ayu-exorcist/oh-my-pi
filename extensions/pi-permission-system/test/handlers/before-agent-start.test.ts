@@ -158,6 +158,16 @@ describe("AgentPrepHandler.handle", () => {
     expect(toolRegistry.setActive).toHaveBeenCalledWith(["read", "write"]);
   });
 
+  it("skips unnamed tool registry entries", async () => {
+    const { handler, toolRegistry } = makeHandler({
+      toolRegistry: {
+        getAll: vi.fn().mockReturnValue([{ unrelated: "x" }, null, { name: "read" }]),
+      },
+    });
+    await handler.handle(makeEvent(), makeCtx());
+    expect(toolRegistry.setActive).toHaveBeenCalledWith(["read"]);
+  });
+
   it("commits active-tools cache key after applying", async () => {
     const { handler, session } = makeHandler({
       toolRegistry: {

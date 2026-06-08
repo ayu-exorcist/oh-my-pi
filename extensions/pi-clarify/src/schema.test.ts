@@ -217,6 +217,7 @@ describe("pi-clarify schema helpers", () => {
     expect(formatAnswer({ type: "select", value: "docs", label: "Docs" })).toBe(
       "User selected: Docs",
     );
+    expect(formatAnswer({ type: "confirm", value: false })).toBe("User answered: no");
     expect(
       formatAnswer({
         type: "multiselect",
@@ -226,5 +227,12 @@ describe("pi-clarify schema helpers", () => {
         ],
       }),
     ).toBe("User selected: A, B");
+  });
+
+  test("select prompts without options use the empty default option list", () => {
+    expect(validateAskUserParams({ type: "select", message: "Choose?" })).toEqual({
+      ok: false,
+      reason: "Select and multiselect prompts require at least two options.",
+    });
   });
 });

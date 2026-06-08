@@ -158,6 +158,16 @@ describe("handleToolCall", () => {
     expect(result).toEqual({});
   });
 
+  it("allows registered tools when toolCallId is absent", async () => {
+    const { handler, session } = makeHandler();
+    const result = await handler.handleToolCall(
+      { type: "tool_call", name: "read", input: {} },
+      makeCtx(),
+    );
+    expect(result).toEqual({});
+    expect(session.checkPermission).toHaveBeenCalledWith("read", {}, undefined, []);
+  });
+
   it("blocks when tool is denied by policy", async () => {
     const { handler } = makeHandler({
       session: {

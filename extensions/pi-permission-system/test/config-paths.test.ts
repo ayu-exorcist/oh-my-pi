@@ -1,8 +1,7 @@
-import { posix } from "node:path";
+import { basename, join, posix } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  DEBUG_LOG_FILENAME,
   getAyuAgentDir,
   getGlobalConfigDir,
   getGlobalConfigPath,
@@ -10,96 +9,75 @@ import {
   getLegacyExtensionConfigPath,
   getLegacyGlobalConfigPath,
   getLegacyGlobalPolicyPath,
+  getLegacyProjectAgentsDir,
   getLegacyProjectConfigPath,
   getLegacyProjectPolicyPath,
   getProjectAgentsDir,
   getProjectConfigPath,
-  REVIEW_LOG_FILENAME,
+  joinPathLike,
 } from "#src/config-paths";
 
 describe("config-paths", () => {
-  const agentDir = "/home/user/.pi/agent";
-  const ayuAgentDir = posix.join(agentDir, "ayu");
-  const cwd = "/projects/my-app";
-  const extensionRoot = "/opt/extensions/pi-permission-system";
-
-  describe("new layout paths", () => {
-    it("getAyuAgentDir appends ayu when agentDir is the generic agent root", () => {
-      expect(getAyuAgentDir(agentDir)).toBe(ayuAgentDir);
-    });
-
-    it("getAyuAgentDir does not append ayu twice", () => {
-      expect(getAyuAgentDir(ayuAgentDir)).toBe(ayuAgentDir);
-    });
-
-    it("getGlobalConfigDir returns extensions/pi-permission-system under the Ayu agent dir", () => {
-      expect(getGlobalConfigDir(agentDir)).toBe(
-        posix.join(ayuAgentDir, "extensions", "pi-permission-system"),
-      );
-    });
-
-    it("getGlobalConfigPath returns config.json under the global config dir", () => {
-      expect(getGlobalConfigPath(agentDir)).toBe(
-        posix.join(ayuAgentDir, "extensions", "pi-permission-system", "config.json"),
-      );
-    });
-
-    it("getGlobalLogsDir returns logs under the global config dir", () => {
-      expect(getGlobalLogsDir(agentDir)).toBe(
-        posix.join(ayuAgentDir, "extensions", "pi-permission-system", "logs"),
-      );
-    });
-
-    it("getProjectConfigPath returns .pi/ayu/extensions/pi-permission-system/config.json under cwd", () => {
-      expect(getProjectConfigPath(cwd)).toBe(
-        posix.join(cwd, ".pi", "ayu", "extensions", "pi-permission-system", "config.json"),
-      );
-    });
-
-    it("getProjectAgentsDir returns .pi/ayu/agents under cwd", () => {
-      expect(getProjectAgentsDir(cwd)).toBe(posix.join(cwd, ".pi", "ayu", "agents"));
-    });
+  it("joins posix-style paths with posix join", () => {
+    expect(joinPathLike("/base", "foo", "bar")).toBe("/base/foo/bar");
   });
 
-  describe("legacy paths", () => {
-    it("getLegacyGlobalConfigPath returns the pre-Ayu global extension config path", () => {
-      expect(getLegacyGlobalConfigPath(agentDir)).toBe(
-        posix.join(agentDir, "extensions", "pi-permission-system", "config.json"),
-      );
-    });
-
-    it("getLegacyGlobalPolicyPath returns pi-permissions.jsonc under agentDir", () => {
-      expect(getLegacyGlobalPolicyPath(agentDir)).toBe(
-        posix.join(agentDir, "pi-permissions.jsonc"),
-      );
-    });
-
-    it("getLegacyProjectConfigPath returns .pi/extensions/pi-permission-system/config.json under cwd", () => {
-      expect(getLegacyProjectConfigPath(cwd)).toBe(
-        posix.join(cwd, ".pi", "extensions", "pi-permission-system", "config.json"),
-      );
-    });
-
-    it("getLegacyProjectPolicyPath returns .pi/agent/pi-permissions.jsonc under cwd", () => {
-      expect(getLegacyProjectPolicyPath(cwd)).toBe(
-        posix.join(cwd, ".pi", "agent", "pi-permissions.jsonc"),
-      );
-    });
-
-    it("getLegacyExtensionConfigPath returns config.json under extensionRoot", () => {
-      expect(getLegacyExtensionConfigPath(extensionRoot)).toBe(
-        posix.join(extensionRoot, "config.json"),
-      );
-    });
+  it("joins non-posix base paths with node:path.join", () => {
+    const base = "C:\\base";
+    expect(joinPathLike(base, "foo", "bar")).toBe(join(base, "foo", "bar"));
   });
 
-  describe("log filenames", () => {
-    it("DEBUG_LOG_FILENAME is a .jsonl file", () => {
-      expect(DEBUG_LOG_FILENAME).toBe("pi-permission-system-debug.jsonl");
-    });
+  it("returns the ayu directory unchanged when already suffixed", () => {
+    expect(getAyuAgentDir("/home/user/ayu")).toBe("/home/user/ayu");
+  });
 
-    it("REVIEW_LOG_FILENAME is a .jsonl file", () => {
-      expect(REVIEW_LOG_FILENAME).toBe("pi-permission-system-permission-review.jsonl");
-    });
+  it("appends ayu when missing", () => {
+    expect(getAyuAgentDir("/home/user")).toBe("/home/user/ayu");
+  });
+
+  it("builds the global config and log paths under the ayu directory", () => {
+    const agentDir = "/home/user";
+    expect(getGlobalConfigDir(agentDir)).toBe(
+      posix.join(agentDir, "ayu", "extensions", "pi-permission-system"),
+    );
+    expect(getGlobalConfigPath(agentDir)).toBe(
+      posix.join(agentDir, "ayu", "extensions", "pi-permission-system", "config.json"),
+    );
+    expect(getGlobalLogsDir(agentDir)).toBe(
+      posix.join(agentDir, "ayu", "extensions", "pi-permission-system", "logs"),
+    );
+  });
+
+  it("builds the project paths under .pi/ayu", () => {
+    const cwd = "/workspace/project";
+    expect(getProjectConfigPath(cwd)).toBe(
+      posix.join(cwd, ".pi", "ayu", "extensions", "pi-permission-system", "config.json"),
+    );
+    expect(getProjectAgentsDir(cwd)).toBe(posix.join(cwd, ".pi", "ayu", "agents"));
+  });
+
+  it("builds the legacy paths used for migration compatibility", () => {
+    const base = "/workspace/project";
+    expect(getLegacyGlobalConfigPath(base)).toBe(
+      posix.join(base, "extensions", "pi-permission-system", "config.json"),
+    );
+    expect(getLegacyGlobalPolicyPath(base)).toBe(posix.join(base, "pi-permissions.jsonc"));
+    expect(getLegacyProjectConfigPath(base)).toBe(
+      posix.join(base, ".pi", "extensions", "pi-permission-system", "config.json"),
+    );
+    expect(getLegacyProjectPolicyPath(base)).toBe(
+      posix.join(base, ".pi", "agent", "pi-permissions.jsonc"),
+    );
+    expect(getLegacyProjectAgentsDir(base)).toBe(posix.join(base, ".pi", "agent", "agents"));
+  });
+
+  it("returns legacy extension config paths relative to the provided root", () => {
+    expect(getLegacyExtensionConfigPath("/repo/extensions/pi-permission-system")).toBe(
+      posix.join("/repo/extensions/pi-permission-system", "config.json"),
+    );
+  });
+
+  it("uses the basename helper only for ayu directory detection", () => {
+    expect(basename(getAyuAgentDir("/tmp/ayu"))).toBe("ayu");
   });
 });

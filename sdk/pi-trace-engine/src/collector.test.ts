@@ -25,15 +25,21 @@ describe("TurnCollector", () => {
   it("records write tool calls", () => {
     const turn = new TurnCollector(1, "write file");
     turn.recordToolCall({ toolName: "write", input: { path: "output.txt" } });
+    turn.recordToolCall({ toolName: "write", input: { file_path: "fallback.txt" } });
 
-    expect(turn.filesWritten).toEqual(["output.txt"]);
+    expect(turn.filesWritten).toEqual(["output.txt", "fallback.txt"]);
+    expect(turn.toolCalls[1]!.inputSummary).toBe("write:fallback.txt");
   });
 
   it("records edit tool calls", () => {
     const turn = new TurnCollector(1, "edit file");
     turn.recordToolCall({ toolName: "edit", input: { path: "src/index.ts" } });
+    turn.recordToolCall({ toolName: "edit", input: { file_path: "src/fallback.ts" } });
+    turn.recordToolCall({ toolName: "edit", input: {} });
 
-    expect(turn.filesEdited).toEqual(["src/index.ts"]);
+    expect(turn.filesEdited).toEqual(["src/index.ts", "src/fallback.ts"]);
+    expect(turn.toolCalls[1]!.inputSummary).toBe("edit:src/fallback.ts");
+    expect(turn.toolCalls[2]!.inputSummary).toBe("edit:?");
   });
 
   it("records bash tool calls and detects verification commands", () => {
@@ -52,6 +58,12 @@ describe("TurnCollector", () => {
     expect(turn.commandsRun[3]!.isVerification).toBe(true);
     expect(turn.commandsRun[4]!.isVerification).toBe(true);
     expect(turn.commandsRun[5]!.isVerification).toBe(false);
+  });
+
+  it("treats command verification heuristics conservatively", () => {
+    const turn = new TurnCollector(1, "run tests");
+    turn.recordToolCall({ toolName: "bash", input: { command: "pnpm test --runInBand" } });
+    expect(turn.commandsRun[0]!.isVerification).toBe(true);
   });
 
   it("records unknown tool calls", () => {
@@ -80,6 +92,14 @@ describe("TurnCollector", () => {
     expect(turn.commandsRun).toHaveLength(1);
     expect(turn.commandsRun[0]!.command).toBe("");
     expect(turn.commandsRun[0]!.isVerification).toBe(false);
+  });
+
+  it("truncates long bash command summaries", () => {
+    const turn = new TurnCollector(1, "bash long command");
+    const command = "x".repeat(61);
+    turn.recordToolCall({ toolName: "bash", input: { command } });
+
+    expect(turn.toolCalls[0]!.inputSummary).toBe(`bash:${"x".repeat(60)}…`);
   });
 
   it("deduplicates files in finalize", () => {

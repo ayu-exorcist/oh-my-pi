@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PermissionSystemExtensionConfig } from "#src/extension-config";
-import { canResolveAskPermissionRequest, shouldAutoApprovePermissionState } from "#src/yolo-mode";
+import {
+  canResolveAskPermissionRequest,
+  isYoloModeEnabled,
+  shouldAutoApprovePermissionState,
+} from "#src/yolo-mode";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -9,6 +13,14 @@ afterEach(() => {
 function makeConfig(yoloMode: boolean | undefined): PermissionSystemExtensionConfig {
   return { yoloMode } as PermissionSystemExtensionConfig;
 }
+
+describe("isYoloModeEnabled", () => {
+  test("coerces runtime yoloMode values defensively", () => {
+    expect(isYoloModeEnabled(makeConfig(true))).toBe(true);
+    expect(isYoloModeEnabled(makeConfig(false))).toBe(false);
+    expect(isYoloModeEnabled(makeConfig(undefined))).toBe(false);
+  });
+});
 
 describe("shouldAutoApprovePermissionState", () => {
   test("returns true for 'ask' when yolo mode is on", () => {

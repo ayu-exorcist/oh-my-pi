@@ -174,6 +174,12 @@ describe("parseSimpleYamlMap", () => {
     expect(result.parent).toEqual({ child: "nested_value" });
   });
 
+  test("pops nested stack when indentation returns to parent level", () => {
+    const yaml = "parent:\n  child: nested_value\nsibling: value";
+    const result = parseSimpleYamlMap(yaml);
+    expect(result).toEqual({ parent: { child: "nested_value" }, sibling: "value" });
+  });
+
   test("handles multi-line values correctly (second line is new key)", () => {
     const yaml = "key1: val1\nkey2: val2";
     const result = parseSimpleYamlMap(yaml);

@@ -46,12 +46,6 @@ export function compileWildcardPatternEntries<TState>(
   return Array.from(entries, ([pattern, state]) => compileWildcardPattern(pattern, state));
 }
 
-function _compileWildcardPatterns<TState>(
-  patterns: Record<string, TState>,
-): CompiledWildcardPattern<TState>[] {
-  return compileWildcardPatternEntries(Object.entries(patterns));
-}
-
 export function findCompiledWildcardMatch<TState>(
   patterns: readonly CompiledWildcardPattern<TState>[],
   name: string,

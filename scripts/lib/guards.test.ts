@@ -18,5 +18,6 @@ describe("script guards", () => {
     expect(isPkgJson({ name: "pkg", version: "1.0.0" })).toBe(true);
     expect(isPkgJson({ name: "pkg" })).toBe(false);
     expect(isPkgJson(null)).toBe(false);
+    expect(isPkgJson({ name: "pkg", version: 1 })).toBe(false);
   });
 });

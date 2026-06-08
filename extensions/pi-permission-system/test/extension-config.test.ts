@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   detectMisplacedPermissionKeys,
+  ensurePermissionSystemLogsDirectory,
   normalizePermissionSystemConfig,
 } from "#src/extension-config";
 
@@ -114,6 +118,20 @@ describe("normalizePermissionSystemConfig", () => {
     expect(result.yoloMode).toBe(false);
   });
 
+  it("preserves string pi infrastructure read paths", () => {
+    const result = normalizePermissionSystemConfig({
+      piInfrastructureReadPaths: ["/tmp/pi", "~/agent"],
+    });
+    expect(result.piInfrastructureReadPaths).toEqual(["/tmp/pi", "~/agent"]);
+  });
+
+  it("drops non-string pi infrastructure read paths", () => {
+    const result = normalizePermissionSystemConfig({
+      piInfrastructureReadPaths: ["/tmp/pi", 123],
+    });
+    expect(result.piInfrastructureReadPaths).toBeUndefined();
+  });
+
   it("handles null/undefined input gracefully", () => {
     const result = normalizePermissionSystemConfig(null);
     expect(result).toEqual({
@@ -121,5 +139,29 @@ describe("normalizePermissionSystemConfig", () => {
       permissionReviewLog: true,
       yoloMode: false,
     });
+  });
+});
+
+describe("ensurePermissionSystemLogsDirectory", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "permission-system-logs-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("creates log directories recursively", () => {
+    expect(ensurePermissionSystemLogsDirectory(join(root, "nested", "logs"))).toBeUndefined();
+  });
+
+  it("returns a warning when log directory creation fails", () => {
+    const filePath = join(root, "not-a-dir");
+    writeFileSync(filePath, "file", "utf8");
+    expect(ensurePermissionSystemLogsDirectory(filePath)).toContain(
+      "Failed to create permission-system log directory",
+    );
   });
 });

@@ -191,7 +191,24 @@ Update the session journal with a concise summary:
 
 ## Using /rewind
 
-After starting Pi, the Rewind extension registers automatically. Every prompt you send triggers a background checkpoint. Selecting a checkpoint rewinds code to the state before that prompt ran, so the selected turn can be run again. Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"always"` if you want `/tree` to restore files too.
+After starting Pi, the Rewind extension registers automatically and captures a checkpoint for every prompt.
+
+Use `/rewind` to return to any earlier turn and choose the restore scope that matches what you want to do:
+
+- **Restore code and conversation** — roll the workspace and the conversation back together
+- **Restore conversation** — revisit an earlier idea without touching files
+- **Restore code** — bring files back while keeping the current conversation position
+- **Restore conversation with summary** — move the conversation back using Pi's default summary flow
+- **Restore conversation with custom summary** — move the conversation back with custom summary focus instructions
+
+It shines when you want to:
+
+- retry a prompt after fixing the code it produced
+- inspect an earlier branch of thought without changing the workspace
+- restore files from a checkpoint and keep working on the same conversation path
+- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is enabled
+
+Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"always"` if you want `/tree` to restore files too.
 
 ```
 > /rewind

@@ -224,4 +224,26 @@ describe("Release Plan", () => {
 
     expect(collectDependencies("ext", nameMap, new Set<string>())).toEqual(new Set(["ext", "sdk"]));
   });
+
+  test("publishAll can include every out-of-date package even with missing dependency metadata", () => {
+    const packages = [pkg("a", "1.0.0"), pkg("b", "1.0.0", { a: "workspace:*" })];
+
+    const result = createReleasePlan({
+      packages,
+      targets: [],
+      publishAll: true,
+      getRegistryVersion: registry({ a: "0.9.0", b: "0.9.0" }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      plan: {
+        packages,
+        registryVersions: new Map([
+          ["a", "0.9.0"],
+          ["b", "0.9.0"],
+        ]),
+      },
+    });
+  });
 });

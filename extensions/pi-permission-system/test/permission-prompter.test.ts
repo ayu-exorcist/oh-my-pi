@@ -275,6 +275,23 @@ describe("PermissionPrompter", () => {
         undefined,
       );
     });
+
+    it("builds forwarding deps with the review logger and disabled auto-approve", async () => {
+      const writeReviewLog = vi.fn();
+      mockConfirmPermission.mockImplementation(async (_ctx, _message, deps) => {
+        expect(deps.shouldAutoApprove()).toBe(false);
+        expect(deps.logger.writeReviewLog).toBe(deps.writeReviewLog);
+        expect(deps.logger.writeDebugLog("debug.event")).toBeUndefined();
+        deps.writeReviewLog("forwarding_check", { ok: true });
+        return { approved: true, state: "approved" };
+      });
+      const deps = makeDeps({ writeReviewLog });
+      const prompter = new PermissionPrompter(deps);
+
+      await prompter.prompt(makeCtx(true), makeDetails());
+
+      expect(writeReviewLog).toHaveBeenCalledWith("forwarding_check", { ok: true });
+    });
   });
 
   // ── Review log field coverage ────────────────────────────────────────────
@@ -326,17 +343,25 @@ describe("PermissionPrompter", () => {
       const deps = makeDeps({ writeReviewLog });
       const prompter = new PermissionPrompter(deps);
 
-      await prompter.prompt(makeCtx(true), makeDetails());
+      await prompter.prompt(makeCtx(true), makeDetails({ toolName: undefined }));
+      await prompter.prompt(makeCtx(true), makeDetails({ toolName: "" }));
 
       expect(writeReviewLog).toHaveBeenCalledWith(
         "permission_request.waiting",
         expect.objectContaining({
           toolCallId: null,
+          toolName: null,
           skillName: null,
           path: null,
           command: null,
           target: null,
           toolInputPreview: null,
+        }),
+      );
+      expect(writeReviewLog).toHaveBeenCalledWith(
+        "permission_request.waiting",
+        expect.objectContaining({
+          toolName: "",
         }),
       );
     });

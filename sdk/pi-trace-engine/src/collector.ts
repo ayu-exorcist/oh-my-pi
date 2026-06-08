@@ -94,7 +94,7 @@ export class TurnCollector {
         this.filesRead.push(filePath);
       } else if (event.toolName === "write") {
         this.filesWritten.push(filePath);
-      } else if (event.toolName === "edit") {
+      } else {
         this.filesEdited.push(filePath);
       }
     }

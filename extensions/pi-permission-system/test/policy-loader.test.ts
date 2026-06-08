@@ -87,7 +87,7 @@ describe("FilePolicyLoader.loadProjectConfig", () => {
     expect(config).toEqual({});
   });
 
-  it("returns ScopeConfig from a project config file", () => {
+  it("returns ScopeConfig from a project config file and caches it", () => {
     const baseDir = makeTempDir();
     try {
       const projectConfigPath = join(baseDir, "project-config.json");
@@ -98,7 +98,9 @@ describe("FilePolicyLoader.loadProjectConfig", () => {
         projectGlobalConfigPath: projectConfigPath,
       });
       const config = loader.loadProjectConfig();
+      const cached = loader.loadProjectConfig();
       expect(config.permission).toEqual({ bash: "allow" });
+      expect(cached).toBe(config);
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }
@@ -196,25 +198,41 @@ describe("FilePolicyLoader.getConfigIssues", () => {
 // ---------------------------------------------------------------------------
 
 describe("FilePolicyLoader.getResolvedPolicyPaths", () => {
+  it("uses default paths when no constructor overrides are provided", () => {
+    const loader = new FilePolicyLoader();
+    const paths = loader.getResolvedPolicyPaths();
+    expect(paths.globalConfigPath).toContain("pi-permission-system");
+    expect(paths.agentsDir).toContain("agents");
+  });
+
   it("returns correct paths and existence when files exist", () => {
     const baseDir = makeTempDir();
     try {
       const globalConfigPath = join(baseDir, "config.json");
+      const projectConfigPath = join(baseDir, "project-config.json");
       const agentsDir = join(baseDir, "agents");
+      const projectAgentsDir = join(baseDir, "project-agents");
       writeFileSync(globalConfigPath, "{}");
+      writeFileSync(projectConfigPath, "{}");
       mkdirSync(agentsDir, { recursive: true });
+      mkdirSync(projectAgentsDir, { recursive: true });
 
-      const loader = new FilePolicyLoader({ globalConfigPath, agentsDir });
+      const loader = new FilePolicyLoader({
+        globalConfigPath,
+        agentsDir,
+        projectGlobalConfigPath: projectConfigPath,
+        projectAgentsDir,
+      });
       const paths = loader.getResolvedPolicyPaths();
 
       expect(paths.globalConfigPath).toBe(globalConfigPath);
       expect(paths.globalConfigExists).toBe(true);
       expect(paths.agentsDir).toBe(agentsDir);
       expect(paths.agentsDirExists).toBe(true);
-      expect(paths.projectConfigPath).toBeNull();
-      expect(paths.projectConfigExists).toBe(false);
-      expect(paths.projectAgentsDir).toBeNull();
-      expect(paths.projectAgentsDirExists).toBe(false);
+      expect(paths.projectConfigPath).toBe(projectConfigPath);
+      expect(paths.projectConfigExists).toBe(true);
+      expect(paths.projectAgentsDir).toBe(projectAgentsDir);
+      expect(paths.projectAgentsDirExists).toBe(true);
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }
@@ -278,6 +296,31 @@ describe("FilePolicyLoader.getCacheStamp", () => {
       const stampWith = loader.getCacheStamp("coder");
       // Agent file exists, so the stamp differs from the no-agent case.
       expect(stampWithout).not.toBe(stampWith);
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes project and project-agent stamps when configured", () => {
+    const baseDir = makeTempDir();
+    try {
+      const agentsDir = join(baseDir, "agents");
+      const projectAgentsDir = join(baseDir, "project-agents");
+      const projectConfigPath = join(baseDir, "project-config.json");
+      mkdirSync(agentsDir, { recursive: true });
+      mkdirSync(projectAgentsDir, { recursive: true });
+      writeFileSync(join(baseDir, "config.json"), "{}");
+      writeFileSync(projectConfigPath, "{}");
+      writeFileSync(join(projectAgentsDir, "coder.md"), "---\npermission:\n  read: allow\n---\n");
+
+      const loader = new FilePolicyLoader({
+        globalConfigPath: join(baseDir, "config.json"),
+        agentsDir,
+        projectGlobalConfigPath: projectConfigPath,
+        projectAgentsDir,
+      });
+
+      expect(loader.getCacheStamp("coder")).toContain("|");
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }
@@ -361,6 +404,8 @@ describe("FilePolicyLoader agent frontmatter", () => {
         agentsDir,
       });
       const config = loader.loadAgentConfig("coder");
+      const cached = loader.loadAgentConfig("coder");
+      expect(cached).toBe(config);
       expect(config.permission).toBeDefined();
       expect(config.permission?.bash).toEqual({
         "git *": "allow",
@@ -454,6 +499,23 @@ describe("FilePolicyLoader.getConfiguredMcpServerNames", () => {
       });
       const names = loader.getConfiguredMcpServerNames();
       expect(names).toEqual(expect.arrayContaining(["exa", "research"]));
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads legacy mcp-servers key and sorts equal-length names lexicographically", () => {
+    const baseDir = makeTempDir();
+    try {
+      const mcpConfigPath = join(baseDir, "mcp.json");
+      writeFileSync(mcpConfigPath, JSON.stringify({ "mcp-servers": { beta: {}, alfa: {} } }));
+
+      const loader = new FilePolicyLoader({
+        globalConfigPath: "/nonexistent/config.json",
+        agentsDir: "/nonexistent/agents",
+        globalMcpConfigPath: mcpConfigPath,
+      });
+      expect(loader.getConfiguredMcpServerNames()).toEqual(["alfa", "beta"]);
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }

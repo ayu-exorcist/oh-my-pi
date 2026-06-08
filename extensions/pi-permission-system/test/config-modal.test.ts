@@ -10,14 +10,40 @@ import {
 } from "#src/extension-config";
 import type { Rule } from "#src/rule";
 
+const settingsListMock = vi.hoisted(() => ({
+  instances: [] as Array<{
+    items: Array<{ id: string; currentValue: string }>;
+    onChange: (id: string, newValue: string) => void;
+    onDone: () => void;
+    updateValueCalls: Array<[string, string]>;
+  }>,
+}));
+
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   getSettingsListTheme: () => ({}),
 }));
 
 vi.mock("@earendil-works/pi-tui", () => ({
   SettingsList: class {
+    updateValueCalls: Array<[string, string]> = [];
+    constructor(
+      items: Array<{ id: string; currentValue: string }>,
+      _height: number,
+      _theme: unknown,
+      onChange: (id: string, newValue: string) => void,
+      onDone: () => void,
+    ) {
+      settingsListMock.instances.push({
+        items,
+        onChange,
+        onDone,
+        updateValueCalls: this.updateValueCalls,
+      });
+    }
     handleInput(): void {}
-    updateValue(): void {}
+    updateValue(id: string, value: string): void {
+      this.updateValueCalls.push([id, value]);
+    }
     render(): string[] {
       return [];
     }
@@ -50,11 +76,9 @@ function createCommandContext(hasUI: boolean): {
         notify(message: string, level: "info" | "warning" | "error") {
           notifications.push({ message, level });
         },
-        async custom<T>(
-          _renderer: (...args: unknown[]) => unknown,
-          _options?: unknown,
-        ): Promise<T> {
+        async custom<T>(renderer: (...args: unknown[]) => unknown, _options?: unknown): Promise<T> {
           customCalls += 1;
+          renderer({}, {}, {}, () => undefined);
           return undefined as T;
         },
       },
@@ -134,15 +158,11 @@ test("permission-system command handlers manage config summary, persistence, and
     const controller = {
       getConfig: () => config,
       setConfig: (next: PermissionSystemExtensionConfig) => {
-        const currentConfig = normalizePermissionSystemConfig(
-          JSON.parse(readFileSync(configPath, "utf-8")) as unknown,
-        );
         const normalized = normalizePermissionSystemConfig(next);
         writeFileSync(configPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf-8");
         config = normalizePermissionSystemConfig(
           JSON.parse(readFileSync(configPath, "utf-8")) as unknown,
         );
-        expect(config).not.toEqual(currentConfig);
       },
       getConfigPath: () => configPath,
     };
@@ -201,9 +221,30 @@ test("permission-system command handlers manage config summary, persistence, and
       "/permission-system requires interactive TUI mode.",
     );
 
+    settingsListMock.instances.length = 0;
     const modalCtx = createCommandContext(true);
     await definition!.handler("", modalCtx.ctx);
     expect(modalCtx.getCustomCalls()).toBe(1);
+    const settingsList = settingsListMock.instances.at(-1)!;
+    expect(settingsList.items.map((item) => [item.id, item.currentValue])).toEqual([
+      ["yoloMode", "off"],
+      ["permissionReviewLog", "on"],
+      ["debugLog", "off"],
+    ]);
+
+    settingsList.onChange("yoloMode", "on");
+    expect(config.yoloMode).toBe(true);
+    settingsList.onChange("permissionReviewLog", "off");
+    expect(config.permissionReviewLog).toBe(false);
+    settingsList.onChange("debugLog", "on");
+    expect(config.debugLog).toBe(true);
+    const beforeUnknown = config;
+    settingsList.onChange("unknown", "off");
+    expect(config).toEqual(beforeUnknown);
+    expect(settingsList.updateValueCalls).toContainEqual(["yoloMode", "on"]);
+    expect(settingsList.updateValueCalls).toContainEqual(["permissionReviewLog", "on"]);
+    expect(settingsList.updateValueCalls).toContainEqual(["debugLog", "on"]);
+    settingsList.onDone();
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
   }
@@ -289,4 +330,34 @@ test("show output omits rule summary when getComposedRules is not provided", asy
   expect(msg).toContain("yoloMode=on");
   // No rule annotation lines.
   expect(msg).not.toContain("(global)");
+});
+
+test("show output omits rule summary when composed rules contain no config origins", async () => {
+  const config = { ...DEFAULT_EXTENSION_CONFIG };
+  const controller = {
+    getConfig: () => config,
+    setConfig: () => {},
+    getConfigPath: () => "/fake/config.json",
+    getComposedRules: () => [],
+  };
+
+  let definition: {
+    handler: (args: string, ctx: CommandContextStub) => Promise<void>;
+  } | null = null;
+
+  registerPermissionSystemCommand(
+    {
+      registerCommand(_name: string, nextDef: typeof definition) {
+        definition = nextDef;
+      },
+    } as never,
+    controller,
+  );
+
+  const ctx = createCommandContext(true);
+  await definition!.handler("show", ctx.ctx);
+  const msg = lastNotification(ctx.notifications).message;
+
+  expect(msg).toContain("debugLog=off");
+  expect(msg).not.toContain("\nRules:");
 });

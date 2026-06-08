@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { normalizeInput } from "#src/input-normalizer";
+import { buildInputForSurface, normalizeInput } from "#src/input-normalizer";
 import { createMcpPermissionTargets } from "#src/mcp-targets";
+
+describe("buildInputForSurface", () => {
+  it("builds surface-specific input payloads from values", () => {
+    expect(buildInputForSurface("bash", "git status")).toEqual({ command: "git status" });
+    expect(buildInputForSurface("skill", "librarian")).toEqual({ name: "librarian" });
+    expect(buildInputForSurface("external_directory", "/outside")).toEqual({ path: "/outside" });
+    expect(buildInputForSurface("mcp", "exa:search")).toEqual({});
+  });
+
+  it("defaults missing values to empty strings", () => {
+    expect(buildInputForSurface("bash", undefined)).toEqual({ command: "" });
+  });
+});
 
 describe("normalizeInput — non-MCP surfaces", () => {
   describe("special / path", () => {

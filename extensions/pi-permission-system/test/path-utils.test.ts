@@ -33,6 +33,10 @@ describe("normalizePathForComparison", () => {
     expect(normalizePathForComparison("src/foo.ts", cwd)).toBe("/projects/my-app/src/foo.ts");
   });
 
+  test("uses POSIX normalization when the path itself is POSIX-style", () => {
+    expect(normalizePathForComparison("/opt/../usr/bin", "C:\\repo")).toBe("/usr/bin");
+  });
+
   test("expands bare ~ to homedir", () => {
     expect(normalizePathForComparison("~", cwd)).toBe("/mock/home");
   });
@@ -65,6 +69,7 @@ describe("isPathWithinDirectory", () => {
 
   test("returns true when path is a direct child", () => {
     expect(isPathWithinDirectory("/a/b/c", "/a/b")).toBe(true);
+    expect(isPathWithinDirectory("/a/b/c", "/a/b/")).toBe(true);
   });
 
   test("returns true when path is a deep descendant", () => {

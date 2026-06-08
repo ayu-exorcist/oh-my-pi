@@ -512,6 +512,19 @@ describe("renderCall", () => {
     expect(selectTheme.fg).toHaveBeenCalledWith("text", "Custom: Other");
     expect(selectTheme.fg).toHaveBeenCalledWith("muted", "First");
 
+    const sparseSelectTheme = createMockTheme();
+    renderClarifyCall(
+      {
+        type: "select",
+        message: "Choose",
+        options: [{ value: "a", label: "A" }, undefined] as never,
+        allowCustom: true,
+        customLabel: "   ",
+      },
+      sparseSelectTheme,
+    );
+    expect(sparseSelectTheme.fg).toHaveBeenCalledWith("text", "Custom: Custom...");
+
     const multiselectTheme = createMockTheme();
     renderClarifyCall(
       {
@@ -537,6 +550,21 @@ describe("renderCall", () => {
   test("handles non-string message", () => {
     const theme = createMockTheme();
     const result = renderClarifyCall({ message: 123 }, theme);
+    expect(result).toBeDefined();
+  });
+
+  test("renders select fallback branches", () => {
+    const noOptionsTheme = createMockTheme();
+    renderClarifyCall({ type: "select", message: "Choose", allowCustom: false }, noOptionsTheme);
+    expect(noOptionsTheme.fg).toHaveBeenCalledWith(
+      "muted",
+      "Reply with option number. Empty message to cancel.",
+    );
+  });
+
+  test("renders an empty text node for non-object args", () => {
+    const theme = createMockTheme();
+    const result = renderClarifyCall("not-args", theme);
     expect(result).toBeDefined();
   });
 });
@@ -638,6 +666,19 @@ describe("renderResult", () => {
       theme,
     );
     expect(result).toBeDefined();
+  });
+
+  test("handles object details without string status", () => {
+    const theme = createMockTheme();
+    const result = renderClarifyResult(
+      {
+        content: [{ type: "text", text: "Fallback" }],
+        details: { status: 123 },
+      },
+      theme,
+    );
+    expect(result).toBeDefined();
+    expect(theme.fg).toHaveBeenCalledWith("error", "Fallback");
   });
 });
 

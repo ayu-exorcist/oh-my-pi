@@ -166,6 +166,10 @@ describe("deriveApprovalPattern", () => {
     expect(deriveApprovalPattern("/")).toBe("/*");
   });
 
+  it("handles a path whose dirname is itself", () => {
+    expect(deriveApprovalPattern(".")).toBe(".*");
+  });
+
   it("handles single-level path", () => {
     expect(deriveApprovalPattern("/foo")).toBe("/*");
   });

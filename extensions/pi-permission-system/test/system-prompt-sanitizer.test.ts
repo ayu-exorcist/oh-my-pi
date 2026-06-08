@@ -200,4 +200,18 @@ describe("sanitizeAvailableToolsSection — findSection boundary edge cases", ()
     expect(result.prompt).toContain("Custom note");
     expect(result.prompt).not.toContain("Available tools:");
   });
+
+  test("section body accepts indented continuation lines", () => {
+    const input = ["Available tools:", "  continuation detail", "Custom note"].join("\n");
+    const result = sanitizeAvailableToolsSection(input, []);
+    expect(result.removed).toBe(true);
+    expect(result.prompt).toBe("Custom note");
+  });
+
+  test("leaves unrecognized guideline bullet text unchanged", () => {
+    const input = prompt(guidelinesSection(["- custom guideline"]));
+    const result = sanitizeAvailableToolsSection(input, []);
+    expect(result.removed).toBe(false);
+    expect(result.prompt).toContain("custom guideline");
+  });
 });

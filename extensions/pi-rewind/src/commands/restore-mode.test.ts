@@ -188,4 +188,67 @@ describe("Rewind Restore Mode", () => {
     expect(repo.safeCheckout).not.toHaveBeenCalled();
     expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
   });
+
+  test("restores conversation with default summary", async () => {
+    const ui = createUi();
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: true });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore conversation with summary",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(repo.safeCheckout).not.toHaveBeenCalled();
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: true });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("custom summary falls back to default summary when input is undefined", async () => {
+    const ui = createUi();
+    ui.input.mockResolvedValue(undefined);
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: true });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore conversation with custom summary",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: true });
+  });
+
+  test("code restore uses explicit conversation and dirty base ids", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: true });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+    const latest = entry({
+      userEntryId: "latest",
+      beforeCommit: "latest-before",
+      afterCommit: "latest-after",
+    });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: latest,
+      conversationEntryId: "assistant-entry",
+      dirtyBaseCommit: "clean-base",
+    });
+
+    expect(repo.safeCheckout).toHaveBeenCalledWith("before", "clean-base");
+  });
 });

@@ -329,6 +329,11 @@ describe("formatToolInputForPrompt", () => {
     const result = formatToolInputForPrompt("unknown", { x: 1 });
     expect(result).toContain('{"x":1}');
   });
+
+  test("returns empty string when JSON preview serializes to empty object", () => {
+    mockedStringify.mockReturnValue("{}");
+    expect(formatToolInputForPrompt("unknown", {})).toBe("");
+  });
 });
 
 describe("formatGenericToolInputForLog", () => {

@@ -1,4 +1,6 @@
-import { posix } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, posix } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── logger stub ────────────────────────────────────────────────────────────
@@ -63,15 +65,41 @@ vi.mock("../src/session-rules", () => ({
 }));
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getGlobalConfigPath, getGlobalLogsDir, getProjectConfigPath } from "#src/config-paths";
-import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
+import {
+  getGlobalConfigPath,
+  getGlobalLogsDir,
+  getLegacyGlobalPolicyPath,
+  getLegacyProjectPolicyPath,
+  getProjectConfigPath,
+} from "#src/config-paths";
+import { DEFAULT_EXTENSION_CONFIG, normalizePermissionSystemConfig } from "#src/extension-config";
 import { PermissionManager } from "#src/permission-manager";
 import {
   createExtensionRuntime,
   createPermissionManagerForCwd,
   derivePiProjectPaths,
+  logResolvedConfigPaths,
   refreshExtensionConfig,
+  saveExtensionConfig,
 } from "#src/runtime";
+
+function makeRuntime() {
+  mockCreateLogger.mockReturnValue({
+    debug: mockLoggerDebug,
+    review: mockLoggerReview,
+  });
+  return createExtensionRuntime({ agentDir: "/test/agent" });
+}
+
+function makeCtx(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
+  return {
+    cwd: "/test/project",
+    hasUI: false,
+    ui: { notify: vi.fn(), setStatus: vi.fn() },
+    sessionManager: { getEntries: vi.fn(), addEntry: vi.fn() },
+    ...overrides,
+  } as unknown as ExtensionContext;
+}
 
 // ── test suite ─────────────────────────────────────────────────────────────
 
@@ -226,9 +254,11 @@ describe("createExtensionRuntime", () => {
     const opts = mockCreateLogger.mock.calls[0][0] as {
       debugLogPath: string;
       reviewLogPath: string;
+      ensureLogsDirectory: () => string | undefined;
     };
     expect(opts.debugLogPath).toContain(expectedLogsDir);
     expect(opts.reviewLogPath).toContain(expectedLogsDir);
+    expect(opts.ensureLogsDirectory()).toBeUndefined();
   });
 
   it("passes getConfig that reads current runtime.config", () => {
@@ -276,6 +306,20 @@ describe("createExtensionRuntime", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     runtime.writeReviewLog("test.event");
     expect(mockLoggerReview).toHaveBeenCalledWith("test.event", {});
+  });
+
+  it("writeReviewLog reports logger warnings", () => {
+    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
+    const mockNotify = vi.fn();
+    runtime.runtimeContext = {
+      hasUI: true,
+      ui: { notify: mockNotify },
+    } as never;
+    mockLoggerReview.mockReturnValueOnce("review log unavailable");
+
+    runtime.writeReviewLog("review.event");
+
+    expect(mockNotify).toHaveBeenCalledWith("review log unavailable", "warning");
   });
 
   // ── Logging warning reporter ──────────────────────────────────────────────
@@ -413,24 +457,6 @@ describe("createPermissionManagerForCwd", () => {
 // ── refreshExtensionConfig ────────────────────────────────────────────────
 
 describe("refreshExtensionConfig", () => {
-  function makeRuntime() {
-    mockCreateLogger.mockReturnValue({
-      debug: mockLoggerDebug,
-      review: mockLoggerReview,
-    });
-    return createExtensionRuntime({ agentDir: "/test/agent" });
-  }
-
-  function makeCtx(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
-    return {
-      cwd: "/test/project",
-      hasUI: false,
-      ui: { notify: vi.fn(), setStatus: vi.fn() },
-      sessionManager: { getEntries: vi.fn(), addEntry: vi.fn() },
-      ...overrides,
-    } as unknown as ExtensionContext;
-  }
-
   beforeEach(() => {
     mockLoggerDebug.mockReset().mockReturnValue(undefined);
     mockLoggerReview.mockReset().mockReturnValue(undefined);
@@ -545,6 +571,186 @@ describe("refreshExtensionConfig", () => {
     const ctx = makeCtx({ hasUI: false });
     refreshExtensionConfig(runtime, ctx);
     expect(mockSyncPermissionSystemStatus).not.toHaveBeenCalled();
+  });
+});
+
+// ── saveExtensionConfig ────────────────────────────────────────────────────
+
+describe("saveExtensionConfig", () => {
+  it("writes merged config to the global config path and updates state", () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "pi-permission-system-save-"));
+    const runtime = makeRuntime();
+    const ctx = makeCtx();
+    runtime.agentDir = baseDir;
+
+    const next = {
+      debugLog: true,
+      permissionReviewLog: true,
+      yoloMode: true,
+    };
+
+    const fsOps = {
+      mkdirSync,
+      writeFileSync,
+      renameSync: vi.fn((from: string, to: string) => {
+        const content = readFileSync(from, "utf8");
+        writeFileSync(to, content, "utf8");
+      }),
+      existsSync: vi.fn(() => true),
+      unlinkSync: vi.fn(),
+    };
+
+    saveExtensionConfig(runtime, next, ctx as never, fsOps);
+
+    const configPath = getGlobalConfigPath(baseDir);
+    const persisted = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    expect(persisted).toEqual(normalizePermissionSystemConfig(next));
+    expect(runtime.config).toEqual(normalizePermissionSystemConfig(next));
+    expect(mockSyncPermissionSystemStatus).toHaveBeenCalledWith(ctx, expect.any(Object));
+
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("notifies the UI if writing the config fails", () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "pi-permission-system-save-fail-"));
+    const runtime = makeRuntime();
+    const notify = vi.fn();
+    const ctx = makeCtx({ ui: { notify, setStatus: vi.fn() } as never });
+    runtime.agentDir = baseDir;
+
+    const fsOps = {
+      mkdirSync,
+      writeFileSync,
+      renameSync: vi.fn(() => {
+        throw new Error("rename failed");
+      }),
+      existsSync: vi.fn().mockReturnValue(true),
+      unlinkSync: vi.fn(),
+    };
+
+    saveExtensionConfig(
+      runtime,
+      { debugLog: true, permissionReviewLog: false, yoloMode: false },
+      ctx as never,
+      fsOps,
+    );
+
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to save permission-system config"),
+      "error",
+    );
+    expect(fsOps.unlinkSync).toHaveBeenCalled();
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("does not delete a missing temporary file and ignores cleanup failures", () => {
+    const runtime = makeRuntime();
+    const notify = vi.fn();
+    const ctx = makeCtx({ ui: { notify, setStatus: vi.fn() } as never });
+
+    saveExtensionConfig(
+      runtime,
+      { debugLog: true, permissionReviewLog: false, yoloMode: false },
+      ctx as never,
+      {
+        mkdirSync: vi.fn(),
+        writeFileSync: vi.fn(() => {
+          throw "write failed";
+        }),
+        renameSync: vi.fn(),
+        existsSync: vi.fn().mockReturnValue(false),
+        unlinkSync: vi.fn(() => {
+          throw new Error("cleanup failed");
+        }),
+      },
+    );
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("write failed"), "error");
+
+    saveExtensionConfig(
+      runtime,
+      { debugLog: true, permissionReviewLog: false, yoloMode: false },
+      ctx as never,
+      {
+        mkdirSync: vi.fn(),
+        writeFileSync: vi.fn(() => {
+          throw new Error("write failed again");
+        }),
+        renameSync: vi.fn(),
+        existsSync: vi.fn(() => {
+          throw new Error("exists failed");
+        }),
+        unlinkSync: vi.fn(),
+      },
+    );
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("write failed again"), "error");
+  });
+});
+
+// ── logResolvedConfigPaths ─────────────────────────────────────────────────
+
+describe("logResolvedConfigPaths", () => {
+  it("logs the resolved policy path summary", () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "pi-permission-runtime-paths-"));
+    const agentDir = join(baseDir, "agent");
+    const cwd = join(baseDir, "project");
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    const legacyGlobalPolicyPath = getLegacyGlobalPolicyPath(agentDir);
+    const legacyProjectPolicyPath = getLegacyProjectPolicyPath(cwd);
+    mkdirSync(dirname(legacyGlobalPolicyPath), { recursive: true });
+    mkdirSync(dirname(legacyProjectPolicyPath), { recursive: true });
+    writeFileSync(legacyGlobalPolicyPath, "{}", "utf8");
+    writeFileSync(legacyProjectPolicyPath, "{}", "utf8");
+
+    const runtime = makeRuntime();
+    runtime.agentDir = agentDir;
+    const ctx = makeCtx({ cwd, hasUI: true });
+    runtime.runtimeContext = ctx;
+    runtime.permissionManager = {
+      getResolvedPolicyPaths: () => ({
+        globalConfigPath: "/global/config.json",
+        projectGlobalConfigPath: "/project/config.json",
+        agentConfigPath: "/agent/config.json",
+        projectAgentConfigPath: "/project-agent/config.json",
+      }),
+    } as never;
+
+    mockBuildResolvedConfigLogEntry.mockReturnValue({ resolved: true });
+
+    logResolvedConfigPaths(runtime);
+
+    expect(mockBuildResolvedConfigLogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        legacyGlobalPolicyDetected: true,
+        legacyProjectPolicyDetected: true,
+        legacyExtensionConfigDetected: expect.any(Boolean),
+      }),
+    );
+    expect(mockLoggerReview).toHaveBeenCalledWith("config.resolved", expect.any(Object));
+    expect(mockLoggerDebug).toHaveBeenCalledWith("config.resolved", expect.any(Object));
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("logs resolved policy paths when runtimeContext has no cwd", () => {
+    const runtime = makeRuntime();
+    runtime.runtimeContext = null;
+    runtime.permissionManager = {
+      getResolvedPolicyPaths: () => ({
+        globalConfigPath: "/global/config.json",
+        projectGlobalConfigPath: null,
+        agentConfigPath: null,
+        projectAgentConfigPath: null,
+      }),
+    } as never;
+    mockBuildResolvedConfigLogEntry.mockReturnValue({ resolved: true });
+
+    logResolvedConfigPaths(runtime);
+
+    expect(mockBuildResolvedConfigLogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        legacyProjectPolicyDetected: false,
+      }),
+    );
   });
 });
 

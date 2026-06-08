@@ -698,6 +698,20 @@ function makeInMemoryManager(
 }
 
 describe("PermissionManager with in-memory PolicyLoader", () => {
+  describe("loader metadata", () => {
+    it("exposes config issues, resolved policy paths, and policy cache stamp", () => {
+      const manager = makeInMemoryManager();
+      expect(manager.getConfigIssues()).toEqual([]);
+      expect(manager.getPolicyCacheStamp()).toBe("in-memory");
+      expect(manager.getResolvedPolicyPaths()).toEqual(
+        expect.objectContaining({
+          globalConfigPath: "/in-memory/config.json",
+          agentsDir: "/in-memory/agents",
+        }),
+      );
+    });
+  });
+
   describe("universal fallback", () => {
     it("defaults to ask when no config is provided", () => {
       const manager = makeInMemoryManager();
@@ -737,6 +751,21 @@ describe("PermissionManager with in-memory PolicyLoader", () => {
       expect(result.state).toBe("allow");
       expect(result.source).toBe("bash");
       expect(result.matchedPattern).toBe("git *");
+      expect(manager.getToolPermission(" bash ")).toBe("ask");
+    });
+
+    it("tool-level mcp and skill permissions route through their catch-all surfaces", () => {
+      const manager = makeInMemoryManager({
+        global: {
+          permission: {
+            "*": "deny",
+            mcp: { "*": "allow" },
+            skill: { "*": "ask" },
+          },
+        },
+      });
+      expect(manager.getToolPermission("mcp")).toBe("allow");
+      expect(manager.getToolPermission("skill")).toBe("ask");
     });
 
     it("tool surface routes correctly for built-in tools", () => {
@@ -746,6 +775,16 @@ describe("PermissionManager with in-memory PolicyLoader", () => {
       const result = manager.checkPermission("read", {});
       expect(result.state).toBe("allow");
       expect(result.source).toBe("tool");
+    });
+
+    it("tool surface routes correctly for object pattern maps", () => {
+      const manager = makeInMemoryManager({
+        global: { permission: { "*": "ask", read: { "src/*": "allow" } } },
+      });
+      const result = manager.checkPermission("read", { path: "src/index.ts" });
+      expect(result.state).toBe("allow");
+      expect(result.origin).toBe("global");
+      expect(result.matchedPattern).toBe("src/*");
     });
 
     it("skill surface routes correctly", () => {

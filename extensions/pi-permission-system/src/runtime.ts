@@ -73,6 +73,22 @@ export interface ExtensionRuntime extends ExtensionPaths, SessionState {
   writeReviewLog(event: string, details?: Record<string, unknown>): void;
 }
 
+export interface SaveExtensionConfigFsOps {
+  mkdirSync(path: string, options: { recursive: true }): void;
+  writeFileSync(path: string, data: string, encoding: BufferEncoding): void;
+  renameSync(oldPath: string, newPath: string): void;
+  existsSync(path: string): boolean;
+  unlinkSync(path: string): void;
+}
+
+const DEFAULT_SAVE_EXTENSION_CONFIG_FS_OPS: SaveExtensionConfigFsOps = {
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  existsSync,
+  unlinkSync,
+};
+
 // ── Pure helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -150,6 +166,7 @@ export function saveExtensionConfig(
   runtime: ExtensionRuntime,
   next: PermissionSystemExtensionConfig,
   ctx: ExtensionCommandContext,
+  fsOps: SaveExtensionConfigFsOps = DEFAULT_SAVE_EXTENSION_CONFIG_FS_OPS,
 ): void {
   const normalized = normalizePermissionSystemConfig(next);
   const globalPath = getGlobalConfigPath(runtime.agentDir);
@@ -164,13 +181,13 @@ export function saveExtensionConfig(
 
   const tmpPath = `${globalPath}.tmp`;
   try {
-    mkdirSync(dirname(globalPath), { recursive: true });
-    writeFileSync(tmpPath, `${JSON.stringify(merged, null, 2)}\n`, "utf-8");
-    renameSync(tmpPath, globalPath);
+    fsOps.mkdirSync(dirname(globalPath), { recursive: true });
+    fsOps.writeFileSync(tmpPath, `${JSON.stringify(merged, null, 2)}\n`, "utf-8");
+    fsOps.renameSync(tmpPath, globalPath);
   } catch (error) {
     try {
-      if (existsSync(tmpPath)) {
-        unlinkSync(tmpPath);
+      if (fsOps.existsSync(tmpPath)) {
+        fsOps.unlinkSync(tmpPath);
       }
     } catch {
       // Ignore cleanup failures.
@@ -243,8 +260,10 @@ export function createExtensionRuntime(options?: { agentDir?: string }): Extensi
     lastPromptStateCacheKey: null,
     lastConfigWarning: null,
     sessionRules: new SessionRules(),
-    // Logging methods are replaced below after the logger is constructed.
+    // Logging methods are replaced below before the runtime escapes this factory.
+    /* v8 ignore next -- construction-only placeholder; real logger method is installed below */
     writeDebugLog: () => {},
+    /* v8 ignore next -- construction-only placeholder; real logger method is installed below */
     writeReviewLog: () => {},
   };
 

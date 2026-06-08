@@ -90,6 +90,20 @@ describe("clarify input parsing", () => {
     await expect(answerPromise).resolves.toBeUndefined();
   });
 
+  test("select with no options rejects numeric input", async () => {
+    const answerPromise = askWithClarifyUi(
+      {
+        type: "select",
+        message: "Choose one",
+      },
+      context,
+    );
+
+    expect(handleClarifyInput("1")).toEqual({ handled: true, valid: false });
+    cancelClarifyInput();
+    await expect(answerPromise).resolves.toBeUndefined();
+  });
+
   test("unknown prompt types are rejected", async () => {
     const answerPromise = askWithClarifyUi(
       { type: "unknown", message: "Choose one" } as unknown as Parameters<
@@ -146,6 +160,38 @@ describe("clarify input parsing", () => {
         { value: "c", label: "C" },
       ],
     });
+  });
+
+  test("multiselect all rejects prompts with no enabled options", async () => {
+    const answerPromise = askWithClarifyUi(
+      {
+        type: "multiselect",
+        message: "Choose many",
+        options: [
+          { value: "a", label: "A", disabled: true },
+          { value: "b", label: "B", disabled: true },
+        ],
+      },
+      context,
+    );
+
+    expect(handleClarifyInput("all")).toEqual({ handled: true, valid: false });
+    cancelClarifyInput();
+    await expect(answerPromise).resolves.toBeUndefined();
+  });
+
+  test("multiselect without options rejects numeric input", async () => {
+    const answerPromise = askWithClarifyUi(
+      {
+        type: "multiselect",
+        message: "Choose many",
+      },
+      context,
+    );
+
+    expect(handleClarifyInput("1")).toEqual({ handled: true, valid: false });
+    cancelClarifyInput();
+    await expect(answerPromise).resolves.toBeUndefined();
   });
 
   test("multiselect rejects disabled-only input and deduplicates selected values", async () => {

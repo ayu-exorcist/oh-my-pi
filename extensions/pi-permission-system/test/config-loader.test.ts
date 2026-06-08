@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadAndMergeConfigs, loadUnifiedConfig, mergeUnifiedConfigs } from "#src/config-loader";
 
@@ -62,6 +62,26 @@ describe("loadUnifiedConfig", () => {
     expect(result.config.permission).toEqual({ "*": "ask" });
   });
 
+  it("preserves slashes and escaped quotes inside strings while stripping comments", () => {
+    const configPath = join(tempDir, "config.json");
+    writeFileSync(
+      configPath,
+      String.raw`{
+  "permission": {
+    "bash": {
+      "node -e \"console.log('http://example.com')\"": "allow"
+    }
+  }
+}`,
+    );
+
+    const result = loadUnifiedConfig(configPath);
+    expect(result.issues).toEqual([]);
+    expect(result.config.permission).toEqual({
+      bash: { "node -e \"console.log('http://example.com')\"": "allow" },
+    });
+  });
+
   it("ignores unknown keys without emitting issues", () => {
     const configPath = join(tempDir, "config.json");
     writeFileSync(
@@ -94,6 +114,22 @@ describe("loadUnifiedConfig", () => {
     const result = loadUnifiedConfig(configPath);
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0]).toContain(configPath);
+  });
+
+  it("stringifies non-Error parse failures in issue messages", () => {
+    const configPath = join(tempDir, "config.json");
+    writeFileSync(configPath, "{}");
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
+      throw "parse failed";
+    });
+
+    try {
+      const result = loadUnifiedConfig(configPath);
+      expect(result.config).toEqual({});
+      expect(result.issues[0]).toContain("parse failed");
+    } finally {
+      parseSpy.mockRestore();
+    }
   });
 
   it("normalizes boolean fields strictly", () => {
@@ -168,6 +204,17 @@ describe("loadUnifiedConfig", () => {
   it("ignores a non-object permission field", () => {
     const configPath = join(tempDir, "config.json");
     writeFileSync(configPath, JSON.stringify({ permission: "allow" }));
+
+    const result = loadUnifiedConfig(configPath);
+    expect(result.config.permission).toBeUndefined();
+  });
+
+  it("drops permission entries with unsupported value shapes", () => {
+    const configPath = join(tempDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ permission: { bash: { "git *": "bad" }, read: [], write: null } }),
+    );
 
     const result = loadUnifiedConfig(configPath);
     expect(result.config.permission).toBeUndefined();

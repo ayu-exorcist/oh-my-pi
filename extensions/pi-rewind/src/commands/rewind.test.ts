@@ -6,6 +6,7 @@ import {
   registerRewind,
   buildCheckpointItem,
   findConversationEntryIdForCheckpoint,
+  formatChangeLine,
 } from "./rewind";
 
 function createMockCtx(
@@ -125,6 +126,35 @@ describe("buildCheckpointItem", () => {
       `make file\n   \u001b[38;5;245mfile.ts \u001b[38;5;2m+1\u001b[38;5;245m \u001b[38;5;1m-0\u001b[0m\n`,
     );
   });
+
+  test("renders missing diff stats with singular and plural labels", () => {
+    expect(
+      buildCheckpointItem(
+        createEntry({
+          userEntryId: "entry-1",
+          beforeCommit: "before",
+          prompt: "one",
+          fileCount: 1,
+        }),
+      ),
+    ).toBe(`one\n   \u001b[38;5;245m1 file changed\u001b[0m\n`);
+    expect(
+      buildCheckpointItem(
+        createEntry({
+          userEntryId: "entry-2",
+          beforeCommit: "before",
+          prompt: "many",
+          fileCount: 2,
+        }),
+      ),
+    ).toBe(`many\n   \u001b[38;5;245m2 files changed\u001b[0m\n`);
+  });
+
+  test("formats individual change lines", () => {
+    expect(formatChangeLine({ path: "file.ts", added: 2, removed: 3 })).toBe(
+      "\u001b[38;5;245mfile.ts \u001b[38;5;2m+2\u001b[38;5;245m \u001b[38;5;1m-3\u001b[0m",
+    );
+  });
 });
 
 describe("findConversationEntryIdForCheckpoint", () => {
@@ -137,6 +167,21 @@ describe("findConversationEntryIdForCheckpoint", () => {
     ];
 
     expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("assistant-1");
+  });
+
+  test("falls back to user entry when checkpoint user entry is not on the branch", () => {
+    expect(findConversationEntryIdForCheckpoint([], "missing-user")).toBe("missing-user");
+  });
+
+  test("ignores checkpoint custom entries and stops at the next user message", () => {
+    const branch = [
+      { type: "message", id: "user-1", message: { role: "user" } },
+      { type: "custom", id: "checkpoint-1", customType: "pi-checkpoint" },
+      { type: "message", id: "user-2", message: { role: "user" } },
+      { type: "message", id: "assistant-2", message: { role: "assistant" } },
+    ];
+
+    expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("user-1");
   });
 });
 
