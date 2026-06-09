@@ -21,7 +21,7 @@ It exists to avoid long question walls in CLI conversations. When missing inform
 
 ## Boundaries
 
-Clarify does not own permission enforcement, mutating tool protection, checkpointing, or rollback. Permission enforcement is handled by a user-installed permission system; checkpointing and rollback remain in `@ayulab/pi-rewind`, `@ayulab/pi-undo-redo`, and `@ayulab/pi-checkpoint`.
+Clarify does not own mutating tool protection, checkpointing, or rollback; those concerns remain in `@ayulab/pi-rewind`, `@ayulab/pi-undo-redo`, and `@ayulab/pi-checkpoint`.
 
 Clarify does not intercept or rewrite normal assistant text. It only constrains the structured `ask_user` tool path. If agents still produce multi-question text walls, that should be handled by a separate conversation policy extension.
 

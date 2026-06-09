@@ -36,9 +36,9 @@
     "dev": "vitest",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "coverage:open": "vitest run --coverage && npx serve coverage -p 9876 -o",
+    "coverage:open": "vitest run --coverage && pnpm dlx serve coverage -p 9876 -o",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf coverage .oxlintcache .oxfmtcache *.tsbuildinfo",
+    "clean": "pnpm dlx rimraf --glob coverage .oxlintcache .oxfmtcache \"*.tsbuildinfo\"",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "fmt": "oxfmt .",
@@ -55,11 +55,8 @@
   "dependencies": {
     "@ayulab/pi-clarify": "workspace:*",
     "@ayulab/pi-compact": "workspace:*",
-    "@ayulab/pi-permission-system": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
-    "@ayulab/pi-trace-lab": "workspace:*",
     "@ayulab/pi-undo-redo": "workspace:*",
-    "@ayulab/pi-workflow": "workspace:*",
     "pi-mcp-adapter": "^2.8.0"
   },
   "devDependencies": {
@@ -76,11 +73,8 @@
   "bundledDependencies": [
     "@ayulab/pi-clarify",
     "@ayulab/pi-compact",
-    "@ayulab/pi-permission-system",
     "@ayulab/pi-rewind",
-    "@ayulab/pi-trace-lab",
     "@ayulab/pi-undo-redo",
-    "@ayulab/pi-workflow",
     "pi-mcp-adapter"
   ],
   "engines": {
@@ -89,11 +83,8 @@
   "packageManager": "pnpm@11.4.0",
   "pi": {
     "extensions": [
-      "!node_modules/@ayulab/pi-permission-system",
-      "!node_modules/@ayulab/pi-trace-lab",
       "!node_modules/@ayulab/pi-clarify",
       "!node_modules/@ayulab/pi-compact",
-      "!node_modules/@ayulab/pi-workflow",
       "node_modules/@ayulab/pi-rewind",
       "!node_modules/@ayulab/pi-undo-redo",
       "node_modules/pi-mcp-adapter"

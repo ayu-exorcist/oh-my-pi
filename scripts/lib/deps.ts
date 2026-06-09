@@ -20,12 +20,11 @@ export function buildDepGraph(packages: PackageInfo[]): DepGraph {
     const deps = pkg.pkg.dependencies || {};
     for (const depName of Object.keys(deps)) {
       if (nameMap.has(depName)) {
-        const edges = graph.get(depName);
-        const degree = inDegree.get(pkg.name);
-        if (edges !== undefined && degree !== undefined) {
-          edges.push(pkg.name);
-          inDegree.set(pkg.name, degree + 1);
-        }
+        const edges = graph.get(depName) ?? [];
+        graph.set(depName, edges);
+        const degree = inDegree.get(pkg.name) ?? 0;
+        edges.push(pkg.name);
+        inDegree.set(pkg.name, degree + 1);
       }
     }
   }
@@ -55,8 +54,7 @@ export function topoSort(
     const children = graph.get(name);
     if (!children) continue;
     for (const child of children) {
-      const degree = inDegree.get(child);
-      if (degree === undefined) continue;
+      const degree = inDegree.get(child)!;
       const newDegree = degree - 1;
       inDegree.set(child, newDegree);
       if (newDegree === 0 && !visited.has(child)) {

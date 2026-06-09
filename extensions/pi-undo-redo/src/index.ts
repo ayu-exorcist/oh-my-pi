@@ -22,6 +22,10 @@ function getCheckpoints(ctx: ExtensionContext): readonly CheckpointEntry[] {
   return getCheckpointEntries(ctx.sessionManager.getEntries());
 }
 
+function hasItems<T>(items: readonly T[]): items is readonly [T, ...T[]] {
+  return items.length > 0;
+}
+
 /**
  * Pi extension entry point — registers `/undo` and `/redo` commands.
  *
@@ -70,7 +74,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       await ctx.waitForIdle();
 
       const cps = getCheckpoints(ctx);
-      if (cps.length === 0) {
+      if (!hasItems(cps)) {
         ctx.ui.notify(
           "Nothing to undo. Make sure a checkpoint-aware extension (e.g. @ayulab/pi-rewind) is installed and has created checkpoints for this session.",
           "info",
@@ -89,13 +93,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
         return;
       }
 
-      const cp = cps[cps.length - 1];
-      /* istanbul ignore next */
-      /* c8 ignore next 3 */
-      if (!cp) {
-        ctx.ui.notify("Nothing to undo.", "info");
-        return;
-      }
+      const cp = cps[0];
 
       const currentLeafId = ctx.sessionManager.getLeafId();
       const result = await restoreUndoTarget({
@@ -131,7 +129,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       await ctx.waitForIdle();
 
       const stack = getStack(ctx.sessionManager.getSessionId());
-      const entry = stack[stack.length - 1];
+      const entry = stack.at(-1);
       if (!entry) {
         ctx.ui.notify("Nothing to redo.", "info");
         return;
@@ -149,7 +147,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       }
 
       const cps = getCheckpoints(ctx);
-      const latest = cps[cps.length - 1];
+      const latest = cps.at(-1);
       const result = await restoreRedoTarget({
         repo,
         ui: ctx.ui,

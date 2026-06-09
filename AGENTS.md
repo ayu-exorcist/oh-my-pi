@@ -16,8 +16,8 @@
 
 1. This file.
 2. `README.md` and `CONTRIBUTING.md` for package structure, commands, and release rules.
-3. `CONTEXT-MAP.md`, then only the relevant context docs and ADRs in `docs/adr/`.
-4. For full harness rules (T0–T4 tiers, capability review, release safety): read `docs/agents/ai-harness.md`.
+3. `CONTEXT-MAP.md`.
+4. For full harness rules (T0–T4 tiers, capability review, release safety): use the project-level collaboration rules in this repo.
 
 ## Commands
 
@@ -31,10 +31,9 @@ Use pnpm and mise; do not switch package managers.
 
 ## Pi Collaboration Rules
 
-- Check `.pi/skills/` and `.agents/skills/` at session start; follow any relevant `SKILL.md`.
+- Check any relevant skill directories at session start; follow any applicable `SKILL.md`.
 - Do not skip skill workflows, checklists, or stop conditions.
 - If a user request is a concrete operation with a safe default, execute it without clarification; only clarify when the missing detail changes the outcome or no safe default exists.
-- Update `~/.pi/agent/ayu/workspace/journal.md` at session end if it exists.
 
 ## Change Scope
 
@@ -54,7 +53,7 @@ Follow `CONTRIBUTING.md`:
 
 ## Tool Permission Matrix
 
-Judge by side effect, not by tool name. See `docs/agents/ai-harness.md` for the full policy.
+Judge by side effect, not by tool name. Follow the tiered policy in this file and the repository README.
 
 - **T0 read**: Read files, search, read-only logs. Default allowed; reject secrets/PII.
 - **T1 write-local**: Modify workspace files, generate local artifacts. Allowed for small scope; protect sensitive paths.
@@ -62,13 +61,11 @@ Judge by side effect, not by tool name. See `docs/agents/ai-harness.md` for the 
 - **T3 irreversible**: Bulk delete, data migration, rename/move directories. Default deny; provide dry-run if required.
 - **T4 production-mutating**: Publish, release, push, modify production config. Default deny; requires explicit approval.
 
-Permission enforcement is handled by bundled local extension `@ayulab/pi-permission-system`.
-
 ## Constraints
 
 - Keep Clarify, Rewind, UndoRedo, and checkpoint semantics intact.
 - Do not weaken safety gates or release validation without explicit approval and regression tests.
-- Do not add network, filesystem, shell, MCP, browser, publish, or release side effects without calling out the risk tier and verification plan (see `docs/agents/ai-harness.md` for T0–T4 tiers).
+- Do not add network, filesystem, shell, MCP, browser, publish, or release side effects without calling out the risk tier and verification plan in this file.
 - Do not commit, tag, push, publish, or run `pnpm run release` unless explicitly requested.
 - Use `pnpm run release:dry` for release-readiness checks.
 
@@ -86,7 +83,7 @@ Permission enforcement is handled by bundled local extension `@ayulab/pi-permiss
 ## Harness Self-Iteration
 
 - When modifying AI rules, templates, skills, or prompt code, record the failure fact, change hypothesis, target metric, and rollback standard first.
-- Do not append long-term rules from a single failure; record to `.pi/ayu/tasks/ai-notes.md` or an iteration card first.
+- Do not append long-term rules from a single failure; record to a temporary note or an iteration card first.
 - Important harness changes must use a fixed benchmark suite for before/after comparison.
 - Prompt/skill/tool description changes prefer bounded add/delete/replace; record rejected variants; do not promote solely based on LLM judgment that text is "better."
 - Prefer mechanizing rules into tests, lint, schema, CI, or hooks; keep natural language rules short.

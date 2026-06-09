@@ -160,4 +160,21 @@ describe("AutoCheckpointProducer", () => {
     expect(checkpoint).toHaveBeenNthCalledWith(3, "entry-2");
     expect(checkpoint).toHaveBeenNthCalledWith(4, "entry-2");
   });
+
+  test("turnStart drops a failed previous finalize before opening the next turn", async () => {
+    const checkpoint = vi.fn().mockResolvedValueOnce("before-1").mockResolvedValueOnce("before-2");
+    const producer = createProducer({
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      checkpoint,
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockRejectedValueOnce(new Error("diff failed")),
+    });
+
+    await producer.turnStart({ userEntryId: "entry-1", prompt: "initial" });
+    const second = await producer.turnStart({ userEntryId: "entry-2", prompt: "follow-up" });
+
+    expect(second).toEqual({ ok: true, entries: [] });
+    expect(checkpoint).toHaveBeenNthCalledWith(1, "entry-1");
+    expect(checkpoint).toHaveBeenNthCalledWith(2, "entry-2");
+  });
 });

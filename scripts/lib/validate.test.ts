@@ -119,4 +119,11 @@ describe("package validation", () => {
       },
     ]);
   });
+
+  test("validates root consistency with missing optional dependency fields", () => {
+    const root = pkg("root", "/repo", {}, true);
+    const workspace = [pkg("workspace-a", "/repo/extensions/workspace-a", {})];
+
+    expect(validateRootConsistency(root, workspace)).toEqual([]);
+  });
 });

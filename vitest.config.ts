@@ -14,9 +14,6 @@ export default defineConfig({
     alias: {
       "@ayulab/pi-checkpoint": "sdk/pi-checkpoint/src/index.ts",
       "@ayulab/pi-checkpoint/testing": "sdk/pi-checkpoint/src/testing/index.ts",
-
-      "@ayulab/pi-trace-engine": "sdk/pi-trace-engine/src/index.ts",
-      "@ayulab/pi-trace-engine/*": "sdk/pi-trace-engine/src/*",
     },
     projects: ["extensions/*", "sdk/*", "scripts"],
     testTimeout: 15000,
@@ -24,10 +21,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       thresholds: {
-        statements: 99,
-        branches: 96,
-        functions: 99,
-        lines: 99,
+        statements: 100,
+        branches: 100,
+        functions: 100,
+        lines: 100,
       },
     },
   },

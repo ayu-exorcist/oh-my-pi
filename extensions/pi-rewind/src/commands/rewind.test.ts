@@ -155,6 +155,19 @@ describe("buildCheckpointItem", () => {
       "\u001b[38;5;245mfile.ts \u001b[38;5;2m+2\u001b[38;5;245m \u001b[38;5;1m-3\u001b[0m",
     );
   });
+
+  test("handles a sparse single file change defensively", () => {
+    const changes = Array.from({ length: 1 }) as CheckpointEntry["fileChanges"];
+    const cp = createEntry({
+      userEntryId: "entry-1",
+      beforeCommit: "before",
+      prompt: "sparse",
+      fileCount: 1,
+      fileChanges: changes,
+    });
+
+    expect(buildCheckpointItem(cp)).toBe("sparse\n   \n");
+  });
 });
 
 describe("findConversationEntryIdForCheckpoint", () => {

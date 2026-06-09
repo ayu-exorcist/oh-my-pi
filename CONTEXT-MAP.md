@@ -3,23 +3,16 @@
 ## Contexts
 
 - [Checkpoint Engine](./sdk/pi-checkpoint/CONTEXT.md) — Git bare repo snapshot engine. Manages file-level checkpoints via commits, diffs, checkout, and cross-process locking.
-- [Trace Engine](./sdk/pi-trace-engine/CONTEXT.md) — AI Engineering trace collection, analysis, and storage engine. Zero Pi runtime dependencies.
 - [Clarify Extension](./extensions/pi-clarify/CONTEXT.md) — `ask_user` structured one-question clarification tool and `/clarify` demo/status command.
 - [Compact Extension](./extensions/pi-compact/CONTEXT.md) — One-line compact summaries for built-in tool output. Pairs with Clarify to keep decision prompts visible amid exploration noise.
-- [Permission System Extension](./extensions/pi-permission-system/CONTEXT.md) — Local permission enforcement fork using Ayu global/project config paths.
-- [Workflow Extension](./extensions/pi-workflow/CONTEXT.md) — `/ayu` workflow prompt router for task planning, review, docs sync, release checks, verification, and audits.
 - [Rewind Extension](./extensions/pi-rewind/CONTEXT.md) — Automatic per-turn checkpoint hooks and the `/rewind` command for interactive checkpoint navigation.
 - [UndoRedo Extension](./extensions/pi-undo-redo/CONTEXT.md) — `/undo` and `/redo` commands with in-memory redo stack management.
-- [Trace Lab Extension](./extensions/pi-trace-lab/CONTEXT.md) — AI Engineering trace collection, structured session review, pattern clustering, and harness self-iteration.
-- [AI Harness](./docs/agents/ai-harness.md) — Project-local agent operating model: side-effect tiers, capability review, MCP/package safety, browser/sandbox policy, checkpoint safety, and release gates.
+- Project harness rules are documented inline in `AGENTS.md` and `README.md`.
 
 ## Relationships
 
 - **Clarify Extension ↔ Other Extensions**: Clarify is independent of Write Mode and checkpointing. Other extensions and agents can use `ask_user` for structured user decisions without gaining write permissions.
 - **Compact Extension ↔ Clarify Extension**: Compact reduces exploration noise so Clarify decision prompts stand out. Compact does not modify Clarify rendering or behavior.
-- **Ayu Workflow Extension → Permission System**: Workflow prompts are independent from permission state. Use bundled `@ayulab/pi-permission-system` for write authorization and `/ayu` for planning/review/verification prompts.
 - **Checkpoint Engine → Rewind Extension**: Rewind depends on Checkpoint Engine for `RepoManager`, config loading, diff parsing, and `CheckpointEntry` extraction.
 - **Checkpoint Engine → UndoRedo Extension**: UndoRedo depends on Checkpoint Engine for `RepoManager`, `RepoProvider`, and `CheckpointEntry` reading. It does not create checkpoints; it consumes entries written by Rewind (or any other checkpoint-aware extension).
 - **Rewind Extension ↔ UndoRedo Extension**: Both operate on the same Pi session entries. Rewind writes `CheckpointEntry` custom entries; UndoRedo reads them. The redo stack is private to UndoRedo.
-- **Trace Engine → Trace Lab Extension**: Trace Lab depends on Trace Engine for `TurnCollector`, `SessionCollector`, signal detection, and `StorageManager`. It adds Pi-specific event bindings and TUI on top.
-- **Checkpoint Engine → Trace Lab Extension**: Trace Lab depends on Checkpoint Engine for `SessionStateMap` to manage per-session collector instances.

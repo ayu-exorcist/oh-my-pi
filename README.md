@@ -14,7 +14,7 @@ Install `@ayulab/oh-my-pi` to get all curated extensions. Enable or disable indi
 pi install npm:@ayulab/oh-my-pi
 ```
 
-The curated package enables the lightweight safety and clarification baseline by default, while optional workflow/rollback extensions stay disabled until you opt in. Use `pi config` to toggle interactively:
+The curated package enables `pi-rewind` and the bundled MCP adapter by default, while `pi-clarify`, `pi-compact`, and `pi-undo-redo` stay disabled until you opt in. Use `pi config` to toggle interactively:
 
 ```bash
 pi config
@@ -27,7 +27,7 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
   "packages": [
     {
       "source": "npm:@ayulab/oh-my-pi",
-      "extensions": ["!node_modules/@ayulab/pi-undo-redo"]
+      "extensions": ["!node_modules/@ayulab/pi-rewind"]
     }
   ]
 }
@@ -39,7 +39,6 @@ Each extension is published independently. Install only what you need:
 
 ```bash
 pi install npm:@ayulab/pi-clarify
-pi install npm:@ayulab/pi-workflow
 pi install npm:@ayulab/pi-rewind
 pi install npm:@ayulab/pi-undo-redo
 ```
@@ -51,14 +50,13 @@ pi install /path/to/oh-my-pi
 pi install ./relative/path/to/oh-my-pi
 ```
 
-After installation, Pi automatically loads resources from convention directories:
+After installation, Pi loads bundled extension packages from the package manifest, and automatically loads resources from these convention directories when present:
 
-| Directory     | Content                    |
-| ------------- | -------------------------- |
-| `extensions/` | Extensions (`.ts` / `.js`) |
-| `skills/`     | Skills (`SKILL.md`)        |
-| `prompts/`    | Prompt templates (`.md`)   |
-| `themes/`     | Themes (`.json`)           |
+| Directory  | Content                  |
+| ---------- | ------------------------ |
+| `skills/`  | Skills (`SKILL.md`)      |
+| `prompts/` | Prompt templates (`.md`) |
+| `themes/`  | Themes (`.json`)         |
 
 Pi runs `npm install` automatically during installation to resolve `package.json` dependencies.
 
@@ -69,7 +67,6 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── extensions/           # Pi extensions (independently published)
 │   ├── pi-clarify/       # @ayulab/pi-clarify — structured one-question clarification
 │   ├── pi-compact/       # @ayulab/pi-compact — compact tool output summaries
-│   ├── pi-workflow/      # @ayulab/pi-workflow — /ayu workflow prompt router
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 │   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
 ├── sdk/                  # Shared infrastructure (independently published)
@@ -83,7 +80,6 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings
 ├── package.json          # Pi Package manifest (curated meta package)
-├── CHANGELOG.md          # Curated release log
 ├── .npmrc                # npm provenance config
 ├── LICENSE               # GPL-3.0
 ├── pnpm-workspace.yaml
@@ -92,102 +88,24 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                                           | Description                                               |
-| ----------------------------------------------------------------- | --------------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)                      | Git bare-repo checkpoint engine. Zero deps.               |
-| [`@ayulab/pi-clarify`](extensions/pi-clarify)                     | Structured one-question clarification prompts.            |
-| [`@ayulab/pi-compact`](extensions/pi-compact)                     | Compact one-line summaries for built-in tool output.      |
-| [`@ayulab/pi-permission-system`](extensions/pi-permission-system) | Permission gates for tools, bash, MCP, skills, and paths. |
-| [`@ayulab/pi-workflow`](extensions/pi-workflow)                   | `/ayu` workflow prompt router and Plan Mode.              |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)                       | `/rewind` command — interactive checkpoint restore.       |
-| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo)                 | `/undo` and `/redo` commands.                             |
-| [`@ayulab/pi-trace-lab`](extensions/pi-trace-lab)                 | Trace collection, review, and harness iteration.          |
-| [`claim-check`](skills/claim-check)                               | Audit strong claims and source mapping.                   |
-| [`doc-audit`](skills/doc-audit)                                   | Read-only doc structure and sync audit.                   |
-| [`Purple Dream`](themes/purple-dream.json)                        | Dark purple theme for long coding sessions.               |
+| Package                                           | Description                                          |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)      | Git bare-repo checkpoint engine. Zero deps.          |
+| [`@ayulab/pi-clarify`](extensions/pi-clarify)     | Structured one-question clarification prompts.       |
+| [`@ayulab/pi-compact`](extensions/pi-compact)     | Compact one-line summaries for built-in tool output. |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)       | `/rewind` command — interactive checkpoint restore.  |
+| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo) | `/undo` and `/redo` commands.                        |
+| [`Purple Dream`](themes/purple-dream.json)        | Dark purple theme for long coding sessions.          |
 
 ## Extension Management
 
-After installation, `pi-permission-system`, `pi-clarify`, `pi-compact`, and `pi-mcp-adapter` are enabled by default. `pi-workflow`, `pi-rewind`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-rewind` and `pi-mcp-adapter` are enabled by default. `pi-clarify`, `pi-compact`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config
 ```
 
 Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering) in `settings.json` for fine-grained control.
-
-## Permission & Safety
-
-This package bundles `@ayulab/pi-permission-system`, a local workspace fork of `@gotgenes/pi-permission-system@7.4.1` adapted for Ayu paths. No separate npm install is required.
-
-- local package: `extensions/pi-permission-system`
-- bundled extension entry: `node_modules/@ayulab/pi-permission-system`
-- global config: `~/.pi/agent/ayu/extensions/pi-permission-system/config.json`
-- project config: `<cwd>/.pi/ayu/extensions/pi-permission-system/config.json`
-- project template in this repo: `.pi/ayu/extensions/pi-permission-system/config.example.json`
-
-Copy the project template to `config.json` if you want a repo-local baseline policy. See `extensions/pi-permission-system/README.md` for the full policy format and path rules.
-
-## Using /ayu
-
-```text
-> /ayu plan refactor auth module
-# Read-only research and structured planning. No file edits.
-
-> /ayu task add validation tests
-# Sends a planning prompt and does not edit files by itself.
-
-> /ayu bug "token refresh fails after 401"
-# Structured diagnosis: reproduce → test → fix → verify.
-
-> /ayu review docs
-# Sends a diff-review prompt focused on documentation.
-
-> /ayu verify
-# Summarizes verification evidence after implementation.
-
-> /ayu journal
-# Updates the session journal with decisions, blockers, and next steps.
-
-> /ayu harness-iteration
-# Draft a harness iteration card from a recent failure.
-
-> /ayu benchmark [suite-path]
-# Draft a benchmark run report for a harness change.
-```
-
-## Using /trace-lab
-
-Trace Lab turns Pi sessions into measurable experiments. It collects tool sequences and file operations silently, detects anomalies in real time, and provides a structured workflow for turning failures into harness improvements.
-
-```text
-> /trace-lab status
-Turns: 3 | Tool calls: 12 | Signals: none
-
-> /trace-lab review
-# Structured TUI review of the latest session
-
-> /trace-lab weekly
-# Cluster reviews into patterns
-
-> /trace-lab draft <pattern-id>
-# Generate harness iteration card
-
-> /trace-lab benchmark [suite-path]
-# Draft a benchmark run report
-
-> /trace-lab sync
-# Sync verified patterns to ai-engineering
-```
-
-## Using /journal
-
-Update the session journal with a concise summary:
-
-```text
-> /ayu journal
-# Summarizes the session into ~/.pi/agent/ayu/workspace/journal.md
-```
 
 ## Using /rewind
 
@@ -250,7 +168,7 @@ pnpm run build   # turborepo build with caching
 pnpm run release # publish to npm
 ```
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full development guide — mise setup, scripts, quality gate, adding extensions, build config, and release workflow.
+See `CONTRIBUTING.md` for the full development guide — mise setup, scripts, quality gate, adding extensions, build config, and release workflow.
 
 ## License
 

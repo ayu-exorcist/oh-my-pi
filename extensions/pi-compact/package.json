@@ -41,7 +41,7 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "build": "tsdown",
-    "postbuild": "node ../../scripts/dist-manifest.mjs"
+    "postbuild": "oxnode ../../scripts/dist-manifest.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

@@ -134,7 +134,8 @@ function createSessionTaskQueue() {
     },
     run<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
       const previous = queues.getOrUndefined(sessionId) ?? Promise.resolve();
-      const next = previous.catch(() => undefined).then(() => task());
+      const next = previous.then(() => task());
+      /* c8 ignore next 2 */
       queues.set(
         sessionId,
         next.then(
@@ -387,7 +388,6 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
       exclude: config.exclude,
     });
-    if (!repo) return;
     const producer = createAutoCheckpointProducer(repo, config);
     producers.set(sessionId, producer);
     sessionTasks.delete(sessionId);

@@ -78,7 +78,6 @@ Send an empty message to cancel in all modes. The tool returns a structured canc
 - Password prompts.
 - Full `@clack/prompts` compatibility (we use Pi's native TUI to emulate the visual style).
 - Intercepting or rewriting normal assistant Markdown output.
-- Write-mode or permission enforcement.
 
 ## Development
 

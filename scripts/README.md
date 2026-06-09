@@ -30,7 +30,7 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 
 1. **Topology** — turbo resolves the dependency graph from `package.json` and builds packages so dependencies compile before dependents.
 2. **Bundle** — each package runs `tsdown` to bundle `src/` into `dist/`.
-3. **Generate `dist/package.json`** — `scripts/dist-manifest.mjs` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.mjs`), strips `scripts`/`devDependencies`/`files`, removes workspace dependencies.
+3. **Generate `dist/package.json`** — `scripts/dist-manifest.ts` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.mjs`), strips `scripts`/`devDependencies`/`files`, removes workspace dependencies, and copies README metadata (`readme` / `readmeFilename`) when `README.md` exists.
 4. **Copy README** — copies `README.md` into `dist/`.
 
 Run this before `pnpm run release`.

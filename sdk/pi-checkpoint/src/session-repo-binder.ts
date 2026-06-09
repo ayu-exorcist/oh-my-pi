@@ -12,6 +12,20 @@ import {
  * If `exclude` is provided, ensures the repo exists (creates + initializes if needed).
  * Otherwise resolves an existing repo; returns undefined if none exists.
  */
+export function bindSessionRepo(
+  sessionId: string,
+  sessionFile: string | undefined,
+  cwd: string,
+  repos: RepoProvider,
+  options: { readonly exclude: readonly string[] },
+): Promise<RepoManager>;
+export function bindSessionRepo(
+  sessionId: string,
+  sessionFile: string | undefined,
+  cwd: string,
+  repos: RepoProvider,
+  options?: { readonly exclude?: readonly string[] },
+): Promise<RepoManager | undefined>;
 export async function bindSessionRepo(
   sessionId: string,
   sessionFile: string | undefined,

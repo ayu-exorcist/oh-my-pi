@@ -23,6 +23,10 @@ function isCheckpointCustomEntry(value: unknown): boolean {
   return isRecord(value) && value.type === "custom" && value.customType === "pi-checkpoint";
 }
 
+function hasItems<T>(items: readonly T[]): items is readonly [T, ...T[]] {
+  return items.length > 0;
+}
+
 async function findCleanDirtyBaseCommit(
   repo: RepoManager,
   checkpoints: readonly CheckpointEntry[],
@@ -134,7 +138,7 @@ export function registerRewind(
       const branch = ctx.sessionManager.getBranch();
       const branchCps = getBranchCheckpointEntries(entries, branch);
       const cps = [...branchCps].reverse();
-      if (cps.length === 0) {
+      if (!hasItems(cps)) {
         ctx.ui.notify("No checkpoints available", "warning");
         return;
       }
@@ -167,7 +171,7 @@ export function registerRewind(
       const mode = await ctx.ui.select("Restore mode:", modes);
       if (!mode) return;
 
-      const latest = branchCps[branchCps.length - 1] ?? targetCp;
+      const latest = cps[0];
       const restoresCode = mode === "Restore code" || mode === "Restore code and conversation";
       const dirtyBaseCommit = restoresCode
         ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latest.afterCommit)

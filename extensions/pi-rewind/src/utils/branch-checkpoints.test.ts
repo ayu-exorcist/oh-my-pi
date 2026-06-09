@@ -58,6 +58,16 @@ describe("getBranchCheckpointEntries", () => {
     const entries = [wrapCheckpoint(createCheckpoint("user-1", "commit-1"))];
     expect(getBranchCheckpointEntries(entries, [createAssistantEntry("assistant-1")])).toEqual([]);
   });
+
+  it("ignores branch entries without user message shape", () => {
+    const entries = [wrapCheckpoint(createCheckpoint("user-1", "commit-1"))];
+    const branch = [
+      { id: "metadata-1", type: "custom", customType: "note", data: {} },
+      { id: "message-without-record", type: "message", message: "user" },
+    ];
+
+    expect(getBranchCheckpointEntries(entries, branch)).toEqual([]);
+  });
 });
 
 describe("findLatestBranchCheckpoint", () => {

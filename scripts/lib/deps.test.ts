@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { buildDepGraph, collectDependencies, topoSort } from "./deps";
 import type { PackageInfo } from "./types";
@@ -38,6 +38,75 @@ describe("dependency graph helpers", () => {
       ]),
     );
     expect(graph.nameMap.get("app")).toBe(packages[0]);
+  });
+
+  test("builds isolated nodes when dependencies are external only", () => {
+    const graph = buildDepGraph([pkg("app", { external: "^1.0.0" })]);
+
+    expect(graph.graph).toEqual(new Map([["app", []]]));
+    expect(graph.inDegree).toEqual(new Map([["app", 0]]));
+  });
+
+  test("buildDepGraph keeps edges even when intermediate map lookups are missing", () => {
+    const originalGet = Map.prototype.get;
+    const getSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+    ) {
+      if (key === "sdk") return undefined;
+      return originalGet.call(this, key);
+    });
+
+    try {
+      const graph = buildDepGraph([pkg("app", { sdk: "workspace:*" }), pkg("sdk")]);
+      expect(graph.graph).toEqual(
+        new Map([
+          ["app", []],
+          ["sdk", ["app"]],
+        ]),
+      );
+      expect(graph.inDegree).toEqual(
+        new Map([
+          ["app", 1],
+          ["sdk", 0],
+        ]),
+      );
+    } finally {
+      getSpy.mockRestore();
+    }
+  });
+
+  test("buildDepGraph falls back when dependent in-degree lookup is missing", () => {
+    const originalGet = Map.prototype.get;
+    const getSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+    ) {
+      if (key === "app") return undefined;
+      return originalGet.call(this, key);
+    });
+
+    let graph: ReturnType<typeof buildDepGraph>;
+    try {
+      graph = buildDepGraph([pkg("app", { sdk: "workspace:*" }), pkg("sdk")]);
+    } finally {
+      getSpy.mockRestore();
+    }
+
+    expect(graph.inDegree.get("app")).toBe(1);
+  });
+
+  test("topoSort skips children already visited and missing in-degree entries", () => {
+    const graph = new Map<string, string[]>([
+      ["a", ["b", "missing-degree"]],
+      ["b", []],
+    ]);
+    const inDegree = new Map<string, number>([
+      ["a", 0],
+      ["b", 1],
+    ]);
+
+    expect(topoSort(["a", "b", "a"], graph, inDegree)).toEqual(["a", "b"]);
   });
 
   test("sorts dependencies before dependents", () => {
@@ -82,9 +151,9 @@ describe("dependency graph helpers", () => {
     expect(topoSort(["a", "b"], graph, inDegree)).toEqual([]);
   });
 
-  test("collects transitive workspace dependencies and handles repeats", () => {
+  test("collects transitive workspace dependencies and skips external ones", () => {
     const packages = [
-      pkg("app", { sdk: "workspace:*" }),
+      pkg("app", { sdk: "workspace:*", external: "^1.0.0" }),
       pkg("sdk", { core: "workspace:*" }),
       pkg("core"),
     ];
