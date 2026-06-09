@@ -28,18 +28,7 @@
   "sideEffects": false,
   "main": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./config": "./src/config.ts",
-    "./repo-manager": "./src/repo-manager.ts",
-    "./repo-provider": "./src/repo-provider.ts",
-    "./session-checkpoint-storage": "./src/session-checkpoint-storage.ts",
-    "./session-state-map": "./src/session-state-map.ts",
-    "./testing": "./src/testing/index.ts",
-    "./resolver": "./src/resolver.ts",
-    "./exec": "./src/exec.ts",
-    "./diff-parser": "./src/diff-parser.ts",
-    "./guards": "./src/guards.ts",
-    "./types": "./src/types.ts"
+    ".": "./src/index.ts"
   },
   "publishConfig": {
     "access": "public",

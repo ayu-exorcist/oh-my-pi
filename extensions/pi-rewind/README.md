@@ -16,6 +16,7 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
 - Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree: "always"`)
 - Auto-copy checkpoint repo on fork / clone; clone restores code to the selected checkpoint's `afterCommit` by default
 - Real-time file-change counter for the current turn
+- Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
 
 ## Dependencies
 

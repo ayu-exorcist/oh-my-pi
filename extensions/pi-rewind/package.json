@@ -28,8 +28,7 @@
   "sideEffects": false,
   "main": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./commands/rewind": "./src/commands/rewind.ts"
+    ".": "./src/index.ts"
   },
   "publishConfig": {
     "access": "public",

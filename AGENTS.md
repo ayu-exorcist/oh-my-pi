@@ -25,7 +25,7 @@ Use pnpm and mise; do not switch package managers.
 
 - Install: `mise install && pnpm install`
 - Local check: `pnpm run check`
-- CI gate: `pnpm run ci`
+- CI gate: `pnpm run verify`
 - Build: `pnpm run build`
 - Release dry run: `pnpm run release:dry`
 

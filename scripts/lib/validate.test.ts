@@ -21,7 +21,7 @@ function validManifest(overrides: Partial<PkgJson> = {}): Partial<PkgJson> {
     bugs: { url: "https://example.com/issues" },
     publishConfig: { access: "public" },
     keywords: ["pi-package"],
-    pi: { extensions: ["dist/index.mjs"] },
+    pi: { extensions: ["dist/index.js"] },
     ...overrides,
   };
 }

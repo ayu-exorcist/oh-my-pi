@@ -8,6 +8,7 @@ Pi extension providing `/undo` and `/redo` interactive commands, built on the ch
 - `/redo` — replay a previously undone turn
 - Detects unsnapshotted workspace changes and warns before proceeding
 - Safe rollback: automatically restores to a safety point if checkout fails
+- Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
 
 ## Dependencies
 

@@ -10,7 +10,7 @@ function runDistManifest(cwd: string): void {
 }
 
 describe("dist manifest generation", () => {
-  test("copies README and adds readme metadata to dist package.json", () => {
+  test("copies README and adds generated dist files to dist package.json", () => {
     const root = mkdtempSync(join(tmpdir(), "dist-manifest-test-"));
     try {
       mkdirSync(join(root, "dist"), { recursive: true });
@@ -42,6 +42,9 @@ describe("dist manifest generation", () => {
             devDependencies: {
               vitest: "^4.1.7",
             },
+            engines: {
+              node: ">=24.0.0",
+            },
             files: ["README.md"],
           },
           null,
@@ -50,39 +53,51 @@ describe("dist manifest generation", () => {
         "utf8",
       );
       writeFileSync(join(root, "README.md"), "# pkg\n\nhello world\n", "utf8");
+      writeFileSync(join(root, "dist", "package.json"), "{}\n", "utf8");
+      writeFileSync(join(root, "dist", "index.js"), "export {};\n", "utf8");
+      writeFileSync(join(root, "dist", "index.d.ts"), "export {};\n", "utf8");
+      mkdirSync(join(root, "dist", "nested"), { recursive: true });
+      writeFileSync(join(root, "dist", "nested", "chunk.js"), "export {};\n", "utf8");
 
       runDistManifest(root);
 
       const distPackageJson = JSON.parse(readFileSync(join(root, "dist", "package.json"), "utf8"));
-      expect(distPackageJson.readme).toBe("# pkg\n\nhello world\n");
-      expect(distPackageJson.readmeFilename).toBe("README.md");
-      expect(distPackageJson.main).toBe("index.mjs");
-      expect(distPackageJson.types).toBe("index.d.mjs");
+      expect(distPackageJson.readme).toBeUndefined();
+      expect(distPackageJson.readmeFilename).toBeUndefined();
+      expect(distPackageJson.main).toBe("index.js");
+      expect(distPackageJson.types).toBe("index.d.ts");
       expect(distPackageJson.exports).toEqual({
-        ".": "./index.mjs",
+        ".": "./index.js",
         "./nested": {
-          import: "./nested.mjs",
+          import: "./nested.js",
           default: 123,
         },
       });
       expect(distPackageJson.pi).toEqual({
-        extensions: ["./index.mjs", "./extra.mjs"],
+        extensions: ["./index.js", "./extra.js"],
       });
       expect(distPackageJson.dependencies).toEqual({ external: "^1.0.0" });
       expect(existsSync(join(root, "dist", "README.md"))).toBe(true);
       expect(readFileSync(join(root, "dist", "README.md"), "utf8")).toBe("# pkg\n\nhello world\n");
       expect(distPackageJson.scripts).toBeUndefined();
       expect(distPackageJson.devDependencies).toBeUndefined();
-      expect(distPackageJson.files).toBeUndefined();
+      expect(distPackageJson.engines).toBeUndefined();
+      expect(distPackageJson.files).toEqual([
+        "README.md",
+        "index.d.ts",
+        "index.js",
+        "nested/chunk.js",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("omits readme metadata when README is absent", () => {
+  test("omits README and lists existing dist files when README is absent", () => {
     const root = mkdtempSync(join(tmpdir(), "dist-manifest-test-"));
     try {
       mkdirSync(join(root, "dist"), { recursive: true });
+      writeFileSync(join(root, "dist", "index.js"), "export {};\n", "utf8");
       writeFileSync(
         join(root, "package.json"),
         JSON.stringify({ name: "pkg", version: "1.0.0" }, null, 2),
@@ -94,6 +109,7 @@ describe("dist manifest generation", () => {
       const distPackageJson = JSON.parse(readFileSync(join(root, "dist", "package.json"), "utf8"));
       expect(distPackageJson.readme).toBeUndefined();
       expect(distPackageJson.readmeFilename).toBeUndefined();
+      expect(distPackageJson.files).toEqual(["index.js"]);
       expect(existsSync(join(root, "dist", "README.md"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

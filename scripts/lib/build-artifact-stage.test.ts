@@ -32,7 +32,7 @@ describe("Build Artifact staging", () => {
       const nodeModulesDep = join(root, "node_modules", "dep");
       mkdirSync(depDist, { recursive: true });
       mkdirSync(join(root, "node_modules"), { recursive: true });
-      writeFileSync(join(depDist, "index.mjs"), "dist", "utf8");
+      writeFileSync(join(depDist, "index.js"), "dist", "utf8");
       symlinkSync(depPath, nodeModulesDep, "junction");
 
       const result = stageBundledBuildArtifacts({
@@ -42,7 +42,7 @@ describe("Build Artifact staging", () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(readFileSync(join(nodeModulesDep, "index.mjs"), "utf8")).toBe("dist");
+      expect(readFileSync(join(nodeModulesDep, "index.js"), "utf8")).toBe("dist");
       if (result.ok) {
         for (const restore of result.restores) restore();
       }
@@ -129,7 +129,7 @@ describe("Build Artifact staging", () => {
       mkdirSync(depDist, { recursive: true });
       mkdirSync(join(root, "node_modules"), { recursive: true });
       mkdirSync(symlinkTarget, { recursive: true });
-      writeFileSync(join(depDist, "index.mjs"), "dist", "utf8");
+      writeFileSync(join(depDist, "index.js"), "dist", "utf8");
       symlinkSync(symlinkTarget, nodeModulesDep, "junction");
 
       const result = stageBundledBuildArtifacts({
@@ -156,7 +156,7 @@ describe("Build Artifact staging", () => {
       const nodeModulesDep = join(root, "node_modules", "dep");
       mkdirSync(depDist, { recursive: true });
       mkdirSync(nodeModulesDep, { recursive: true });
-      writeFileSync(join(depDist, "index.mjs"), "dist", "utf8");
+      writeFileSync(join(depDist, "index.js"), "dist", "utf8");
       writeFileSync(join(nodeModulesDep, "source.ts"), "source", "utf8");
 
       const result = stageBundledBuildArtifacts({
@@ -166,11 +166,11 @@ describe("Build Artifact staging", () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(readFileSync(join(nodeModulesDep, "index.mjs"), "utf8")).toBe("dist");
+      expect(readFileSync(join(nodeModulesDep, "index.js"), "utf8")).toBe("dist");
       if (result.ok) {
         for (const restore of result.restores) restore();
       }
-      expect(() => readFileSync(join(nodeModulesDep, "index.mjs"), "utf8")).toThrow();
+      expect(() => readFileSync(join(nodeModulesDep, "index.js"), "utf8")).toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

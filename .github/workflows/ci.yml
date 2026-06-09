@@ -32,4 +32,4 @@ jobs:
           git config --global user.email "noreply@example.com"
 
       - name: Run CI gate
-        run: pnpm run ci
+        run: pnpm run verify

@@ -1,5 +1,13 @@
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -8,11 +16,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function rewritePaths(value: unknown): unknown {
   if (typeof value === "string") {
-    return value
-      .replace(/^\.\/src\//, "./")
-      .replace(/^src\//, "")
-      .replace(/\.d\.ts$/, ".d.mjs")
-      .replace(/\.ts$/, ".mjs");
+    const normalized = value.replace(/^\.\/src\//, "./").replace(/^src\//, "");
+    if (normalized.endsWith(".d.ts")) return normalized;
+    return normalized.replace(/\.ts$/, ".js");
   }
   if (Array.isArray(value)) {
     return value.map(rewritePaths);
@@ -29,6 +35,27 @@ function filterWorkspaceDeps(deps: Record<string, unknown>): Record<string, unkn
   return Object.fromEntries(
     Object.entries(deps).filter(([, version]) => !String(version).startsWith("workspace:")),
   );
+}
+
+function listDistFiles(distDir: string): string[] {
+  const files: string[] = [];
+
+  function walk(dir: string): void {
+    for (const name of readdirSync(dir).sort()) {
+      const fullPath = join(dir, name);
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+
+      const file = relative(distDir, fullPath).replace(/\\/g, "/");
+      if (file !== "package.json") files.push(file);
+    }
+  }
+
+  walk(distDir);
+  return files;
 }
 
 export function buildDistManifest(cwd: string): void {
@@ -52,6 +79,7 @@ export function buildDistManifest(cwd: string): void {
 
   delete manifest.scripts;
   delete manifest.devDependencies;
+  delete manifest.engines;
   delete manifest.files;
 
   if (isRecord(manifest.dependencies)) {
@@ -63,11 +91,10 @@ export function buildDistManifest(cwd: string): void {
 
   const readmePath = join(cwd, "README.md");
   if (existsSync(readmePath)) {
-    const readme = readFileSync(readmePath, "utf8");
-    manifest.readme = readme;
-    manifest.readmeFilename = "README.md";
     copyFileSync(readmePath, join(distDir, "README.md"));
   }
+
+  manifest.files = listDistFiles(distDir);
 
   writeFileSync(join(distDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
