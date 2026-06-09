@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/pi-undo-redo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pi extension providing /undo and /redo commands",
   "keywords": [
     "checkpoint",
