@@ -53,11 +53,10 @@
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
   "dependencies": {
+    "@ayulab/pi-brief": "workspace:*",
     "@ayulab/pi-clarify": "workspace:*",
-    "@ayulab/pi-compact": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
-    "@ayulab/pi-undo-redo": "workspace:*",
-    "pi-mcp-adapter": "^2.9.0"
+    "@ayulab/pi-undo-redo": "workspace:*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.78.1",
@@ -71,8 +70,8 @@
     "vitest": "^4.1.8"
   },
   "bundledDependencies": [
+    "@ayulab/pi-brief",
     "@ayulab/pi-clarify",
-    "@ayulab/pi-compact",
     "@ayulab/pi-rewind",
     "@ayulab/pi-undo-redo"
   ],
@@ -83,10 +82,9 @@
   "pi": {
     "extensions": [
       "!node_modules/@ayulab/pi-clarify",
-      "!node_modules/@ayulab/pi-compact",
+      "!node_modules/@ayulab/pi-brief",
       "node_modules/@ayulab/pi-rewind",
-      "!node_modules/@ayulab/pi-undo-redo",
-      "node_modules/pi-mcp-adapter"
+      "!node_modules/@ayulab/pi-undo-redo"
     ],
     "skills": [
       "./skills"

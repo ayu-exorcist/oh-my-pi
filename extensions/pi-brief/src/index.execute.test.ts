@@ -41,7 +41,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   createLsTool: factoryByName.get("ls"),
 }));
 
-import compactExtension from "./index";
+import briefExtension from "./index";
 
 interface RegisteredTool {
   readonly name: string;
@@ -72,10 +72,10 @@ function getTool(tools: ReadonlyMap<string, RegisteredTool>, name: string): Regi
   return tool;
 }
 
-describe("pi-compact execute wrappers", () => {
-  test("delegates every compact tool execute call to the cwd-scoped built-in tool", async () => {
+describe("pi-brief execute wrappers", () => {
+  test("delegates every brief tool execute call to the cwd-scoped built-in tool", async () => {
     const { api, tools } = createMockApi();
-    compactExtension(api);
+    briefExtension(api);
     const signal = new AbortController().signal;
     const onUpdate = vi.fn();
     const ctx = { cwd: "/workspace" } as unknown as ExtensionContext;

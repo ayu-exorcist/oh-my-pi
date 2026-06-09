@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 
-import compactExtension from "./index";
+import briefExtension from "./index";
 
 interface RegisteredTool {
   readonly name: string;
@@ -74,10 +74,10 @@ function getCommand(
   return command;
 }
 
-describe("pi-compact extension", () => {
-  test("registers compact wrappers and command", () => {
+describe("pi-brief extension", () => {
+  test("registers brief wrappers and command", () => {
     const { api, tools, commands, events } = createMockApi();
-    compactExtension(api);
+    briefExtension(api);
 
     expect([...tools.keys()].sort()).toEqual([
       "bash",
@@ -88,54 +88,54 @@ describe("pi-compact extension", () => {
       "read",
       "write",
     ]);
-    expect(commands.has("compact")).toBe(true);
+    expect(commands.has("brief")).toBe(true);
     expect(events.session_start).toHaveLength(1);
     expect(events.session_tree).toHaveLength(1);
   });
 
-  test("toggles, reports, persists, and restores compact state", async () => {
+  test("toggles, reports, persists, and restores brief state", async () => {
     const { api, commands, events, appendEntry } = createMockApi();
-    compactExtension(api);
-    const command = getCommand(commands, "compact");
+    briefExtension(api);
+    const command = getCommand(commands, "brief");
     const ctx = createCtx();
 
     await command.handler("status", ctx);
-    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Compact mode: on", "info");
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Brief mode: on", "info");
 
     await command.handler("off", ctx);
-    expect(appendEntry).toHaveBeenLastCalledWith("pi-compact.state", { enabled: false });
-    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Compact mode: off", "info");
+    expect(appendEntry).toHaveBeenLastCalledWith("pi-brief.state", { enabled: false });
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Brief mode: off", "info");
 
     await command.handler("on", ctx);
-    expect(appendEntry).toHaveBeenLastCalledWith("pi-compact.state", { enabled: true });
-    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Compact mode: on", "info");
+    expect(appendEntry).toHaveBeenLastCalledWith("pi-brief.state", { enabled: true });
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith("Brief mode: on", "info");
 
     await command.handler("bad", ctx);
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(
-      "Usage: /compact on | /compact off | /compact status",
+      "Usage: /brief on | /brief off | /brief status",
       "warning",
     );
 
     const restoredCtx = createCtx([
       { type: "custom", customType: "other", data: { enabled: false } },
       { type: "custom", customType: "pi-compact.state", data: { enabled: false } },
-      { type: "custom", customType: "pi-compact.state", data: { enabled: "bad" } },
+      { type: "custom", customType: "pi-brief.state", data: { enabled: "bad" } },
     ]);
     for (const handler of events.session_start ?? []) await handler({}, restoredCtx);
     await command.handler("", restoredCtx);
-    expect(restoredCtx.ui.notify).toHaveBeenLastCalledWith("Compact mode: off", "info");
+    expect(restoredCtx.ui.notify).toHaveBeenLastCalledWith("Brief mode: off", "info");
 
     const treeCtx = createCtx([
-      { type: "custom", customType: "pi-compact.state", data: { enabled: true } },
+      { type: "custom", customType: "pi-brief.state", data: { enabled: true } },
     ]);
     for (const handler of events.session_tree ?? []) await handler({}, treeCtx);
     await command.handler("", treeCtx);
-    expect(treeCtx.ui.notify).toHaveBeenLastCalledWith("Compact mode: on", "info");
+    expect(treeCtx.ui.notify).toHaveBeenLastCalledWith("Brief mode: on", "info");
   });
 
-  test("renders compact read, bash, edit, write, find, grep, and ls summaries", () => {
+  test("renders brief read, bash, edit, write, find, grep, and ls summaries", () => {
     const { api, tools } = createMockApi();
-    compactExtension(api);
+    briefExtension(api);
     const theme = createTheme();
 
     getTool(tools, "read").renderCall({ path: "file.ts", offset: 2, limit: 3 }, theme);
@@ -178,7 +178,7 @@ describe("pi-compact extension", () => {
 
   test("renders empty and expanded results", async () => {
     const { api, tools, commands } = createMockApi();
-    compactExtension(api);
+    briefExtension(api);
     const theme = createTheme();
 
     getTool(tools, "read").renderResult(textResult("\n"), {}, theme);
@@ -204,14 +204,14 @@ describe("pi-compact extension", () => {
     expect(theme.fg).toHaveBeenCalledWith("toolOutput", "full ls");
 
     const ctx = createCtx();
-    await getCommand(commands, "compact").handler("off", ctx);
+    await getCommand(commands, "brief").handler("off", ctx);
     getTool(tools, "bash").renderResult(textResult("full output"), {}, theme);
     expect(theme.fg).toHaveBeenCalledWith("toolOutput", "full output");
   });
 
   test("renders fallback call arguments and missing text content", () => {
     const { api, tools } = createMockApi();
-    compactExtension(api);
+    briefExtension(api);
     const theme = createTheme();
 
     getTool(tools, "read").renderCall(

@@ -17,11 +17,12 @@ function shortenPath(path: string): string {
   return path;
 }
 
-interface CompactState {
+interface BriefState {
   enabled: boolean;
 }
 
-const COMPACT_ENTRY_TYPE = "pi-compact.state";
+const BRIEF_ENTRY_TYPE = "pi-brief.state";
+const LEGACY_COMPACT_ENTRY_TYPE = "pi-compact.state";
 
 function getBuiltInTools(cwd: string) {
   return {
@@ -40,27 +41,30 @@ function fullText(result: { content: Array<{ type: string; text?: string }> }): 
   return c?.text;
 }
 
-export default function compactExtension(pi: ExtensionAPI) {
-  let compactMode = true;
+export default function briefExtension(pi: ExtensionAPI) {
+  let briefMode = true;
 
   function persistState(): void {
-    pi.appendEntry<CompactState>(COMPACT_ENTRY_TYPE, { enabled: compactMode });
+    pi.appendEntry<BriefState>(BRIEF_ENTRY_TYPE, { enabled: briefMode });
   }
 
   function restoreState(ctx: ExtensionContext): void {
     const entries = ctx.sessionManager.getEntries();
     for (const entry of entries) {
-      if (entry.type === "custom" && entry.customType === COMPACT_ENTRY_TYPE) {
-        const data = entry.data as CompactState | undefined;
+      if (
+        entry.type === "custom" &&
+        (entry.customType === BRIEF_ENTRY_TYPE || entry.customType === LEGACY_COMPACT_ENTRY_TYPE)
+      ) {
+        const data = entry.data as BriefState | undefined;
         if (data && typeof data.enabled === "boolean") {
-          compactMode = data.enabled;
+          briefMode = data.enabled;
         }
       }
     }
   }
 
-  function isCompact(): boolean {
-    return compactMode;
+  function isBrief(): boolean {
+    return briefMode;
   }
 
   function fullRender(
@@ -99,7 +103,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -127,7 +131,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       return new Text(theme.fg("toolTitle", theme.bold(`$ ${command}`)) + timeoutSuffix, 0, 0);
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -158,7 +162,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       return new Text(`${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`, 0, 0);
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -203,7 +207,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       );
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -232,7 +236,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -261,7 +265,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -291,7 +295,7 @@ export default function compactExtension(pi: ExtensionAPI) {
       );
     },
     renderResult(result, options, theme) {
-      if (!isCompact() || options.expanded) {
+      if (!isBrief() || options.expanded) {
         return fullRender(result, theme);
       }
       const text = fullText(result);
@@ -302,32 +306,32 @@ export default function compactExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ─── /compact Command ───
-  pi.registerCommand("compact", {
-    description: "Toggle compact output mode",
+  // ─── /brief Command ───
+  pi.registerCommand("brief", {
+    description: "Toggle brief output mode",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
 
       if (trimmed === "on") {
-        compactMode = true;
+        briefMode = true;
         persistState();
-        ctx.ui.notify("Compact mode: on", "info");
+        ctx.ui.notify("Brief mode: on", "info");
         return;
       }
 
       if (trimmed === "off") {
-        compactMode = false;
+        briefMode = false;
         persistState();
-        ctx.ui.notify("Compact mode: off", "info");
+        ctx.ui.notify("Brief mode: off", "info");
         return;
       }
 
       if (trimmed === "status" || !trimmed) {
-        ctx.ui.notify(`Compact mode: ${compactMode ? "on" : "off"}`, "info");
+        ctx.ui.notify(`Brief mode: ${briefMode ? "on" : "off"}`, "info");
         return;
       }
 
-      ctx.ui.notify("Usage: /compact on | /compact off | /compact status", "warning");
+      ctx.ui.notify("Usage: /brief on | /brief off | /brief status", "warning");
     },
   });
 

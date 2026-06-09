@@ -1,16 +1,16 @@
-# @ayulab/pi-compact
+# @ayulab/pi-brief
 
-Pi extension that compacts built-in tool output to one-line summaries, keeping sessions focused on decisions.
+Pi extension that briefs built-in tool output to one-line summaries, keeping sessions focused on decisions.
 
 ## Why?
 
-Pi agents often run many `read`, `grep`, `find`, and `bash` calls while exploring a codebase. Most of that output is intermediate context the user never needs to read. `@ayulab/pi-compact` collapses every built-in tool result to a single summary line so you can focus on what matters — especially when paired with `@ayulab/pi-clarify` for structured decision prompts.
+Pi agents often run many `read`, `grep`, `find`, and `bash` calls while exploring a codebase. Most of that output is intermediate context the user never needs to read. `@ayulab/pi-brief` collapses every built-in tool result to a single summary line so you can focus on what matters — especially when paired with `@ayulab/pi-clarify` for structured decision prompts.
 
 ## Features
 
 - One-line summaries for `read`, `bash`, `edit`, `write`, `find`, `grep`, `ls`
 - `Ctrl+O` expands any result to see full output
-- `/compact on | off | status` toggle
+- `/brief on | off | status` toggle
 - Session-persistent state
 
 ## Installation
@@ -24,20 +24,20 @@ pi install npm:@ayulab/oh-my-pi
 Or standalone:
 
 ```bash
-pi install npm:@ayulab/pi-compact
+pi install npm:@ayulab/pi-brief
 ```
 
 ## Usage
 
 ```text
-> /compact status
-Compact mode: on
+> /brief status
+Brief mode: on
 
-> /compact off
-Compact mode: off
+> /brief off
+Brief mode: off
 ```
 
-When compact mode is on, tool results look like:
+When brief mode is on, tool results look like:
 
 ```text
 read src/index.ts → 45 lines

@@ -1,16 +1,16 @@
 {
-  "name": "@ayulab/pi-compact",
+  "name": "@ayulab/pi-brief",
   "version": "0.1.0",
-  "description": "Pi extension that compacts tool output to show only decision-critical information",
+  "description": "Pi extension that briefs tool output to show only decision-critical information",
   "keywords": [
-    "compact",
+    "brief",
     "extension",
     "minimal",
     "output",
     "pi",
     "pi-package"
   ],
-  "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/extensions/pi-compact#readme",
+  "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/extensions/pi-brief#readme",
   "bugs": {
     "url": "https://github.com/ayu-exorcist/oh-my-pi/issues"
   },
@@ -19,7 +19,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/ayu-exorcist/oh-my-pi.git",
-    "directory": "extensions/pi-compact"
+    "directory": "extensions/pi-brief"
   },
   "files": [
     "src",
