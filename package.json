@@ -57,25 +57,24 @@
     "@ayulab/pi-compact": "workspace:*",
     "@ayulab/pi-rewind": "workspace:*",
     "@ayulab/pi-undo-redo": "workspace:*",
-    "pi-mcp-adapter": "^2.8.0"
+    "pi-mcp-adapter": "^2.9.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.78.0",
+    "@earendil-works/pi-coding-agent": "^0.78.1",
     "@oxc-node/cli": "^0.1.0",
-    "@types/node": "^25.9.1",
-    "@vitest/coverage-v8": "^4.1.7",
-    "oxfmt": "^0.52.0",
-    "oxlint": "^1.67.0",
+    "@types/node": "^25.9.2",
+    "@vitest/coverage-v8": "^4.1.8",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
     "turbo": "^2.9.16",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   },
   "bundledDependencies": [
     "@ayulab/pi-clarify",
     "@ayulab/pi-compact",
     "@ayulab/pi-rewind",
-    "@ayulab/pi-undo-redo",
-    "pi-mcp-adapter"
+    "@ayulab/pi-undo-redo"
   ],
   "engines": {
     "node": ">=24.0.0"
