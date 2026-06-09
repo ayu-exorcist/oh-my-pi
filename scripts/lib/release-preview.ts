@@ -62,7 +62,7 @@ export function buildReleasePreviewRows(
 
     return {
       name: pkg.name,
-      currentVersion: pkg.version,
+      currentVersion: bump ? bump.fromVersion : pkg.version,
       nextVersion: bump ? bump.toVersion : publish ? pkg.version : "—",
       bump: Boolean(bump),
       publish,

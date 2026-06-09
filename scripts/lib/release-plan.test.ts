@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { collectDependencies, createReleasePlan } from "./release-plan";
+import { collectDependencies, collectReleaseScope, createReleasePlan } from "./release-plan";
 import type { PackageInfo } from "./types";
 
 function pkg(
@@ -89,6 +89,29 @@ describe("Release Plan", () => {
       plan: {
         packages: [],
         registryVersions: new Map(),
+      },
+    });
+  });
+
+  test("explicit root target does not expand to every bundled dependency", () => {
+    const packages = [
+      pkg("root", "1.0.0", { ext: "workspace:*" }),
+      pkg("ext", "1.0.0", { sdk: "workspace:*" }),
+      pkg("sdk", "1.0.0"),
+    ];
+
+    const result = createReleasePlan({
+      packages,
+      targets: ["root"],
+      publishAll: false,
+      getRegistryVersion: registry({ root: "0.9.0", ext: "0.9.0", sdk: "0.9.0" }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      plan: {
+        packages: [packages[0]],
+        registryVersions: new Map([["root", "0.9.0"]]),
       },
     });
   });
@@ -223,6 +246,13 @@ describe("Release Plan", () => {
     const nameMap = new Map(packages.map((p) => [p.name, p]));
 
     expect(collectDependencies("ext", nameMap, new Set<string>())).toEqual(new Set(["ext", "sdk"]));
+  });
+
+  test("collectReleaseScope ignores unknown targets", () => {
+    const packages = [pkg("sdk", "1.0.0")];
+    const nameMap = new Map(packages.map((p) => [p.name, p]));
+
+    expect(collectReleaseScope(["missing", "sdk"], nameMap)).toEqual(new Set(["sdk"]));
   });
 
   test("publishAll can include every out-of-date package even with missing dependency metadata", () => {

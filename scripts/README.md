@@ -51,13 +51,13 @@ Orchestrates npm publishing across the monorepo. Entry point that composes modul
 
 Flags:
 
-| Flag                            | Short | Description                                          |
-| ------------------------------- | ----- | ---------------------------------------------------- |
-| `--dry-run`                     | —     | Preview what would be published without touching npm |
-| `--all`                         | `-a`  | Publish all out-of-date packages                     |
-| `--package=<name>`              | `-p`  | Publish a specific package (and its deps)            |
-| `--access=<public\|restricted>` | —     | npm access level (default: `public`)                 |
-| `--otp <code>`                  | —     | One-time password for two-factor authentication      |
+| Flag                            | Short | Description                                             |
+| ------------------------------- | ----- | ------------------------------------------------------- |
+| `--dry-run`                     | —     | Preview what would be published without touching npm    |
+| `--all`                         | `-a`  | Publish all out-of-date packages                        |
+| `--package=<name>[,<name>...]`  | `-p`  | Publish specific package(s) and required workspace deps |
+| `--access=<public\|restricted>` | —     | npm access level (default: `public`)                    |
+| `--otp <code>`                  | —     | One-time password for two-factor authentication         |
 
 `-p` and `-a` are mutually exclusive. If both are provided, `-p` wins.
 
@@ -70,8 +70,12 @@ pnpm run release
 # Same as above, explicit
 pnpm run release --all
 
-# Publish a specific package (including its unpublished deps)
-pnpm run release -p @ayulab/oh-my-pi
+# Publish a specific package (including required unpublished workspace deps)
+pnpm run release -p @ayulab/pi-rewind
+
+# Publish multiple specific packages
+pnpm run release --package @ayulab/pi-rewind @ayulab/oh-my-pi @ayulab/pi-undo-redo
+pnpm run release --package=@ayulab/pi-rewind,@ayulab/oh-my-pi,@ayulab/pi-undo-redo
 
 # Publish with OTP
 pnpm run release --otp 123456

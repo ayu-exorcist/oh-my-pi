@@ -10,7 +10,8 @@ import { buildDepGraph, collectDependencies } from "./lib/deps";
 import { commit, hasPathChangesSinceRef, pushCurrentBranch, tagAndRelease } from "./lib/git";
 import { getRegistryVersion, setRoot } from "./lib/npm";
 import { getPackages } from "./lib/packages";
-import { createReleasePlan } from "./lib/release-plan";
+import { createReleasePlan, collectReleaseScope } from "./lib/release-plan";
+import { parseReleaseTargets } from "./lib/release-targets";
 import { stageBundledBuildArtifacts } from "./lib/build-artifact-stage";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
 import type { PackageInfo } from "./lib/types";
@@ -22,26 +23,9 @@ setRoot(root);
 const { flags, positionals } = parseCLI();
 
 const DRY_RUN = flags.has("dry-run");
-const ALL = flags.has("all") || flags.has("a");
 const ACCESS = typeof flags.get("access") === "string" ? String(flags.get("access")) : "public";
 const OTP = typeof flags.get("otp") === "string" ? String(flags.get("otp")) : undefined;
-
-// Package target(s) from -p / --package flag.
-let TARGETS: string[] = [];
-const pkgFlag = flags.get("package") ?? flags.get("p");
-if (pkgFlag) {
-  TARGETS = String(pkgFlag)
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-} else if (positionals.length > 0) {
-  // Back-compat: bare positional args are also treated as targets.
-  TARGETS = positionals;
-}
-
-// If neither --all nor --package/positional targets were provided,
-// default to all out-of-date packages for backwards compatibility.
-const PUBLISH_ALL = ALL || TARGETS.length === 0;
+const { targets: TARGETS, publishAll: PUBLISH_ALL } = parseReleaseTargets(flags, positionals);
 
 function latestPublishedTag(pkg: PackageInfo): string | null {
   try {
@@ -214,7 +198,19 @@ function publishOne(
 async function main(): Promise<void> {
   const packages = getPackages(root);
   const { nameMap } = buildDepGraph(packages);
-  const autoBumpPlan = createAutoBumpPlan(packages, nameMap);
+
+  for (const target of TARGETS) {
+    if (!nameMap.has(target)) {
+      console.error(`❌ Unknown package: ${target}`);
+      process.exit(1);
+    }
+  }
+
+  const releaseScope = PUBLISH_ALL ? undefined : collectReleaseScope(TARGETS, nameMap);
+  const scopedPackages = releaseScope
+    ? packages.filter((pkg) => releaseScope.has(pkg.name))
+    : packages;
+  const autoBumpPlan = createAutoBumpPlan(scopedPackages, nameMap);
 
   if (!DRY_RUN) {
     applyAutoBumpPlan(autoBumpPlan, nameMap);
@@ -237,7 +233,16 @@ async function main(): Promise<void> {
   const toPublish = new Set(sortedToPublish);
 
   if (DRY_RUN) {
-    const previewRows = buildReleasePreviewRows(packages, result.plan.packages, autoBumpPlan);
+    const plannedNames = new Set(result.plan.packages.map((pkg) => pkg.name));
+    const previewPackages = [
+      ...result.plan.packages,
+      ...scopedPackages.filter((pkg) => !plannedNames.has(pkg.name)),
+    ];
+    const previewRows = buildReleasePreviewRows(
+      previewPackages,
+      result.plan.packages,
+      autoBumpPlan,
+    );
     const statusLabel = (status: string): string => {
       if (status === "will bump") return "bump";
       if (status === "will publish") return "publish";

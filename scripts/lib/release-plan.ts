@@ -35,12 +35,18 @@ export function collectDependencies(
   return visited;
 }
 
-function collectAllowedTargets(
-  options: CreateReleasePlanOptions,
+export function collectReleaseScope(
+  targets: readonly string[],
   packagesByName: ReadonlyMap<string, PackageInfo>,
 ): Set<string> {
   const allowed = new Set<string>();
-  for (const target of options.targets) {
+  for (const target of targets) {
+    const pkg = packagesByName.get(target);
+    if (!pkg) continue;
+    if (pkg.isRoot) {
+      allowed.add(target);
+      continue;
+    }
     for (const dep of collectDependencies(target, packagesByName, new Set<string>())) {
       allowed.add(dep);
     }
@@ -95,7 +101,9 @@ export function createReleasePlan(options: CreateReleasePlanOptions): ReleasePla
     }
   }
 
-  const allowed = options.publishAll ? undefined : collectAllowedTargets(options, packagesByName);
+  const allowed = options.publishAll
+    ? undefined
+    : collectReleaseScope(options.targets, packagesByName);
   const registryVersions = new Map<string, string | null>();
   const selected: PackageInfo[] = [];
 

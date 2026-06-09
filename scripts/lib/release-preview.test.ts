@@ -28,7 +28,7 @@ describe("release preview", () => {
   });
 
   test("builds combined preview rows in package order", () => {
-    const allPackages = [pkg("a", "1.0.0"), pkg("b", "2.0.0"), pkg("c", "3.0.0")];
+    const allPackages = [pkg("a", "1.0.1"), pkg("b", "2.0.0"), pkg("c", "3.0.0")];
     const publishPackages = [allPackages[0]!, allPackages[2]!];
 
     const rows = buildReleasePreviewRows(allPackages, publishPackages, [
