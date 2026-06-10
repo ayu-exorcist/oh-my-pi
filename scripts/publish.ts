@@ -103,11 +103,8 @@ function createAutoBumpPlan(
     hasPublishedTag: (pkg) => Boolean(latestPublishedTag(pkg)),
     hasChangedInputs: (pkg) => {
       const related = collectWorkspaceRelated(pkg, nameMap);
-      return hasPathChangesSinceRef(
-        root,
-        `${pkg.name}@${pkg.version}`,
-        packageReleasePaths(pkg, related),
-      );
+      const scopedPaths = packageReleasePaths(pkg, related);
+      return hasPathChangesSinceRef(root, `${pkg.name}@${pkg.version}`, scopedPaths);
     },
   });
 }
@@ -195,6 +192,35 @@ function publishOne(
   }
 }
 
+export function findUncommittedReleasePackages(
+  scopedPackages: readonly PackageInfo[],
+  nameMap: ReadonlyMap<string, PackageInfo>,
+): string[] {
+  const dirtyPackages: string[] = [];
+
+  for (const pkg of scopedPackages) {
+    const related = collectWorkspaceRelated(pkg, nameMap);
+    if (hasPathChangesSinceRef(root, "HEAD", packageReleasePaths(pkg, related))) {
+      dirtyPackages.push(pkg.name);
+    }
+  }
+
+  return dirtyPackages;
+}
+
+export function ensureReleaseScopeIsCommitted(
+  scopedPackages: readonly PackageInfo[],
+  nameMap: ReadonlyMap<string, PackageInfo>,
+): void {
+  const dirtyPackages = findUncommittedReleasePackages(scopedPackages, nameMap);
+  if (dirtyPackages.length === 0) return;
+
+  console.error(
+    `❌ Release aborted: uncommitted changes detected for ${dirtyPackages.join(", ")}. Commit first, then rerun release.`,
+  );
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
   const packages = getPackages(root);
   const { nameMap } = buildDepGraph(packages);
@@ -213,6 +239,7 @@ async function main(): Promise<void> {
   const autoBumpPlan = createAutoBumpPlan(scopedPackages, nameMap);
 
   if (!DRY_RUN) {
+    ensureReleaseScopeIsCommitted(scopedPackages, nameMap);
     applyAutoBumpPlan(autoBumpPlan, nameMap);
   }
 
@@ -339,7 +366,10 @@ async function main(): Promise<void> {
   console.log("🎉 All packages published successfully!");
 }
 
-main().catch((err: unknown) => {
-  console.error(err);
-  process.exit(1);
-});
+const entrypoint = process.argv[1] ? resolve(process.argv[1]) : null;
+if (entrypoint === fileURLToPath(import.meta.url)) {
+  void main().catch((err: unknown) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -44,6 +44,7 @@ Orchestrates npm publishing across the monorepo. Entry point that composes modul
 1. **Discovery** (`lib/packages.ts`) — scans `extensions/` and `sdk/` for publishable packages.
 2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
 3. **Auto-bump planning** (`lib/auto-bump.ts`) — if a package's current version is already published and its release inputs changed since the matching git tag, the script bumps patch version, commits, and pushes before publishing. If you manually set a new unpublished version, it is published as-is.
+   3.5. **Committed-source guard** — release aborts when the scoped packages have uncommitted changes, so tags and GitHub Releases always point at an actual git commit.
 4. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
 5. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
 6. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing.

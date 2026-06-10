@@ -11,6 +11,7 @@ import {
   createReleases,
   createTag,
   createTags,
+  hasCommittedPathChangesSinceRef,
   hasPathChangesSinceRef,
   hasRef,
   pushCurrentBranch,
@@ -41,11 +42,25 @@ describe("git helpers", () => {
 
   test("detects committed, dirty, and unknown path changes", () => {
     mockExecSync.mockReturnValueOnce("changed.ts\n" as never);
-    expect(hasPathChangesSinceRef("/repo", "tag", ["src", 'quote"path'])).toBe(true);
+    expect(hasCommittedPathChangesSinceRef("/repo", "tag", ["src", 'quote"path'])).toBe(true);
     expect(mockExecSync).toHaveBeenCalledWith(
       'git diff --name-only tag..HEAD -- "src" "quote\\"path"',
       { cwd: "/repo", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     );
+
+    mockExecSync.mockReset();
+    mockExecSync.mockReturnValueOnce("\n" as never);
+    expect(hasCommittedPathChangesSinceRef("/repo", "tag", [])).toBe(false);
+
+    mockExecSync.mockReset();
+    mockExecSync.mockImplementationOnce(() => {
+      throw new Error("bad ref");
+    });
+    expect(hasCommittedPathChangesSinceRef("/repo", "tag", ["src"])).toBe(true);
+
+    mockExecSync.mockReset();
+    mockExecSync.mockReturnValueOnce("changed.ts\n" as never);
+    expect(hasPathChangesSinceRef("/repo", "tag", ["src"])).toBe(true);
 
     mockExecSync.mockReset();
     mockExecSync.mockReturnValueOnce("\n" as never).mockReturnValueOnce("?? file\n" as never);

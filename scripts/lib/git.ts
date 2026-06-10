@@ -22,6 +22,28 @@ export function hasRef(root: string, ref: string): boolean {
 }
 
 /**
+ * Detect whether files under `paths` changed between `ref` and `HEAD`.
+ */
+export function hasCommittedPathChangesSinceRef(
+  root: string,
+  ref: string,
+  paths: readonly string[],
+): boolean {
+  const scoped = pathArgs(paths);
+
+  try {
+    const committed = execSync(`git diff --name-only ${ref}..HEAD${scoped}`, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return committed.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Detect whether files under `paths` changed since `ref` or remain dirty in the
  * current worktree.
  */
