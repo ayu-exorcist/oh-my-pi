@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isBoolean, isRecord, isString, isStringArray } from "./guards";
+import {
+  getBooleanField,
+  getRecordField,
+  getStringField,
+  isRecord,
+  isString,
+  isStringArray,
+} from "@ayulab/runtime-core";
 import type { CheckpointConfig } from "./types";
 
 /**
@@ -43,14 +50,12 @@ export const defaultConfig: CheckpointConfig = {
  * returned object is guaranteed to conform to {@link CheckpointConfig}.
  */
 export function loadConfig(settings: Record<string, unknown>): CheckpointConfig {
-  const checkpoint = isRecord(settings.checkpoint) ? settings.checkpoint : {};
-  const ayu = isRecord(settings.ayu) ? settings.ayu : {};
-  const rewind = isRecord(ayu.rewind) ? ayu.rewind : {};
+  const checkpoint = getRecordField(settings, "checkpoint") ?? {};
+  const ayu = getRecordField(settings, "ayu") ?? {};
+  const rewind = getRecordField(ayu, "rewind") ?? {};
   return {
-    enabled: isBoolean(checkpoint.enabled) ? checkpoint.enabled : defaultConfig.enabled,
-    autoCheckpoint: isBoolean(checkpoint.autoCheckpoint)
-      ? checkpoint.autoCheckpoint
-      : defaultConfig.autoCheckpoint,
+    enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,
+    autoCheckpoint: getBooleanField(checkpoint, "autoCheckpoint") ?? defaultConfig.autoCheckpoint,
     restoreOnFork: isRestoreOption(checkpoint.restoreOnFork)
       ? checkpoint.restoreOnFork
       : defaultConfig.restoreOnFork,
@@ -63,9 +68,9 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
     restoreOnTree: isRestoreOption(rewind.restoreOnTree)
       ? rewind.restoreOnTree
       : defaultConfig.restoreOnTree,
-    defaultSummaryInstructions: isString(checkpoint.defaultSummaryInstructions)
-      ? checkpoint.defaultSummaryInstructions
-      : defaultConfig.defaultSummaryInstructions,
+    defaultSummaryInstructions:
+      getStringField(checkpoint, "defaultSummaryInstructions") ??
+      defaultConfig.defaultSummaryInstructions,
     exclude: isStringArray(checkpoint.exclude) ? checkpoint.exclude : defaultConfig.exclude,
   };
 }

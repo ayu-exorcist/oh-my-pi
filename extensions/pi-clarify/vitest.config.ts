@@ -1,6 +1,6 @@
-import { defineConfig } from "vitest/config";
+import { createWorkspaceVitestConfig } from "@ayulab/repo-tools/vitest";
 
-export default defineConfig({
+export default createWorkspaceVitestConfig({
   test: {
     coverage: {
       provider: "v8",

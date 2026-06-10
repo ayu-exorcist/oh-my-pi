@@ -1,6 +1,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
+import {
+  createMockExtensionApi,
+  createMockTheme,
+  getRegisteredCommand as getCommand,
+  getRegisteredEventHandlers,
+  getRegisteredTool as getTool,
+} from "@ayulab/repo-tools/testing";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 
 import briefExtension from "./index";
@@ -22,22 +29,10 @@ interface RegisteredCommand {
   readonly handler: (args: string, ctx: ExtensionContext) => Promise<void> | void;
 }
 
-function createMockApi() {
-  const tools = new Map<string, RegisteredTool>();
-  const commands = new Map<string, RegisteredCommand>();
-  const events: Record<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>> = {};
-  const appendEntry = vi.fn();
-  const api = {
-    registerTool: (tool: RegisteredTool) => tools.set(tool.name, tool),
-    registerCommand: (name: string, command: RegisteredCommand) => commands.set(name, command),
-    on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
-      events[event] = events[event] || [];
-      events[event]!.push(handler);
-    },
-    appendEntry,
-  } as unknown as ExtensionAPI;
+type EventHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
-  return { api, tools, commands, events, appendEntry };
+function createMockApi() {
+  return createMockExtensionApi<ExtensionAPI, RegisteredTool, RegisteredCommand, EventHandler>();
 }
 
 function createCtx(entries: unknown[] = []): ExtensionContext {
@@ -49,29 +44,14 @@ function createCtx(entries: unknown[] = []): ExtensionContext {
 }
 
 function createTheme(): Pick<Theme, "fg" | "bold"> {
-  return {
-    fg: vi.fn((color: string, text: string) => `<${color}>${text}</${color}>`),
-    bold: vi.fn((text: string) => `**${text}**`),
-  } as unknown as Pick<Theme, "fg" | "bold">;
+  return createMockTheme({
+    colorTemplate: (color, text) => `<${color}>${text}</${color}>`,
+    boldTemplate: (text) => `**${text}**`,
+  }) as Pick<Theme, "fg" | "bold">;
 }
 
 function textResult(text?: string) {
   return { content: text === undefined ? [] : [{ type: "text", text }] };
-}
-
-function getTool(tools: ReadonlyMap<string, RegisteredTool>, name: string): RegisteredTool {
-  const tool = tools.get(name);
-  if (!tool) throw new Error(`missing tool ${name}`);
-  return tool;
-}
-
-function getCommand(
-  commands: ReadonlyMap<string, RegisteredCommand>,
-  name: string,
-): RegisteredCommand {
-  const command = commands.get(name);
-  if (!command) throw new Error(`missing command ${name}`);
-  return command;
 }
 
 describe("pi-brief extension", () => {
@@ -89,8 +69,8 @@ describe("pi-brief extension", () => {
       "write",
     ]);
     expect(commands.has("brief")).toBe(true);
-    expect(events.session_start).toHaveLength(1);
-    expect(events.session_tree).toHaveLength(1);
+    expect(getRegisteredEventHandlers(events, "session_start")).toHaveLength(1);
+    expect(getRegisteredEventHandlers(events, "session_tree")).toHaveLength(1);
   });
 
   test("toggles, reports, persists, and restores brief state", async () => {
@@ -121,14 +101,18 @@ describe("pi-brief extension", () => {
       { type: "custom", customType: "pi-compact.state", data: { enabled: false } },
       { type: "custom", customType: "pi-brief.state", data: { enabled: "bad" } },
     ]);
-    for (const handler of events.session_start ?? []) await handler({}, restoredCtx);
+    for (const handler of getRegisteredEventHandlers(events, "session_start")) {
+      await handler({}, restoredCtx);
+    }
     await command.handler("", restoredCtx);
     expect(restoredCtx.ui.notify).toHaveBeenLastCalledWith("Brief mode: off", "info");
 
     const treeCtx = createCtx([
       { type: "custom", customType: "pi-brief.state", data: { enabled: true } },
     ]);
-    for (const handler of events.session_tree ?? []) await handler({}, treeCtx);
+    for (const handler of getRegisteredEventHandlers(events, "session_tree")) {
+      await handler({}, treeCtx);
+    }
     await command.handler("", treeCtx);
     expect(treeCtx.ui.notify).toHaveBeenLastCalledWith("Brief mode: on", "info");
   });

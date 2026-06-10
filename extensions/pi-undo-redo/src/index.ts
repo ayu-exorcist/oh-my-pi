@@ -6,6 +6,7 @@ import {
   bindSessionRepo,
 } from "@ayulab/pi-checkpoint";
 import { SessionStateMap } from "@ayulab/pi-checkpoint";
+import { hasItems } from "@ayulab/runtime-core";
 import { restoreRedoTarget, restoreUndoTarget } from "./restore";
 
 /** Per-session redo stack entry — records where we were before an undo. */
@@ -20,10 +21,6 @@ const checkpointStorageMissingMessage =
 /** Convenience helper to get all checkpoints for the current session. */
 function getCheckpoints(ctx: ExtensionContext): readonly CheckpointEntry[] {
   return getCheckpointEntries(ctx.sessionManager.getEntries());
-}
-
-function hasItems<T>(items: readonly T[]): items is readonly [T, ...T[]] {
-  return items.length > 0;
 }
 
 /**

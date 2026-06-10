@@ -1,4 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  createMockExtensionApi,
+  createMockTheme,
+  getRegisteredCommand as getCommand,
+  getRegisteredEventHandler,
+  getRegisteredTool as getTool,
+} from "@ayulab/repo-tools/testing";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -48,32 +55,8 @@ type InputHandler = (
   ctx: ExtensionCommandContext,
 ) => Promise<{ readonly action: string }> | { readonly action: string };
 
-function createMockApi(): {
-  readonly api: ExtensionAPI;
-  readonly tools: Map<string, RegisteredTool>;
-  readonly commands: Map<string, RegisteredCommand>;
-  readonly events: Map<string, InputHandler>;
-  readonly appendEntry: ReturnType<typeof vi.fn>;
-} {
-  const tools = new Map<string, RegisteredTool>();
-  const commands = new Map<string, RegisteredCommand>();
-  const events = new Map<string, InputHandler>();
-  const appendEntry = vi.fn();
-
-  const api = {
-    registerTool: (tool: RegisteredTool) => {
-      tools.set(tool.name, tool);
-    },
-    registerCommand: (name: string, command: RegisteredCommand) => {
-      commands.set(name, command);
-    },
-    appendEntry,
-    on: (name: string, handler: InputHandler) => {
-      events.set(name, handler);
-    },
-  } as unknown as ExtensionAPI;
-
-  return { api, tools, commands, events, appendEntry };
+function createMockApi() {
+  return createMockExtensionApi<ExtensionAPI, RegisteredTool, RegisteredCommand, InputHandler>();
 }
 
 const askWithClarifyUi = vi.hoisted(() => vi.fn());
@@ -97,26 +80,8 @@ function createContext(options?: { readonly hasUI?: boolean }) {
   } as unknown as ExtensionCommandContext;
 }
 
-function createMockTheme(): MockTheme {
-  return {
-    fg: vi.fn((_, text) => text),
-    bold: vi.fn((text) => text),
-  };
-}
-
-function getTool(tools: ReadonlyMap<string, RegisteredTool>, name: string): RegisteredTool {
-  const tool = tools.get(name);
-  if (!tool) throw new Error(`missing tool ${name}`);
-  return tool;
-}
-
-function getCommand(
-  commands: ReadonlyMap<string, RegisteredCommand>,
-  name: string,
-): RegisteredCommand {
-  const command = commands.get(name);
-  if (!command) throw new Error(`missing command ${name}`);
-  return command;
+function createTheme(): MockTheme {
+  return createMockTheme() as MockTheme;
 }
 
 describe("pi-clarify extension", () => {
@@ -141,8 +106,7 @@ describe("pi-clarify extension", () => {
   test("input handler continues when no clarification is pending", async () => {
     const { api, events } = createMockApi();
     clarify(api);
-    const handler = events.get("input");
-    if (!handler) throw new Error("missing input handler");
+    const handler = getRegisteredEventHandler(events, "input");
 
     isClarifyPending.mockReturnValue(false);
     await expect(handler({ text: "1" }, createContext())).resolves.toEqual({ action: "continue" });
@@ -151,8 +115,7 @@ describe("pi-clarify extension", () => {
   test("input handler handles valid and invalid clarification replies", async () => {
     const { api, events } = createMockApi();
     clarify(api);
-    const handler = events.get("input");
-    if (!handler) throw new Error("missing input handler");
+    const handler = getRegisteredEventHandler(events, "input");
     const ctx = createContext();
 
     isClarifyPending.mockReturnValue(true);
@@ -174,7 +137,7 @@ describe("pi-clarify extension", () => {
     const { api, tools } = createMockApi();
     clarify(api);
     const tool = getTool(tools, "ask_user");
-    const theme = createMockTheme();
+    const theme = createTheme();
 
     expect(tool.renderCall?.({ type: "text", message: "Question?" }, theme)).toBeDefined();
     expect(
@@ -487,7 +450,7 @@ describe("pi-clarify extension", () => {
 
 describe("renderCall", () => {
   test("renders ask_user with message", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyCall({ type: "text", message: "What should I do?" }, theme);
     expect(result).toBeDefined();
     expect(theme.fg).toHaveBeenCalledWith("accent", expect.any(String));
@@ -495,7 +458,7 @@ describe("renderCall", () => {
   });
 
   test("renders select, multiselect, and confirm prompts", () => {
-    const selectTheme = createMockTheme();
+    const selectTheme = createTheme();
     renderClarifyCall(
       {
         type: "select",
@@ -512,7 +475,7 @@ describe("renderCall", () => {
     expect(selectTheme.fg).toHaveBeenCalledWith("text", "Custom: Other");
     expect(selectTheme.fg).toHaveBeenCalledWith("muted", "First");
 
-    const sparseSelectTheme = createMockTheme();
+    const sparseSelectTheme = createTheme();
     renderClarifyCall(
       {
         type: "select",
@@ -525,7 +488,7 @@ describe("renderCall", () => {
     );
     expect(sparseSelectTheme.fg).toHaveBeenCalledWith("text", "Custom: Custom...");
 
-    const multiselectTheme = createMockTheme();
+    const multiselectTheme = createTheme();
     renderClarifyCall(
       {
         type: "multiselect",
@@ -542,19 +505,19 @@ describe("renderCall", () => {
       "Reply with numbers (e.g. 1 2 3) or 'all'. Empty message to cancel.",
     );
 
-    const confirmTheme = createMockTheme();
+    const confirmTheme = createTheme();
     renderClarifyCall({ type: "confirm", message: "Proceed?" }, confirmTheme);
     expect(confirmTheme.fg).toHaveBeenCalledWith("text", "y/yes or n/no");
   });
 
   test("handles non-string message", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyCall({ message: 123 }, theme);
     expect(result).toBeDefined();
   });
 
   test("renders select fallback branches", () => {
-    const noOptionsTheme = createMockTheme();
+    const noOptionsTheme = createTheme();
     renderClarifyCall({ type: "select", message: "Choose", allowCustom: false }, noOptionsTheme);
     expect(noOptionsTheme.fg).toHaveBeenCalledWith(
       "muted",
@@ -563,15 +526,21 @@ describe("renderCall", () => {
   });
 
   test("renders an empty text node for non-object args", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyCall("not-args", theme);
+    expect(result).toBeDefined();
+  });
+
+  test("renders an empty text node for unsupported prompt types", () => {
+    const theme = createTheme();
+    const result = renderClarifyCall({ type: "unsupported", message: "Choose" }, theme);
     expect(result).toBeDefined();
   });
 });
 
 describe("renderResult", () => {
   test("renders answered status", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "User selected: Docs" }],
@@ -584,7 +553,7 @@ describe("renderResult", () => {
   });
 
   test("renders cancelled status", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Cancelled" }],
@@ -597,7 +566,7 @@ describe("renderResult", () => {
   });
 
   test("renders rejected status as error", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Rejected" }],
@@ -610,7 +579,7 @@ describe("renderResult", () => {
   });
 
   test("renders unavailable status as error", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Unavailable" }],
@@ -623,7 +592,7 @@ describe("renderResult", () => {
   });
 
   test("handles missing details", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Fallback" }],
@@ -634,7 +603,7 @@ describe("renderResult", () => {
   });
 
   test("handles missing content", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [],
@@ -646,7 +615,7 @@ describe("renderResult", () => {
   });
 
   test("handles non-text content type", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "image" }],
@@ -657,7 +626,7 @@ describe("renderResult", () => {
   });
 
   test("handles non-object details", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Fallback" }],
@@ -669,7 +638,7 @@ describe("renderResult", () => {
   });
 
   test("handles object details without string status", () => {
-    const theme = createMockTheme();
+    const theme = createTheme();
     const result = renderClarifyResult(
       {
         content: [{ type: "text", text: "Fallback" }],

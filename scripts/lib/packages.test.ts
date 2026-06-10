@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { getPackages, getRootPackage, getWorkspacePackages } from "./packages";
+import {
+  getPackages,
+  getReleaseInputWorkspacePackages,
+  getRootPackage,
+  getWorkspacePackages,
+} from "./packages";
 
 function writePackageJson(dir: string, value: unknown): void {
   mkdirSync(dir, { recursive: true });
@@ -73,6 +78,27 @@ describe("package discovery", () => {
           isRoot: false,
         },
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers release input workspace packages including private internal packages", () => {
+    const root = mkdtempSync(join(tmpdir(), "packages-test-"));
+    try {
+      writePackageJson(join(root, "extensions", "valid"), { name: "valid", version: "1.0.0" });
+      writePackageJson(join(root, "internal", "runtime-core"), {
+        name: "@ayulab/runtime-core",
+        version: "0.0.0",
+        private: true,
+      });
+      writePackageJson(join(root, "internal", "invalid"), { name: "invalid" });
+
+      expect(getReleaseInputWorkspacePackages(root).map((pkg) => pkg.name)).toEqual([
+        "valid",
+        "@ayulab/runtime-core",
+      ]);
+      expect(getWorkspacePackages(root).map((pkg) => pkg.name)).toEqual(["valid"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

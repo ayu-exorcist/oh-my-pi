@@ -59,6 +59,8 @@
     "@ayulab/pi-undo-redo": "workspace:*"
   },
   "devDependencies": {
+    "@ayulab/repo-tools": "workspace:*",
+    "@ayulab/runtime-core": "workspace:*",
     "@earendil-works/pi-coding-agent": "^0.78.1",
     "@oxc-node/cli": "^0.1.0",
     "@types/node": "^25.9.2",

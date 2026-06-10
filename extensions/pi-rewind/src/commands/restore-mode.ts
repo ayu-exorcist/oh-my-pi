@@ -1,5 +1,11 @@
-import type { CheckpointEntry, RepoManager } from "@ayulab/pi-checkpoint";
-import { errorMessage, safeRestore } from "@ayulab/pi-checkpoint";
+import type {
+  CheckpointEntry,
+  NavigateTreeOptions,
+  NavigateTreeResult,
+  RepoManager,
+} from "@ayulab/pi-checkpoint";
+import { safeRestore } from "@ayulab/pi-checkpoint";
+import { errorMessage } from "@ayulab/runtime-core";
 
 interface RestoreModeUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
@@ -12,8 +18,8 @@ interface RunRestoreModeOptions {
   readonly ui: RestoreModeUi;
   readonly navigateTree: (
     entryId: string,
-    options: { readonly summarize: boolean; readonly customInstructions?: string },
-  ) => Promise<unknown>;
+    options?: NavigateTreeOptions,
+  ) => Promise<NavigateTreeResult>;
   readonly targetCp: CheckpointEntry;
   readonly latestCp: CheckpointEntry;
   readonly conversationEntryId?: string;
@@ -50,7 +56,7 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
     const result = await safeRestore({
       repo: options.repo,
       ui: options.ui,
-      navigateTree: async () => undefined,
+      navigateTree: async (_entryId, _options) => ({ cancelled: false }),
       targetCommit: options.targetCp.beforeCommit,
       dirtyBaseCommit: options.dirtyBaseCommit ?? options.latestCp.afterCommit,
       targetLeafId: conversationEntryId,

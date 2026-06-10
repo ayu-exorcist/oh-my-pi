@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { createMockExtensionApi, getRegisteredTool as getTool } from "@ayulab/repo-tools/testing";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const { executeByName, factoryByName } = vi.hoisted(() => {
@@ -55,21 +56,7 @@ interface RegisteredTool {
 }
 
 function createMockApi() {
-  const tools = new Map<string, RegisteredTool>();
-  const api = {
-    registerTool: (tool: RegisteredTool) => tools.set(tool.name, tool),
-    registerCommand: vi.fn(),
-    on: vi.fn(),
-    appendEntry: vi.fn(),
-  } as unknown as ExtensionAPI;
-
-  return { api, tools };
-}
-
-function getTool(tools: ReadonlyMap<string, RegisteredTool>, name: string): RegisteredTool {
-  const tool = tools.get(name);
-  if (!tool) throw new Error(`missing tool ${name}`);
-  return tool;
+  return createMockExtensionApi<ExtensionAPI, RegisteredTool, unknown>();
 }
 
 describe("pi-brief execute wrappers", () => {

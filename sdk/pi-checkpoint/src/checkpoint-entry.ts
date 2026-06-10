@@ -1,4 +1,4 @@
-import { isNumber, isRecord, isString } from "./guards";
+import { getNumberField, getStringField, isRecord } from "@ayulab/runtime-core";
 import type { FileChange } from "./types";
 
 /**
@@ -45,8 +45,12 @@ export interface CheckpointEntry {
 }
 
 function isFileChange(value: unknown): value is FileChange {
-  if (!isRecord(value)) return false;
-  return isString(value.path) && isNumber(value.added) && isNumber(value.removed);
+  return (
+    isRecord(value) &&
+    getStringField(value, "path") !== undefined &&
+    getNumberField(value, "added") !== undefined &&
+    getNumberField(value, "removed") !== undefined
+  );
 }
 
 /** Type guard for {@link CheckpointEntry}. */
@@ -55,15 +59,15 @@ export function isCheckpointEntry(value: unknown): value is CheckpointEntry {
   return (
     value.v === 2 &&
     value.kind === "checkpoint" &&
-    isString(value.turnId) &&
-    isString(value.userEntryId) &&
-    isString(value.beforeCommit) &&
-    isString(value.afterCommit) &&
-    isString(value.prompt) &&
-    isNumber(value.fileCount) &&
+    getStringField(value, "turnId") !== undefined &&
+    getStringField(value, "userEntryId") !== undefined &&
+    getStringField(value, "beforeCommit") !== undefined &&
+    getStringField(value, "afterCommit") !== undefined &&
+    getStringField(value, "prompt") !== undefined &&
+    getNumberField(value, "fileCount") !== undefined &&
     Array.isArray(value.fileChanges) &&
     value.fileChanges.every(isFileChange) &&
-    isString(value.createdAt)
+    getStringField(value, "createdAt") !== undefined
   );
 }
 

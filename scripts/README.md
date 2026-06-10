@@ -6,31 +6,38 @@ All top-level scripts are TypeScript files executed via [`oxnode`](https://githu
 
 ```
 scripts/
+├── dist-manifest.ts    # Compatibility wrapper for @ayulab/repo-tools/dist-manifest
 ├── publish.ts          # Release entry point
 ├── setup.ts            # Register repo in Pi settings
 ├── teardown.ts         # Unregister repo from Pi settings
+├── vitest.config.ts    # Script test config
 ├── lib/                # Shared modules (imported by scripts above)
+│   ├── auto-bump.ts    # Patch bump planning for already-published changed packages
+│   ├── build-artifact-stage.ts # Swap bundled workspace deps with built artifacts
 │   ├── cli.ts          # CLI flag parser
-│   ├── guards.ts       # Type guards (isRecord, isStringArray, isPkgJson)
-│   ├── types.ts        # Shared interfaces (PkgJson, PackageInfo, DepGraph, ...)
-│   ├── packages.ts     # Discover root + workspace packages
 │   ├── deps.ts         # Dependency graph + topological sort
-│   ├── npm.ts          # npm registry queries
-
-│   ├── validate.ts     # Pre-publish manifest validation
 │   ├── git.ts          # Git tag + GitHub Release automation
-│   └── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
+│   ├── npm.ts          # npm registry queries
+│   ├── package-json.ts # package.json shape guard
+│   ├── packages.ts     # Discover root + publishable workspace packages
+│   ├── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
+│   ├── release-plan.ts # Release target expansion and dependency ordering
+│   ├── release-preview.ts # Dry-run package version preview helpers
+│   ├── release-targets.ts # Release target parsing and validation
+│   ├── types.ts        # Shared interfaces (PkgJson, PackageInfo, DepGraph, ...)
+│   ├── validate.ts     # Pre-publish manifest validation
+│   └── version.ts      # Version parsing/comparison helpers
 ```
 
 ## Build
 
 `pnpm run build`
 
-Uses [Turborepo](https://turbo.build) to build all workspace packages in dependency order with caching:
+Uses [Turborepo](https://turbo.build) to build all workspace packages in dependency order with caching. Private `internal/*` packages are built for local imports but are not published:
 
 1. **Topology** — turbo resolves the dependency graph from `package.json` and builds packages so dependencies compile before dependents.
 2. **Bundle** — each package runs `tsdown` to bundle `src/` into `dist/`.
-3. **Generate `dist/package.json`** — `scripts/dist-manifest.ts` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.js`), strips `scripts`/`devDependencies`/`engines`, removes workspace dependencies, copies `README.md` when present, and writes `files` from actual `dist/` artifacts.
+3. **Generate `dist/package.json`** — `pi-dist-manifest` from `@ayulab/repo-tools` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.js`), strips `scripts`/`devDependencies`/`engines`, removes workspace dependencies, copies `README.md` when present, and writes `files` from actual `dist/` artifacts.
 4. **Copy README** — copies `README.md` into `dist/`.
 
 Run this before `pnpm run release`.
@@ -41,13 +48,13 @@ Run this before `pnpm run release`.
 
 Orchestrates npm publishing across the monorepo. Entry point that composes modules from `lib/`:
 
-1. **Discovery** (`lib/packages.ts`) — scans `extensions/` and `sdk/` for publishable packages.
+1. **Discovery** (`lib/packages.ts`) — scans `extensions/`, `sdk/`, and the root package for publishable packages. Private `internal/*` packages are intentionally excluded.
 2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
 3. **Auto-bump planning** (`lib/auto-bump.ts`) — if a package's current version is already published and its release inputs changed since the matching git tag, the script bumps patch version, commits, and pushes before publishing. If you manually set a new unpublished version, it is published as-is.
    3.5. **Committed-source guard** — release aborts when the scoped packages have uncommitted changes, so tags and GitHub Releases always point at an actual git commit.
 4. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
 5. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
-6. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing.
+6. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing. Internal packages may produce local `dist/` artifacts, but they are not published.
 7. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package (child packages publish from `dist/` via `publishConfig.directory`). As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
 
 Flags:

@@ -1,5 +1,6 @@
 import type { CheckpointEntry, RepoManager } from "@ayulab/pi-checkpoint";
-import { errorMessage, parseDiffStats } from "@ayulab/pi-checkpoint";
+import { parseDiffStats } from "@ayulab/pi-checkpoint";
+import { errorMessage } from "@ayulab/runtime-core";
 
 export type AutoCheckpointStartResult =
   | { readonly ok: true; readonly entries: readonly CheckpointEntry[] }

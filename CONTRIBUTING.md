@@ -4,10 +4,11 @@
 
 This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@ayulab/oh-my-pi`, containing extensions, skills, prompts, and themes.
 
-- `extensions/` — Pi extensions (`src/index.ts` entry point)
-- `skills/` / `prompts/` / `themes/` — Content-only directories
-- `sdk/` — Shared libraries consumed by extensions
+- `extensions/` — Publishable Pi extensions (`src/index.ts` entry point)
+- `sdk/` — Publishable SDK packages consumed by extensions
+- `internal/` — Private workspace packages that are built/tested but not published
 - `scripts/` — Development and release automation
+- `skills/` / `prompts/` / `themes/` — Content-only directories
 
 ## Environment Setup
 
@@ -98,10 +99,12 @@ extensions/
         └── ...           # Source + tests
 ```
 
-Entry `src/index.ts` example:
+Entry `src/index.ts` should export the Pi extension factory as the default export:
 
 ```typescript
-export { default } from "./src/index";
+export default function activate(ctx: ExtensionContext): void {
+  // Register tools, commands, or event hooks here.
+}
 ```
 
 Every `package.json` must include:
@@ -127,37 +130,35 @@ Every `package.json` must include:
 Build config (`tsdown.config.ts`):
 
 ```typescript
+import { createTsdownConfig } from "@ayulab/repo-tools/tsdown";
+import { defineConfig } from "tsdown";
+
+export default defineConfig(
+  createTsdownConfig({
+    alwaysBundle: ["@ayulab/pi-checkpoint", "@ayulab/runtime-core"],
+  }),
+);
+```
+
+If the extension ships runtime prompt templates or other assets, pass package-specific tsdown options alongside the shared preset:
+
+```typescript
+import { createTsdownConfig } from "@ayulab/repo-tools/tsdown";
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: "esm",
-  dts: false,
-  clean: true,
-  deps: {
-    alwaysBundle: ["@ayulab/pi-checkpoint"],
-  },
-});
-```
-
-If the extension ships runtime prompt templates or other assets, copy them into `dist/` with `copy`:
-
-```typescript
-export default defineConfig({
-  entry: ["src/index.ts"],
-  format: "esm",
-  dts: false,
-  clean: true,
+  ...createTsdownConfig(),
   copy: "prompts",
 });
 ```
 
-If the extension depends on `@ayulab/pi-checkpoint`:
+If the extension depends on workspace runtime packages, list them in `dependencies` and bundle internal helpers:
 
 ```json
 {
   "dependencies": {
-    "@ayulab/pi-checkpoint": "workspace:*"
+    "@ayulab/pi-checkpoint": "workspace:*",
+    "@ayulab/runtime-core": "workspace:*"
   }
 }
 ```
@@ -199,15 +200,23 @@ Package config (do **not** include `"pi-package"` in `keywords` for SDK-only lib
 Build config (`tsdown.config.ts`):
 
 ```typescript
+import { createTsdownConfig } from "@ayulab/repo-tools/tsdown";
 import { defineConfig } from "tsdown";
 
-export default defineConfig({
-  entry: ["src/index.ts"],
-  format: "esm",
-  dts: true,
-  clean: true,
-});
+export default defineConfig(
+  createTsdownConfig({
+    dts: true,
+  }),
+);
 ```
+
+### Adding an Internal Package
+
+Internal packages live under `internal/`, must set `"private": true`, and are not published by `scripts/publish.ts`.
+
+Use `internal/runtime-core` for shared runtime helpers that published packages bundle into their output. Keep it zero-dependency unless there is a deliberate architectural reason to add a dependency.
+
+Use `internal/repo-tools` for shared build, Vitest, release, and repository-maintenance helpers. Runtime source under `extensions/` and `sdk/` must not import `@ayulab/repo-tools`; only configs, scripts, and tests should use it.
 
 ### Adding a Theme
 
@@ -234,14 +243,20 @@ prompts/
 
 ## Code Standards
 
-### Extract Shared Logic into `sdk/`
+### Extract Shared Logic
 
-If multiple extensions need the same logic, do not duplicate it. Extract shared code into `sdk/<name>/` and reference it via `dependencies`.
+If multiple packages need the same logic, do not duplicate it. Choose the destination by API stability and runtime boundary:
+
+- Use `internal/runtime-core` for private zero-dependency runtime helpers that are bundled into published packages, such as guards and error helpers.
+- Use `sdk/<name>/` for publishable SDK APIs that external consumers may import directly.
+- Use `internal/repo-tools` for build, test, release, and repository-maintenance helpers.
+- Keep domain-specific extension logic in the owning extension until a second real consumer appears.
 
 Examples:
 
-- `pi-rewind` and `pi-undo-redo` both read checkpoint entries from sessions → `extractCheckpointData()` lives in `@ayulab/pi-checkpoint`.
-- If a third extension needs a parser from `pi-rewind`, consider promoting it to `sdk/`.
+- `pi-rewind` and `pi-undo-redo` both read checkpoint entries from sessions → stable checkpoint APIs live in `@ayulab/pi-checkpoint`.
+- Runtime type guards shared by extensions and scripts live in private `@ayulab/runtime-core` and are bundled away from published manifests.
+- If a third extension needs a parser from `pi-rewind`, consider promoting it to `sdk/` only if it should become a public SDK API.
 
 ### Cross-platform Path Handling
 
@@ -272,9 +287,10 @@ Exception: when normalizing paths returned by external systems (e.g., CodeGraph 
 
 **Build** — `pnpm run build` uses [Turborepo](https://turbo.build) to build all workspace packages in dependency order with caching:
 
+- `internal/runtime-core` → private runtime helper bundle used only inside the monorepo
 - `sdk/pi-checkpoint` → single-file bundle (`index.js` + `index.d.ts`)
 - `extensions/pi-rewind` / `extensions/pi-undo-redo` → extension bundles that emit deterministic dependency chunks such as `@ayulab__pi-checkpoint.js` for `@ayulab/pi-checkpoint`
-- `dist/package.json` is auto-generated by `scripts/dist-manifest.ts` (paths rewritten, `workspace:*` removed, `scripts`/`devDependencies` stripped)
+- `dist/package.json` is auto-generated by `pi-dist-manifest` from `@ayulab/repo-tools` (paths rewritten, `workspace:*` removed, `scripts`/`devDependencies` stripped)
 
 Always build before releasing.
 
@@ -295,7 +311,7 @@ npm publish
 provenance=true
 ```
 
-**Pre-publish validation** — `scripts/publish.ts` enforces manifest compliance before any package reaches npm. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
+**Pre-publish validation** — `scripts/publish.ts` discovers publishable packages from `extensions/`, `sdk/`, and the root package only; private `internal/*` packages are built and tested but not published. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
 
 **GitHub Releases** — `pnpm run release` auto-creates a GitHub Release for every published package via the `gh` CLI. Make sure `gh` is installed and authenticated:
 

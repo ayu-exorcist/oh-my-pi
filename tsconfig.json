@@ -18,9 +18,12 @@
       "@ayulab/pi-brief/*": ["./extensions/pi-brief/src/*"],
       "@ayulab/pi-checkpoint": ["./sdk/pi-checkpoint/src/index.ts"],
       "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"],
-      "@ayulab/pi-checkpoint/testing": ["./sdk/pi-checkpoint/src/testing/index.ts"]
+      "@ayulab/pi-checkpoint/testing": ["./sdk/pi-checkpoint/src/testing/index.ts"],
+      "@ayulab/repo-tools/*": ["./internal/repo-tools/src/*"],
+      "@ayulab/runtime-core": ["./internal/runtime-core/src/index.ts"],
+      "@ayulab/runtime-core/*": ["./internal/runtime-core/src/*"]
     }
   },
-  "include": ["sdk/**/*.ts", "extensions/**/*.ts", "scripts/**/*.ts"],
+  "include": ["sdk/**/*.ts", "extensions/**/*.ts", "scripts/**/*.ts", "internal/**/*.ts"],
   "exclude": ["node_modules", "**/node_modules"]
 }

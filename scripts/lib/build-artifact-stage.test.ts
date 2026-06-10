@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -39,6 +40,35 @@ describe("Build Artifact staging", () => {
         root,
         rootPkg: pkg("root", root, ["dep"]),
         nameMap: new Map([["dep", pkg("dep", depPath)]]),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(readFileSync(join(nodeModulesDep, "index.js"), "utf8")).toBe("dist");
+      if (result.ok) {
+        for (const restore of result.restores) restore();
+      }
+      writeFileSync(join(nodeModulesDep, "source.ts"), "source", "utf8");
+      expect(readFileSync(join(depPath, "source.ts"), "utf8")).toBe("source");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("stages and restores scoped bundled workspace dependencies", () => {
+    const root = mkdtempSync(join(tmpdir(), "build-artifact-stage-test-"));
+    try {
+      const depPath = join(root, "extensions", "scoped-dep");
+      const depDist = join(depPath, "dist");
+      const nodeModulesDep = join(root, "node_modules", "@scope", "dep");
+      mkdirSync(depDist, { recursive: true });
+      mkdirSync(join(root, "node_modules", "@scope"), { recursive: true });
+      writeFileSync(join(depDist, "index.js"), "dist", "utf8");
+      symlinkSync(depPath, nodeModulesDep, "junction");
+
+      const result = stageBundledBuildArtifacts({
+        root,
+        rootPkg: pkg("root", root, ["@scope/dep"]),
+        nameMap: new Map([["@scope/dep", pkg("@scope/dep", depPath)]]),
       });
 
       expect(result.ok).toBe(true);
@@ -119,6 +149,21 @@ describe("Build Artifact staging", () => {
     }
   });
 
+  test("ignores non-string bundled dependency entries", () => {
+    const root = mkdtempSync(join(tmpdir(), "build-artifact-stage-test-"));
+    try {
+      const result = stageBundledBuildArtifacts({
+        root,
+        rootPkg: pkg("root", root, ["dep", 1]),
+        nameMap: new Map(),
+      });
+
+      expect(result).toEqual({ ok: true, restores: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("restores a copied node_modules package back to a symlink when one existed", () => {
     const root = mkdtempSync(join(tmpdir(), "build-artifact-stage-test-"));
     try {
@@ -128,9 +173,10 @@ describe("Build Artifact staging", () => {
       const symlinkTarget = join(root, "vendor", "dep-source");
       mkdirSync(depDist, { recursive: true });
       mkdirSync(join(root, "node_modules"), { recursive: true });
-      mkdirSync(symlinkTarget, { recursive: true });
+      mkdirSync(join(root, "vendor"), { recursive: true });
       writeFileSync(join(depDist, "index.js"), "dist", "utf8");
-      symlinkSync(symlinkTarget, nodeModulesDep, "junction");
+      writeFileSync(symlinkTarget, "source", "utf8");
+      symlinkSync(symlinkTarget, nodeModulesDep, "file");
 
       const result = stageBundledBuildArtifacts({
         root,
@@ -142,6 +188,7 @@ describe("Build Artifact staging", () => {
       if (result.ok) {
         for (const restore of result.restores) restore();
       }
+      expect(lstatSync(nodeModulesDep).isSymbolicLink()).toBe(true);
       expect(readlinkSync(nodeModulesDep)).toBe(symlinkTarget);
     } finally {
       rmSync(root, { recursive: true, force: true });

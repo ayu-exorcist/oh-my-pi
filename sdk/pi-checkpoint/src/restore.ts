@@ -1,23 +1,31 @@
-import { errorMessage } from "./guards";
+import { errorMessage } from "@ayulab/runtime-core";
 import type { RepoManager } from "./repo-manager";
 
 interface RestoreUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
 }
 
-interface NavigateTreeFn {
-  (entryId: string, options: { readonly summarize: boolean }): Promise<unknown>;
+export interface NavigateTreeOptions {
+  readonly summarize?: boolean;
+  readonly customInstructions?: string;
+  readonly replaceInstructions?: boolean;
+  readonly label?: string;
 }
 
-/** Narrower variant for callers that only pass `summarize: false`. */
-interface NavigateTreeFnFalse {
-  (entryId: string, options: { readonly summarize: false }): Promise<unknown>;
+export interface NavigateTreeResult {
+  readonly editorText?: string;
+  readonly cancelled: boolean;
 }
+
+type NavigateTreeFnFalse = (
+  entryId: string,
+  options: { readonly summarize: false },
+) => Promise<NavigateTreeResult>;
 
 interface RestoreOptions {
   readonly repo: RepoManager;
   readonly ui: RestoreUi;
-  readonly navigateTree: NavigateTreeFn | NavigateTreeFnFalse;
+  readonly navigateTree: NavigateTreeFnFalse;
   readonly targetCommit: string;
   readonly dirtyBaseCommit: string | undefined;
   readonly targetLeafId: string;

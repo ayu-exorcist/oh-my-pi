@@ -47,8 +47,10 @@ vi.mock("./lib/release-preview", () => ({
 
 import { findUncommittedReleasePackages } from "./publish";
 import { execSync as mockedExecSync } from "node:child_process";
+import { collectDependencies as mockedCollectDependencies } from "./lib/deps";
 
 const mockExecSync = vi.mocked(mockedExecSync);
+const mockCollectDependencies = vi.mocked(mockedCollectDependencies);
 
 function pkg(name: string, path: string) {
   return {
@@ -63,6 +65,8 @@ function pkg(name: string, path: string) {
 describe("release entry point", () => {
   beforeEach(() => {
     mockExecSync.mockReset();
+    mockCollectDependencies.mockReset();
+    mockCollectDependencies.mockImplementation((target: string) => new Set([target]));
   });
 
   afterEach(() => {
@@ -94,5 +98,25 @@ describe("release entry point", () => {
     mockExecSync.mockReturnValueOnce("" as never).mockReturnValueOnce("" as never);
 
     expect(findUncommittedReleasePackages([rootPkg], nameMap)).toEqual([]);
+  });
+
+  test("includes private internal workspace dependencies in release input paths", () => {
+    const extension = pkg("@ayulab/pi-clarify", "/repo/extensions/pi-clarify");
+    const runtimeCore = pkg("@ayulab/runtime-core", "/repo/internal/runtime-core");
+    const nameMap = new Map([
+      [extension.name, extension],
+      [runtimeCore.name, runtimeCore],
+    ]);
+
+    mockCollectDependencies.mockReturnValueOnce(
+      new Set(["@ayulab/pi-clarify", "@ayulab/runtime-core"]),
+    );
+    mockExecSync.mockImplementation((command: string) => {
+      expect(command).toContain('"extensions/pi-clarify/src"');
+      expect(command).toContain('"internal/runtime-core/src"');
+      return "internal/runtime-core/src/guards.ts\n" as never;
+    });
+
+    expect(findUncommittedReleasePackages([extension], nameMap)).toEqual(["@ayulab/pi-clarify"]);
   });
 });

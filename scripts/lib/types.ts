@@ -1,5 +1,8 @@
-/** Directories scanned for workspace packages (excluding the root). */
-export const WORKSPACE_DIRS = ["extensions", "sdk"];
+/** Directories scanned for publishable workspace packages (excluding the root). */
+export const PUBLISHABLE_WORKSPACE_DIRS = ["extensions", "sdk"] as const;
+
+/** Directories scanned as release inputs, including private internal packages. */
+export const RELEASE_INPUT_WORKSPACE_DIRS = ["extensions", "sdk", "internal"] as const;
 
 export interface PkgJson {
   name: string;

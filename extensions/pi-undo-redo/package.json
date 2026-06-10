@@ -41,12 +41,14 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "build": "tsdown",
-    "postbuild": "oxnode ../../scripts/dist-manifest.ts"
+    "postbuild": "pi-dist-manifest"
   },
   "dependencies": {
-    "@ayulab/pi-checkpoint": "workspace:*"
+    "@ayulab/pi-checkpoint": "workspace:*",
+    "@ayulab/runtime-core": "workspace:*"
   },
   "devDependencies": {
+    "@ayulab/repo-tools": "workspace:*",
     "@types/node": "^25.9.2",
     "@vitest/coverage-v8": "^4.1.8",
     "typescript": "^6.0.3",

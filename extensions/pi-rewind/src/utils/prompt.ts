@@ -1,19 +1,20 @@
 import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@ayulab/pi-checkpoint";
+import { isRecord } from "@ayulab/runtime-core";
+import { isUserMessageEntry } from "./tree-entry";
 
 /** Narrow `unknown` to a Pi text content block. */
 function isTextContent(value: unknown): value is { type: "text"; text: string } {
   return isRecord(value) && value.type === "text" && typeof value.text === "string";
 }
 
-/** Narrow `unknown` to a user message entry. */
-function isUserMessageEntry(entry: SessionEntry): entry is SessionMessageEntry {
-  return entry.type === "message" && entry.message.role === "user";
+/** Narrow `SessionEntry` to a user message entry. */
+function isSessionUserMessageEntry(entry: SessionEntry): entry is SessionMessageEntry {
+  return isUserMessageEntry(entry);
 }
 
 /** Find the most recent user message in a branch (used to label checkpoints). */
 export function findLastUserEntry(branch: SessionEntry[]): SessionMessageEntry | undefined {
-  return [...branch].reverse().find(isUserMessageEntry);
+  return [...branch].reverse().find(isSessionUserMessageEntry);
 }
 
 /**

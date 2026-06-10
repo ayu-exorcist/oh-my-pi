@@ -1,4 +1,4 @@
-import { isRecord, isStringArray } from "./guards";
+import { isRecord, isStringArray } from "@ayulab/runtime-core";
 import type { PackageInfo, ValidationError } from "./types";
 
 /** Determine whether a package is root / extension / sdk. */
@@ -93,7 +93,7 @@ export function validateRootConsistency(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const deps = rootPkg.pkg.dependencies || {};
-  const bundled: string[] = isStringArray(rootPkg.pkg.bundledDependencies)
+  const bundled: readonly string[] = isStringArray(rootPkg.pkg.bundledDependencies)
     ? rootPkg.pkg.bundledDependencies
     : [];
   const workspaceNames = new Set(workspacePkgs.map((p) => p.name));

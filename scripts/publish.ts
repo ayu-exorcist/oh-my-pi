@@ -9,10 +9,11 @@ import { parseCLI } from "./lib/cli";
 import { buildDepGraph, collectDependencies } from "./lib/deps";
 import { commit, hasPathChangesSinceRef, pushCurrentBranch, tagAndRelease } from "./lib/git";
 import { getRegistryVersion, setRoot } from "./lib/npm";
-import { getPackages } from "./lib/packages";
+import { getPackages, getReleaseInputWorkspacePackages } from "./lib/packages";
 import { createReleasePlan, collectReleaseScope } from "./lib/release-plan";
 import { parseReleaseTargets } from "./lib/release-targets";
 import { stageBundledBuildArtifacts } from "./lib/build-artifact-stage";
+import { stageRootPublishManifest } from "./lib/root-publish-manifest-stage";
 import { validatePackage, validateRootConsistency } from "./lib/validate";
 import type { PackageInfo } from "./lib/types";
 
@@ -96,13 +97,13 @@ function collectWorkspaceRelated(
 
 function createAutoBumpPlan(
   packages: readonly PackageInfo[],
-  nameMap: ReadonlyMap<string, PackageInfo>,
+  inputNameMap: ReadonlyMap<string, PackageInfo>,
 ) {
   return planAutoBumps(packages, {
     getRegistryVersion,
     hasPublishedTag: (pkg) => Boolean(latestPublishedTag(pkg)),
     hasChangedInputs: (pkg) => {
-      const related = collectWorkspaceRelated(pkg, nameMap);
+      const related = collectWorkspaceRelated(pkg, inputNameMap);
       const scopedPaths = packageReleasePaths(pkg, related);
       return hasPathChangesSinceRef(root, `${pkg.name}@${pkg.version}`, scopedPaths);
     },
@@ -146,6 +147,9 @@ function publishOne(
   nameMap: Map<string, PackageInfo>,
 ): void {
   const restores: (() => void)[] = [];
+  const restoreAll = () => {
+    for (const restore of [...restores].reverse()) restore();
+  };
 
   if (pkg.isRoot) {
     const result = stageBundledBuildArtifacts({ root, rootPkg: pkg, nameMap });
@@ -154,6 +158,14 @@ function publishOne(
       process.exit(1);
     }
     restores.push(...result.restores);
+
+    const manifestResult = stageRootPublishManifest(root);
+    if (!manifestResult.ok) {
+      console.error(manifestResult.message);
+      restoreAll();
+      process.exit(1);
+    }
+    restores.push(manifestResult.restore);
   }
 
   console.log(
@@ -184,22 +196,22 @@ function publishOne(
       tagAndRelease(root, pkg.name, pkg.version);
     } else {
       console.error(`❌ Failed to publish ${pkg.name}`);
-      for (const restore of restores) restore();
+      restoreAll();
       process.exit(1);
     }
   } finally {
-    for (const restore of restores) restore();
+    restoreAll();
   }
 }
 
 export function findUncommittedReleasePackages(
   scopedPackages: readonly PackageInfo[],
-  nameMap: ReadonlyMap<string, PackageInfo>,
+  inputNameMap: ReadonlyMap<string, PackageInfo>,
 ): string[] {
   const dirtyPackages: string[] = [];
 
   for (const pkg of scopedPackages) {
-    const related = collectWorkspaceRelated(pkg, nameMap);
+    const related = collectWorkspaceRelated(pkg, inputNameMap);
     if (hasPathChangesSinceRef(root, "HEAD", packageReleasePaths(pkg, related))) {
       dirtyPackages.push(pkg.name);
     }
@@ -210,9 +222,9 @@ export function findUncommittedReleasePackages(
 
 export function ensureReleaseScopeIsCommitted(
   scopedPackages: readonly PackageInfo[],
-  nameMap: ReadonlyMap<string, PackageInfo>,
+  inputNameMap: ReadonlyMap<string, PackageInfo>,
 ): void {
-  const dirtyPackages = findUncommittedReleasePackages(scopedPackages, nameMap);
+  const dirtyPackages = findUncommittedReleasePackages(scopedPackages, inputNameMap);
   if (dirtyPackages.length === 0) return;
 
   console.error(
@@ -223,7 +235,12 @@ export function ensureReleaseScopeIsCommitted(
 
 async function main(): Promise<void> {
   const packages = getPackages(root);
+  const releaseInputPackages = getReleaseInputWorkspacePackages(root);
   const { nameMap } = buildDepGraph(packages);
+  const { nameMap: inputNameMap } = buildDepGraph([
+    ...releaseInputPackages,
+    ...packages.filter((pkg) => pkg.isRoot),
+  ]);
 
   for (const target of TARGETS) {
     if (!nameMap.has(target)) {
@@ -236,10 +253,10 @@ async function main(): Promise<void> {
   const scopedPackages = releaseScope
     ? packages.filter((pkg) => releaseScope.has(pkg.name))
     : packages;
-  const autoBumpPlan = createAutoBumpPlan(scopedPackages, nameMap);
+  const autoBumpPlan = createAutoBumpPlan(scopedPackages, inputNameMap);
 
   if (!DRY_RUN) {
-    ensureReleaseScopeIsCommitted(scopedPackages, nameMap);
+    ensureReleaseScopeIsCommitted(scopedPackages, inputNameMap);
     applyAutoBumpPlan(autoBumpPlan, nameMap);
   }
 

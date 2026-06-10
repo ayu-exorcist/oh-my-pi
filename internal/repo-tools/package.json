@@ -1,0 +1,21 @@
+{
+  "name": "@ayulab/repo-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private repo tools for the oh-my-pi monorepo",
+  "bin": {
+    "pi-dist-manifest": "./src/dist-manifest.ts"
+  },
+  "type": "module",
+  "exports": {
+    "./dist-manifest": "./src/dist-manifest.ts",
+    "./testing": "./src/testing.ts",
+    "./tsdown": "./src/tsdown.ts",
+    "./vitest": "./src/vitest.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

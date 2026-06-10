@@ -19,18 +19,36 @@ import {
 } from "./index";
 import { AutoCheckpointProducer } from "./auto-checkpoint";
 
+type MockEventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+
+interface MockSessionManager {
+  getSessionFile(): string;
+  getSessionId(): string;
+  getLeafEntry(): SessionEntry | undefined;
+  getBranch(): readonly unknown[];
+  getEntries(): readonly unknown[];
+}
+
+type MockContext = ExtensionContext & {
+  readonly sessionManager: MockSessionManager;
+  readonly ui: {
+    notify: ReturnType<typeof vi.fn>;
+  };
+  readonly hasUI: boolean;
+};
+
 function createMockApi(): {
   api: ExtensionAPI;
-  events: Record<string, Array<(...args: unknown[]) => unknown>>;
+  events: Record<string, Array<MockEventHandler>>;
   registerCommand: ReturnType<typeof vi.fn>;
   appendEntry: ReturnType<typeof vi.fn>;
 } {
-  const events: Record<string, Array<(...args: unknown[]) => unknown>> = {};
+  const events: Record<string, Array<MockEventHandler>> = {};
   const registerCommand = vi.fn();
   const appendEntry = vi.fn();
 
   const api = {
-    on: (event: string, handler: (...args: unknown[]) => unknown) => {
+    on: (event: string, handler: MockEventHandler) => {
       events[event] = events[event] || [];
       events[event].push(handler);
     },
@@ -47,29 +65,49 @@ function isSessionMessageEntry(
   return typeof value === "object" && value !== null && "type" in value && value.type === "message";
 }
 
-function createMockSessionManager(sessionFile: string, branch: readonly unknown[] = []) {
+function createMockSessionManager(
+  sessionFile: string,
+  branch: readonly unknown[] = [],
+): MockSessionManager {
   return {
     getSessionFile: () => sessionFile,
     getSessionId: () => "test-session",
     getLeafEntry: () => {
       const leaf = branch[branch.length - 1];
       if (!isSessionMessageEntry(leaf)) return undefined;
-      return { id: leaf.id, type: leaf.type, message: leaf.message };
+      return {
+        id: leaf.id,
+        type: leaf.type,
+        parentId: leaf.parentId,
+        timestamp: leaf.timestamp,
+        message: leaf.message,
+      };
     },
     getBranch: () => branch,
     getEntries: () => branch,
   };
 }
 
+type MockCall = readonly [string, unknown, ...unknown[]];
+
+function isMockCall(value: readonly unknown[]): value is MockCall {
+  return value.length >= 2 && typeof value[0] === "string";
+}
+
+function getCheckpointEntryCall(mock: ReturnType<typeof vi.fn>, index: number): CheckpointEntry {
+  const call = mock.mock.calls[index];
+  if (!call || !isMockCall(call)) throw new Error(`expected mock call ${index}`);
+  const [customType, entry] = call;
+  if (customType !== "pi-checkpoint") throw new Error("expected pi-checkpoint entry");
+  return entry as CheckpointEntry;
+}
+
 function expectCheckpointEntryCall(
   mock: ReturnType<typeof vi.fn>,
   index: number,
 ): [string, CheckpointEntry] {
-  const call = mock.mock.calls[index];
-  if (!call) throw new Error(`expected mock call ${index}`);
-  const [customType, entry] = call;
-  if (customType !== "pi-checkpoint") throw new Error("expected pi-checkpoint entry");
-  return [customType, entry as CheckpointEntry];
+  const entry = getCheckpointEntryCall(mock, index);
+  return ["pi-checkpoint", entry];
 }
 
 function expectFileChange(entry: CheckpointEntry, index: number) {
@@ -135,7 +173,7 @@ function createAssistantMessage() {
 }
 
 async function emitAssistantStart(
-  events: Record<string, Array<(...args: unknown[]) => unknown>>,
+  events: Record<string, Array<MockEventHandler>>,
   ctx: ExtensionContext,
 ): Promise<void> {
   const message = createAssistantMessage();
@@ -145,13 +183,17 @@ async function emitAssistantStart(
   }
 }
 
-function createMockContext(sessionFile: string, branch: unknown[], cwd: string): ExtensionContext {
+function createMockContext(
+  sessionFile: string,
+  branch: readonly unknown[],
+  cwd: string,
+): MockContext {
   return {
-    sessionManager: createMockSessionManager(sessionFile, branch as SessionEntry[]),
+    sessionManager: createMockSessionManager(sessionFile, branch),
     cwd,
     ui: { notify: vi.fn() },
     hasUI: true,
-  } as unknown as ExtensionContext;
+  } as MockContext;
 }
 
 async function createTmpDir(): Promise<string> {
@@ -343,10 +385,9 @@ describe("checkpoint extension", () => {
     }
 
     const checkpointEntry = appendEntry.mock.calls
-      .filter(
-        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
-      )
-      .map((call: unknown[]) => call[1])
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
       .pop();
 
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
@@ -425,10 +466,9 @@ describe("checkpoint extension", () => {
     }
 
     const checkpointEntry = appendEntry.mock.calls
-      .filter(
-        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
-      )
-      .map((call: unknown[]) => call[1])
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
       .pop();
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
@@ -498,10 +538,9 @@ describe("checkpoint extension", () => {
     }
 
     const checkpointEntry = appendEntry.mock.calls
-      .filter(
-        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
-      )
-      .map((call: unknown[]) => call[1])
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
       .pop();
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
@@ -687,10 +726,9 @@ describe("checkpoint extension", () => {
     }
 
     const checkpointEntry = appendEntry.mock.calls
-      .filter(
-        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
-      )
-      .map((call: unknown[]) => call[1])
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
       .pop();
 
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
@@ -1271,10 +1309,9 @@ describe("checkpoint extension", () => {
     }
 
     const checkpointEntry = appendEntry.mock.calls
-      .filter(
-        (call: unknown[]) => Array.isArray(call) && call.length >= 2 && call[0] === "pi-checkpoint",
-      )
-      .map((call: unknown[]) => call[1])
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
       .pop();
 
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
@@ -2171,9 +2208,9 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).toHaveBeenCalledTimes(1);
-    const call = expectCheckpointEntryCall(appendEntry, 0);
-    expect(call[1].userEntryId).toBe("entry-2");
-    expect(call[1].prompt).toBe("生成 test5.txt");
+    const call = getCheckpointEntryCall(appendEntry, 0);
+    expect(call.userEntryId).toBe("entry-2");
+    expect(call.prompt).toBe("生成 test5.txt");
   });
 
   test("queued user checkpoint waits until the queued user entry is persisted", async () => {
@@ -2209,10 +2246,10 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).toHaveBeenCalledTimes(1);
-    const call = expectCheckpointEntryCall(appendEntry, 0);
-    expect(call[1].userEntryId).toBe("entry-2");
-    expect(call[1].prompt).toBe("生成 test2.txt");
-    expect(call[1].fileChanges.map((c) => c.path)).toContain("test2.txt");
+    const call = getCheckpointEntryCall(appendEntry, 0);
+    expect(call.userEntryId).toBe("entry-2");
+    expect(call.prompt).toBe("生成 test2.txt");
+    expect(call.fileChanges.map((c) => c.path)).toContain("test2.txt");
   });
 
   test("final assistant summary turn does not create a duplicate checkpoint", async () => {
@@ -2247,10 +2284,10 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).toHaveBeenCalledTimes(1);
-    const call = expectCheckpointEntryCall(appendEntry, 0);
-    expect(call[1].userEntryId).toBe("entry-1");
-    expect(call[1].prompt).toBe("生成一个空文件 test5.txt");
-    expect(call[1].fileChanges.map((c) => c.path)).toContain("test5.txt");
+    const call = getCheckpointEntryCall(appendEntry, 0);
+    expect(call.userEntryId).toBe("entry-1");
+    expect(call.prompt).toBe("生成一个空文件 test5.txt");
+    expect(call.fileChanges.map((c) => c.path)).toContain("test5.txt");
   });
 
   test("turn_end flushes checkpoint before branch advances", async () => {
@@ -2293,9 +2330,9 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).toHaveBeenCalledTimes(1);
-    const call = expectCheckpointEntryCall(appendEntry, 0);
-    expect(call[1].userEntryId).toBe("entry-1");
-    expect(call[1].prompt).toBe("生成 test4.txt");
+    const call = getCheckpointEntryCall(appendEntry, 0);
+    expect(call.userEntryId).toBe("entry-1");
+    expect(call.prompt).toBe("生成 test4.txt");
   });
 
   test("turn_end keeps checkpoint when diffAgainst throws", async () => {

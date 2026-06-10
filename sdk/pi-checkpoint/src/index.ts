@@ -5,17 +5,6 @@ export { getRepoDir, getGitDir, getIndexPath } from "./resolver";
 export { exec, execSafe, type ExecEnv, type Result } from "./exec";
 export { parseDiffStats } from "./diff-parser";
 export {
-  isRecord,
-  isString,
-  isNumber,
-  isBoolean,
-  isStringArray,
-  isArrayOf,
-  getStringField,
-  getArrayField,
-  errorMessage,
-} from "./guards";
-export {
   isCheckpointEntry,
   filterCheckpointEntries,
   extractCheckpointData,
@@ -24,7 +13,7 @@ export {
 export { withRepoLock } from "./lock";
 export { SessionStateMap } from "./session-state-map";
 export { safeRestore } from "./restore";
-export type { RestoreResult } from "./restore";
+export type { NavigateTreeOptions, NavigateTreeResult, RestoreResult } from "./restore";
 export { createDefaultRepoProvider, type RepoProvider } from "./repo-provider";
 export {
   cloneSessionCheckpointStorage,

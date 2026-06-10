@@ -2,12 +2,29 @@ import { vi } from "vitest";
 import type { RepoManager } from "../repo-manager";
 import type { SafeCheckoutResult } from "../repo-manager";
 
-function isCallable(fn: unknown): fn is (...args: unknown[]) => unknown {
+type RepoMockMethodName =
+  | "withLock"
+  | "init"
+  | "ensureReady"
+  | "setExclude"
+  | "checkpoint"
+  | "checkoutCommit"
+  | "createSafetyCommit"
+  | "updateRef"
+  | "diffStats"
+  | "diffWorkingTree"
+  | "stageAll"
+  | "diffAgainst"
+  | "safeCheckout";
+
+type RepoMock = Partial<Record<RepoMockMethodName, (...args: readonly unknown[]) => unknown>>;
+
+function isCallable(fn: unknown): fn is (...args: readonly unknown[]) => unknown {
   return typeof fn === "function";
 }
 
 /** Narrow an injected spy to a callable function or undefined. */
-function asMock(fn: unknown): ((...args: unknown[]) => unknown) | undefined {
+function asMock(fn: unknown): ((...args: readonly unknown[]) => unknown) | undefined {
   return isCallable(fn) ? fn : undefined;
 }
 
@@ -27,9 +44,7 @@ function asMock(fn: unknown): ((...args: unknown[]) => unknown) | undefined {
  *   checkoutCommit: vi.fn().mockResolvedValue(undefined),
  * });
  */
-export function createMockRepo(
-  partial: Partial<Record<keyof RepoManager, (...args: unknown[]) => unknown>> = {},
-): RepoManager {
+export function createMockRepo(partial: RepoMock = {}): RepoManager {
   const defaults = {
     withLock: vi.fn((fn: () => Promise<unknown>) => fn()),
   };

@@ -1,31 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
 import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkpoint";
+import { hasItems } from "@ayulab/runtime-core";
 import { getBranchCheckpointEntries } from "../utils/branch-checkpoints";
 import { runRestoreMode } from "./restore-mode";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEntryWithId(value: unknown): value is { readonly id: string } {
-  return isRecord(value) && typeof value.id === "string";
-}
-
-function isUserMessageEntry(value: unknown): value is { readonly id: string } {
-  if (!isRecord(value) || typeof value.id !== "string" || !isRecord(value.message)) {
-    return false;
-  }
-  return value.type === "message" && value.message.role === "user";
-}
-
-function isCheckpointCustomEntry(value: unknown): boolean {
-  return isRecord(value) && value.type === "custom" && value.customType === "pi-checkpoint";
-}
-
-function hasItems<T>(items: readonly T[]): items is readonly [T, ...T[]] {
-  return items.length > 0;
-}
+import { isCheckpointCustomEntry, isEntryWithId, isUserMessageEntry } from "../utils/tree-entry";
 
 async function findCleanDirtyBaseCommit(
   repo: RepoManager,

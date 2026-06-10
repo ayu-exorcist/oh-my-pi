@@ -1,7 +1,8 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { isRecord } from "@ayulab/runtime-core";
 import { AskUserParamsSchema, buildDetails, formatAnswer, validateAskUserParams } from "./schema";
-import type { AskUserDetails, AskUserParams } from "./schema";
+import type { AskUserDetails, AskUserParams, PromptOption } from "./schema";
 import { askWithClarifyUi, cancelClarifyInput, handleClarifyInput, isClarifyPending } from "./ui";
 
 export function appendClarifyEntry(pi: ExtensionAPI, details: AskUserDetails): void {
@@ -41,41 +42,62 @@ export function buildPromptGuidelines(): string[] {
 
 const DEFAULT_CUSTOM_LABEL = "Custom...";
 
-function buildClackPrompt(params: AskUserParams, theme: Pick<Theme, "fg">): string {
-  const lines: string[] = [];
+type ClarifyRenderType = AskUserParams["type"] | undefined;
 
-  lines.push(theme.fg("accent", "◇  ") + theme.fg("text", params.message));
+interface ClarifyRenderParams {
+  readonly type?: ClarifyRenderType;
+  readonly message?: string;
+  readonly options?: readonly PromptOption[];
+  readonly allowCustom?: boolean;
+  readonly customLabel?: string;
+}
+
+function buildClackPrompt(params: ClarifyRenderParams, theme: Pick<Theme, "fg">): string {
+  const lines: string[] = [];
+  const type =
+    params.type === "select" ||
+    params.type === "multiselect" ||
+    params.type === "text" ||
+    params.type === "confirm"
+      ? params.type
+      : "text";
+  const message = typeof params.message === "string" ? params.message : "";
+  const allowCustom = params.allowCustom === true;
+  const customLabel = typeof params.customLabel === "string" ? params.customLabel.trim() : "";
+  const options = Array.isArray(params.options)
+    ? params.options.filter((option): option is PromptOption => isPromptOption(option))
+    : [];
+
+  lines.push(theme.fg("accent", "◇  ") + theme.fg("text", message));
   lines.push(theme.fg("dim", "│"));
 
-  if (params.type === "select" || params.type === "multiselect") {
-    const options = params.options ?? [];
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      if (!opt) continue;
+  if (type === "select" || type === "multiselect") {
+    for (const [i, opt] of options.entries()) {
       const num = `${i + 1}.`;
       lines.push(theme.fg("dim", "│  ") + theme.fg("text", `${num} ${opt.label}`));
       if (opt.hint) {
         lines.push(theme.fg("dim", "│     ") + theme.fg("muted", opt.hint));
       }
     }
-    if (params.allowCustom && params.type === "select") {
-      const label = params.customLabel?.trim() || DEFAULT_CUSTOM_LABEL;
-      lines.push(theme.fg("dim", "│  ") + theme.fg("text", `Custom: ${label}`));
+    if (allowCustom && type === "select") {
+      lines.push(
+        theme.fg("dim", "│  ") + theme.fg("text", `Custom: ${customLabel || DEFAULT_CUSTOM_LABEL}`),
+      );
     }
-  } else if (params.type === "confirm") {
+  } else if (type === "confirm") {
     lines.push(theme.fg("dim", "│  ") + theme.fg("text", "y/yes or n/no"));
   }
 
   lines.push(theme.fg("dim", "│"));
 
   let hint = "";
-  if (params.type === "select") {
-    hint = params.allowCustom
+  if (type === "select") {
+    hint = allowCustom
       ? "Reply with option number or custom text. Empty message to cancel."
       : "Reply with option number. Empty message to cancel.";
-  } else if (params.type === "multiselect") {
+  } else if (type === "multiselect") {
     hint = "Reply with numbers (e.g. 1 2 3) or 'all'. Empty message to cancel.";
-  } else if (params.type === "confirm") {
+  } else if (type === "confirm") {
     hint = "Reply with y/yes or n/no. Empty message to cancel.";
   } else {
     hint = "Reply with your answer. Empty message to cancel.";
@@ -214,21 +236,37 @@ export default function clarify(pi: ExtensionAPI) {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isPromptOption(value: unknown): value is PromptOption {
+  return isRecord(value) && typeof value.value === "string" && typeof value.label === "string";
+}
+
+function isClarifyRenderParams(value: unknown): value is ClarifyRenderParams {
+  if (!isRecord(value)) return false;
+  const type = value.type;
+  if (
+    type !== undefined &&
+    type !== "select" &&
+    type !== "multiselect" &&
+    type !== "text" &&
+    type !== "confirm"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function renderClarifyCall(args: unknown, theme: Pick<Theme, "fg" | "bold">) {
-  if (!isRecord(args)) return new Text("", 0, 0);
-  const params = args as AskUserParams;
-  const prompt = buildClackPrompt(params, theme);
+  if (!isClarifyRenderParams(args)) return new Text("", 0, 0);
+  const prompt = buildClackPrompt(args, theme);
   return new Text(prompt, 0, 0);
 }
 
-export function renderClarifyResult(
-  result: { content: Array<{ type: string; text?: string }>; details?: unknown },
-  theme: Pick<Theme, "fg">,
-) {
+interface ClarifyToolResult {
+  readonly content: readonly { readonly type: string; readonly text?: string }[];
+  readonly details?: unknown;
+}
+
+export function renderClarifyResult(result: ClarifyToolResult, theme: Pick<Theme, "fg">) {
   const details = result.details;
   if (!isRecord(details)) {
     const first = result.content[0];

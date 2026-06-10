@@ -69,13 +69,17 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 │   ├── pi-brief/         # @ayulab/pi-brief — brief tool output summaries
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 │   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
-├── sdk/                  # Shared infrastructure (independently published)
+├── sdk/                  # Publishable SDK packages
 │   └── pi-checkpoint/    # @ayulab/pi-checkpoint — git checkpoint engine
+├── internal/             # Private workspace packages, not published
+│   ├── runtime-core/     # @ayulab/runtime-core — bundled runtime helpers
+│   └── repo-tools/       # @ayulab/repo-tools — build/test/release helpers
 ├── skills/               # Skills
 ├── prompts/              # Prompt templates
 ├── themes/               # Themes
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
+│   ├── dist-manifest.ts  # Compatibility wrapper for pi-dist-manifest
 │   ├── publish.ts        # Publish + tag + release
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings

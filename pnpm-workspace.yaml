@@ -2,6 +2,7 @@ packages:
   - .
   - extensions/*
   - sdk/*
+  - internal/*
 nodeLinker: hoisted
 allowBuilds:
   "@google/genai": true

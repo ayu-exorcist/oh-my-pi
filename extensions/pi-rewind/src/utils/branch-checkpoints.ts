@@ -1,15 +1,6 @@
 import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
 import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isUserMessageEntry(value: unknown): value is { readonly id: string } {
-  if (!isRecord(value) || typeof value.id !== "string") return false;
-  if (value.type !== "message" || !isRecord(value.message)) return false;
-  return value.message.role === "user";
-}
+import { isUserMessageEntry } from "./tree-entry";
 
 function getBranchUserEntryIds(branch: readonly unknown[]): Set<string> {
   const ids = new Set<string>();

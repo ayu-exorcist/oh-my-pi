@@ -2,9 +2,14 @@ import { describe, expect, test } from "vitest";
 import {
   errorMessage,
   getArrayField,
+  getBooleanField,
+  getNumberField,
+  getRecordField,
   getStringField,
+  hasItems,
   isArrayOf,
   isBoolean,
+  isNonEmptyString,
   isNumber,
   isRecord,
   isString,
@@ -36,6 +41,14 @@ describe("isString", () => {
     expect(isString(42)).toBe(false);
     expect(isString(null)).toBe(false);
     expect(isString(undefined)).toBe(false);
+  });
+});
+
+describe("isNonEmptyString", () => {
+  test("returns true only for non-empty strings", () => {
+    expect(isNonEmptyString("hello")).toBe(true);
+    expect(isNonEmptyString("")).toBe(false);
+    expect(isNonEmptyString(42)).toBe(false);
   });
 });
 
@@ -95,31 +108,27 @@ describe("isArrayOf", () => {
   });
 });
 
-describe("getStringField", () => {
-  test("extracts string field from record", () => {
+describe("field accessors", () => {
+  test("extract fields from records", () => {
+    const nested = { ok: true };
     expect(getStringField({ name: "test" }, "name")).toBe("test");
-  });
-
-  test("returns undefined for non-record", () => {
-    expect(getStringField("not-record", "name")).toBeUndefined();
-  });
-
-  test("returns undefined for non-string field", () => {
-    expect(getStringField({ age: 25 }, "age")).toBeUndefined();
-    expect(getStringField({}, "missing")).toBeUndefined();
-  });
-});
-
-describe("getArrayField", () => {
-  test("extracts array field from record", () => {
+    expect(getNumberField({ count: 5 }, "count")).toBe(5);
+    expect(getBooleanField({ enabled: false }, "enabled")).toBe(false);
+    expect(getRecordField({ nested }, "nested")).toBe(nested);
     expect(getArrayField({ items: [1, 2] }, "items")).toEqual([1, 2]);
   });
 
-  test("returns undefined for non-record", () => {
+  test("return undefined for non-records or mismatched fields", () => {
+    expect(getStringField("not-record", "name")).toBeUndefined();
+    expect(getStringField({ age: 25 }, "age")).toBeUndefined();
+    expect(getStringField({}, "missing")).toBeUndefined();
+    expect(getNumberField("not-record", "count")).toBeUndefined();
+    expect(getNumberField({ count: Number.NaN }, "count")).toBeUndefined();
+    expect(getBooleanField("not-record", "enabled")).toBeUndefined();
+    expect(getBooleanField({ enabled: "false" }, "enabled")).toBeUndefined();
+    expect(getRecordField("not-record", "nested")).toBeUndefined();
+    expect(getRecordField({ nested: [] }, "nested")).toBeUndefined();
     expect(getArrayField("not-record", "items")).toBeUndefined();
-  });
-
-  test("returns undefined for non-array field", () => {
     expect(getArrayField({ count: 5 }, "count")).toBeUndefined();
     expect(getArrayField({}, "missing")).toBeUndefined();
   });
@@ -135,5 +144,12 @@ describe("errorMessage", () => {
     expect(errorMessage(42)).toBe("42");
     expect(errorMessage(null)).toBe("null");
     expect(errorMessage(undefined)).toBe("undefined");
+  });
+});
+
+describe("hasItems", () => {
+  test("narrows non-empty arrays", () => {
+    expect(hasItems(["a"])).toBe(true);
+    expect(hasItems([])).toBe(false);
   });
 });

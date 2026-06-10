@@ -1,0 +1,41 @@
+{
+  "name": "@ayulab/runtime-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Internal runtime primitives for oh-my-pi packages",
+  "keywords": [
+    "guards",
+    "runtime",
+    "types"
+  ],
+  "license": "GPL-3.0",
+  "author": "ayu",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "vitest",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "postbuild": "pi-dist-manifest"
+  },
+  "devDependencies": {
+    "@ayulab/repo-tools": "workspace:*",
+    "@types/node": "^25.9.2",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

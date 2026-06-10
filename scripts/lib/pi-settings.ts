@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-import { isRecord, isStringArray } from "./guards";
+import { isRecord, isStringArray } from "@ayulab/runtime-core";
 
 export async function readSettings(filePath: string): Promise<Record<string, unknown>> {
   try {

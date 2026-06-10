@@ -1,4 +1,4 @@
-import type { RepoManager, RestoreResult } from "@ayulab/pi-checkpoint";
+import type { NavigateTreeOptions, RepoManager, RestoreResult } from "@ayulab/pi-checkpoint";
 import { safeRestore } from "@ayulab/pi-checkpoint";
 
 interface RestoreUi {
@@ -10,8 +10,8 @@ interface RestoreTargetOptions {
   readonly ui: RestoreUi;
   readonly navigateTree: (
     entryId: string,
-    options: { readonly summarize: false },
-  ) => Promise<unknown>;
+    options: NavigateTreeOptions,
+  ) => Promise<{ readonly cancelled: boolean; readonly editorText?: string }>;
   readonly targetCommit: string;
   readonly dirtyBaseCommit: string | undefined;
   readonly targetLeafId: string;

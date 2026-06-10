@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
@@ -18,10 +18,18 @@ import {
 } from "@ayulab/pi-checkpoint";
 import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
+import { isRecord } from "@ayulab/runtime-core";
 import { extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { findLatestBranchCheckpoint } from "./utils/branch-checkpoints";
 import { registerRewind } from "./commands/rewind";
 import { AutoCheckpointProducer } from "./auto-checkpoint";
+import {
+  getTreeEventRecord,
+  isEntryWithId,
+  isUserMessageEntry,
+  toTreeEntryRecords,
+  type TreeEntryRecord,
+} from "./utils/tree-entry";
 
 /** Deep-equal for string arrays used to detect whether exclude was overridden. */
 function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
@@ -54,7 +62,7 @@ function findCheckpointForEntryId(
   entryId: string,
 ): CheckpointEntry | undefined {
   const dataList = extractCheckpointData(entries);
-  return filterCheckpointEntries(dataList).find((c) => c.userEntryId === entryId);
+  return filterCheckpointEntries(dataList).find((checkpoint) => checkpoint.userEntryId === entryId);
 }
 
 function createAutoCheckpointProducer(
@@ -75,7 +83,7 @@ interface ForkIntent {
 }
 
 export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isRecord(value);
 }
 
 export function isForkIntent(value: unknown): value is ForkIntent {
@@ -117,14 +125,6 @@ export async function readForkIntent(
   }
 }
 
-function findLatestCheckpoint(entries: readonly unknown[]): CheckpointEntry | undefined {
-  let latest: CheckpointEntry | undefined;
-  for (const cp of filterCheckpointEntries(extractCheckpointData(entries))) {
-    latest = cp;
-  }
-  return latest;
-}
-
 function createSessionTaskQueue() {
   const queues = new SessionStateMap<Promise<void>>();
 
@@ -148,63 +148,39 @@ function createSessionTaskQueue() {
   };
 }
 
-function isEntryWithId(
-  value: unknown,
-): value is { readonly id: string; readonly parentId?: string | null } {
-  if (!isForkIntentRecord(value)) return false;
-  if (typeof value.id !== "string") return false;
-  return (
-    value.parentId === undefined || value.parentId === null || typeof value.parentId === "string"
+function findLatestCheckpoint(entries: readonly unknown[]): CheckpointEntry | undefined {
+  let latest: CheckpointEntry | undefined;
+  for (const checkpoint of filterCheckpointEntries(extractCheckpointData(entries))) {
+    latest = checkpoint;
+  }
+  return latest;
+}
+
+function findEntryById(entries: readonly unknown[], entryId: string): TreeEntryRecord | undefined {
+  return entries.find(
+    (entry): entry is TreeEntryRecord => isEntryWithId(entry) && entry.id === entryId,
   );
 }
 
-function getTreeOldLeafId(value: unknown): string | undefined {
-  if (!isForkIntentRecord(value)) return undefined;
-  return typeof value.oldLeafId === "string" ? value.oldLeafId : undefined;
-}
-
-function getTreeTargetId(value: unknown): string | undefined {
-  if (!isForkIntentRecord(value)) return undefined;
-  if (typeof value.targetId === "string") return value.targetId;
-  const preparation = value.preparation;
-  if (!isForkIntentRecord(preparation)) return undefined;
-  return typeof preparation.targetId === "string" ? preparation.targetId : undefined;
-}
-
-function getTreeNewLeafId(value: unknown): string | undefined {
-  if (!isForkIntentRecord(value)) return undefined;
-  return typeof value.newLeafId === "string" ? value.newLeafId : undefined;
-}
-
-function findEntryById(entries: readonly unknown[], entryId: string): unknown | undefined {
-  return entries.find((entry) => isEntryWithId(entry) && entry.id === entryId);
-}
-
-function isUserMessageEntry(value: unknown): value is { readonly id: string } {
-  if (!isForkIntentRecord(value)) return false;
-  if (value.type !== "message" || !isForkIntentRecord(value.message)) return false;
-  return value.message.role === "user" && typeof value.id === "string";
-}
-
-function buildBranchToEntry(entries: readonly unknown[], leafId: string): readonly unknown[] {
-  const byId = new Map<
-    string,
-    { readonly entry: unknown; readonly parentId: string | null | undefined }
-  >();
+function buildBranchToEntry(
+  entries: readonly unknown[],
+  leafId: string,
+): readonly TreeEntryRecord[] {
+  const byId = new Map<string, TreeEntryRecord>();
   for (const entry of entries) {
     if (isEntryWithId(entry)) {
-      byId.set(entry.id, { entry, parentId: entry.parentId });
+      byId.set(entry.id, entry);
     }
   }
 
-  const branch: unknown[] = [];
+  const branch: TreeEntryRecord[] = [];
   let currentId: string | undefined = leafId;
   const seen = new Set<string>();
   while (currentId && !seen.has(currentId)) {
     seen.add(currentId);
     const current = byId.get(currentId);
     if (!current) break;
-    branch.push(current.entry);
+    branch.push(current);
     currentId = current.parentId ?? undefined;
   }
 
@@ -213,7 +189,7 @@ function buildBranchToEntry(entries: readonly unknown[], leafId: string): readon
 
 function resolveTreeTargetCommit(
   entries: readonly unknown[],
-  branch: readonly unknown[],
+  branch: readonly TreeEntryRecord[],
   targetId: string | undefined,
 ): string | undefined {
   const targetEntry = targetId ? findEntryById(entries, targetId) : undefined;
@@ -280,7 +256,7 @@ async function safeRestoreTreeCodeState(
 async function restoreForkCodeState(
   repo: RepoManager,
   entries: readonly unknown[],
-  branch: SessionEntry[],
+  branch: readonly TreeEntryRecord[],
   selectedEntryId: string | undefined,
 ): Promise<void> {
   const selectedCp = selectedEntryId
@@ -480,7 +456,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   });
 
   pi.on("session_before_tree", async (event, ctx) => {
-    const targetId = getTreeTargetId(event);
+    const targetId = getTreeEventRecord(event)?.targetId;
     if (targetId) {
       pendingTreeTargets.set(ctx.sessionManager.getSessionId(), targetId);
     }
@@ -503,16 +479,14 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!repo) return;
 
     const entries = ctx.sessionManager.getEntries();
-    const oldLeafId = getTreeOldLeafId(event);
-    const oldBranch = oldLeafId
-      ? buildBranchToEntry(entries, oldLeafId)
-      : ctx.sessionManager.getBranch();
+    const treeEvent = getTreeEventRecord(event);
+    const currentBranch = toTreeEntryRecords(ctx.sessionManager.getBranch());
+    const oldLeafId = treeEvent?.oldLeafId;
+    const oldBranch = oldLeafId ? buildBranchToEntry(entries, oldLeafId) : currentBranch;
     const targetId = pendingTreeTargets.getOrUndefined(sessionId);
     pendingTreeTargets.delete(sessionId);
-    const targetLeafId = targetId ?? getTreeNewLeafId(event);
-    const targetBranch = targetLeafId
-      ? buildBranchToEntry(entries, targetLeafId)
-      : ctx.sessionManager.getBranch();
+    const targetLeafId = targetId ?? treeEvent?.newLeafId;
+    const targetBranch = targetLeafId ? buildBranchToEntry(entries, targetLeafId) : currentBranch;
 
     const dirtyBaseCommit =
       (await findCleanCheckpointCommit(repo, getCheckpointEntries(entries))) ??
