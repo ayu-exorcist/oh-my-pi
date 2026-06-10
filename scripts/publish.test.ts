@@ -5,6 +5,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("./lib/npm", () => ({
+  getNpmUser: vi.fn(() => "ayu.exorcist"),
   getRegistryVersion: vi.fn(() => "0.3.2"),
   setRoot: vi.fn(),
 }));

@@ -8,7 +8,7 @@ import { applyAutoBumpPlanToPackages, buildReleasePreviewRows } from "./lib/rele
 import { parseCLI } from "./lib/cli";
 import { buildDepGraph, collectDependencies } from "./lib/deps";
 import { commit, hasPathChangesSinceRef, pushCurrentBranch, tagAndRelease } from "./lib/git";
-import { getRegistryVersion, setRoot } from "./lib/npm";
+import { getNpmUser, getRegistryVersion, setRoot } from "./lib/npm";
 import { getPackages, getReleaseInputWorkspacePackages } from "./lib/packages";
 import { createReleasePlan, collectReleaseScope } from "./lib/release-plan";
 import { parseReleaseTargets } from "./lib/release-targets";
@@ -256,6 +256,13 @@ async function main(): Promise<void> {
   const autoBumpPlan = createAutoBumpPlan(scopedPackages, inputNameMap);
 
   if (!DRY_RUN) {
+    const npmUser = getNpmUser();
+    if (!npmUser) {
+      console.error("❌ npm authentication failed. Run `pnpm login` and rerun release.");
+      process.exit(1);
+    }
+    console.log(`🔐 npm authenticated as ${npmUser}`);
+
     ensureReleaseScopeIsCommitted(scopedPackages, inputNameMap);
     applyAutoBumpPlan(autoBumpPlan, nameMap);
   }

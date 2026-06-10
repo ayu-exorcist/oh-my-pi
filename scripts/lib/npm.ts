@@ -21,3 +21,18 @@ export function getRegistryVersion(name: string): string | null {
     return null;
   }
 }
+
+/** Return the current authenticated npm user, or null when npm auth is missing/invalid. */
+export function getNpmUser(): string | null {
+  try {
+    const output = execSync("pnpm whoami", {
+      encoding: "utf8",
+      cwd: rootPath,
+      timeout: 15000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return output.trim() || null;
+  } catch {
+    return null;
+  }
+}
