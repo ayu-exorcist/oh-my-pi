@@ -35,8 +35,8 @@
   "scripts": {
     "dev": "vitest",
     "test": "vitest run",
-    "coverage": "vitest run --coverage",
-    "coverage:open": "vitest run --coverage && pnpm dlx serve coverage -p 9876 -o",
+    "coverage": "vitest run --coverage --maxWorkers=4",
+    "coverage:open": "vitest run --coverage --maxWorkers=4 && pnpm dlx serve coverage -p 9876 -o",
     "typecheck": "tsc --noEmit",
     "clean": "pnpm dlx rimraf --glob coverage .oxlintcache .oxfmtcache \"*.tsbuildinfo\"",
     "lint": "oxlint .",
@@ -49,6 +49,8 @@
     "teardown": "oxnode scripts/teardown.ts",
     "build": "turbo run build --filter=\"!@ayulab/oh-my-pi\"",
     "build:all": "turbo run build",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install",
     "release": "oxnode scripts/publish.ts",
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
@@ -61,6 +63,7 @@
   "devDependencies": {
     "@ayulab/repo-tools": "workspace:*",
     "@ayulab/runtime-core": "workspace:*",
+    "@changesets/cli": "^2.31.0",
     "@earendil-works/pi-coding-agent": "^0.78.1",
     "@oxc-node/cli": "^0.1.0",
     "@types/node": "^25.9.2",

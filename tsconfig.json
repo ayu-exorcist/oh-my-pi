@@ -25,5 +25,5 @@
     }
   },
   "include": ["sdk/**/*.ts", "extensions/**/*.ts", "scripts/**/*.ts", "internal/**/*.ts"],
-  "exclude": ["node_modules", "**/node_modules"]
+  "exclude": ["node_modules", "**/node_modules", "**/dist"]
 }

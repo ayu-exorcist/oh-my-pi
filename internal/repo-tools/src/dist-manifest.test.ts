@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { buildDistManifest } from "../dist-manifest";
+import { buildDistManifest } from "./dist-manifest";
 
 function runDistManifest(cwd: string): void {
   buildDistManifest(cwd);

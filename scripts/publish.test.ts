@@ -4,28 +4,14 @@ vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }));
 
-vi.mock("./lib/npm", () => ({
-  getNpmUser: vi.fn(() => "ayu.exorcist"),
-  getRegistryVersion: vi.fn(() => "0.3.2"),
-  setRoot: vi.fn(),
-}));
-
 vi.mock("./lib/packages", () => ({
   getPackages: vi.fn(() => []),
+  getReleaseInputWorkspacePackages: vi.fn(() => []),
 }));
 
 vi.mock("./lib/deps", () => ({
   buildDepGraph: vi.fn(() => ({ nameMap: new Map() })),
   collectDependencies: vi.fn(() => new Set()),
-}));
-
-vi.mock("./lib/release-plan", () => ({
-  createReleasePlan: vi.fn(),
-  collectReleaseScope: vi.fn(() => new Set()),
-}));
-
-vi.mock("./lib/build-artifact-stage", () => ({
-  stageBundledBuildArtifacts: vi.fn(() => ({ ok: true, restores: [] })),
 }));
 
 vi.mock("./lib/validate", () => ({
@@ -35,15 +21,6 @@ vi.mock("./lib/validate", () => ({
 
 vi.mock("./lib/cli", () => ({
   parseCLI: vi.fn(() => ({ flags: new Map(), positionals: [] })),
-}));
-
-vi.mock("./lib/auto-bump", () => ({
-  planAutoBumps: vi.fn(() => []),
-}));
-
-vi.mock("./lib/release-preview", () => ({
-  applyAutoBumpPlanToPackages: vi.fn((packages: readonly unknown[]) => packages),
-  buildReleasePreviewRows: vi.fn(() => []),
 }));
 
 import { findUncommittedReleasePackages } from "./publish";

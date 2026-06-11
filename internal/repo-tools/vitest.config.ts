@@ -2,6 +2,6 @@ import { createWorkspaceVitestConfig, strictCoverageConfig } from "@ayulab/repo-
 
 export default createWorkspaceVitestConfig({
   test: {
-    ...strictCoverageConfig({ reporter: ["text", "html"] }),
+    ...strictCoverageConfig({ include: ["src/dist-manifest.ts", "src/testing.ts"] }),
   },
 });

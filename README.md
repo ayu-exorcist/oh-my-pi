@@ -165,11 +165,10 @@ cd oh-my-pi
 mise install && pnpm install
 ```
 
-Build all workspace packages before publishing:
+Publish current unpublished package versions:
 
 ```bash
-pnpm run build   # turborepo build with caching
-pnpm run release # publish to npm
+pnpm run release # build, validate, publish via Changesets, and create tags
 ```
 
 See `CONTRIBUTING.md` for the full development guide — mise setup, scripts, quality gate, adding extensions, build config, and release workflow.

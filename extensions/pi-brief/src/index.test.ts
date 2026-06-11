@@ -10,6 +10,40 @@ import {
 } from "@ayulab/repo-tools/testing";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 
+const { factoryByName } = vi.hoisted(() => {
+  const factoryByName = new Map<string, ReturnType<typeof vi.fn>>();
+  const makeFactory = (name: string) => {
+    const factory = vi.fn((cwd: string) => ({
+      description: `${name} description for ${cwd}`,
+      parameters: { type: "object", name },
+      execute: vi.fn(),
+    }));
+    factoryByName.set(name, factory);
+    return factory;
+  };
+
+  return {
+    factoryByName,
+    createReadTool: makeFactory("read"),
+    createBashTool: makeFactory("bash"),
+    createEditTool: makeFactory("edit"),
+    createWriteTool: makeFactory("write"),
+    createFindTool: makeFactory("find"),
+    createGrepTool: makeFactory("grep"),
+    createLsTool: makeFactory("ls"),
+  };
+});
+
+vi.mock("@earendil-works/pi-coding-agent", () => ({
+  createReadTool: factoryByName.get("read"),
+  createBashTool: factoryByName.get("bash"),
+  createEditTool: factoryByName.get("edit"),
+  createWriteTool: factoryByName.get("write"),
+  createFindTool: factoryByName.get("find"),
+  createGrepTool: factoryByName.get("grep"),
+  createLsTool: factoryByName.get("ls"),
+}));
+
 import briefExtension from "./index";
 
 interface RegisteredTool {

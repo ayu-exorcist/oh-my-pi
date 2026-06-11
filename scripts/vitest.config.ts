@@ -3,9 +3,6 @@ import { createWorkspaceVitestConfig, strictCoverageConfig } from "@ayulab/repo-
 export default createWorkspaceVitestConfig({
   test: {
     include: ["lib/**/*.test.ts"],
-    coverage: {
-      ...strictCoverageConfig()?.coverage,
-      include: ["lib/release-plan.ts", "lib/build-artifact-stage.ts", "lib/package-json.ts"],
-    },
+    ...strictCoverageConfig({ include: ["lib/git.ts", "lib/package-json.ts", "lib/validate.ts"] }),
   },
 });

@@ -1,24 +1,9 @@
-import { strictCoverageConfig, workspaceSourceAliases } from "@ayulab/repo-tools/vitest";
-import { defineConfig } from "vitest/config";
+import { createRootVitestConfig } from "@ayulab/repo-tools/vitest";
 
 /**
  * Root Vitest configuration for the monorepo.
  *
- * - Uses workspace-aware `projects` so that tests in `extensions/*`, `sdk/*`,
- *   `internal/*`, and `scripts` pick up their local `vitest.config.ts` files.
- * - Path aliases for workspace packages are defined here once; sub-packages
- *   do not repeat them.
- * - Coverage provider is v8; thresholds match current project baseline.
+ * Uses workspace-aware `projects` so tests in `extensions/*`, `sdk/*`,
+ * `internal/*`, and `scripts` pick up their local `vitest.config.ts` files.
  */
-export default defineConfig({
-  test: {
-    alias: workspaceSourceAliases,
-    projects: ["extensions/*", "sdk/*", "internal/*", "scripts"],
-    testTimeout: 15000,
-    ...strictCoverageConfig(),
-    coverage: {
-      ...strictCoverageConfig()?.coverage,
-      reporter: ["text", "html"],
-    },
-  },
-});
+export default createRootVitestConfig();

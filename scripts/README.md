@@ -12,21 +12,14 @@ scripts/
 ├── teardown.ts         # Unregister repo from Pi settings
 ├── vitest.config.ts    # Script test config
 ├── lib/                # Shared modules (imported by scripts above)
-│   ├── auto-bump.ts    # Patch bump planning for already-published changed packages
-│   ├── build-artifact-stage.ts # Swap bundled workspace deps with built artifacts
 │   ├── cli.ts          # CLI flag parser
-│   ├── deps.ts         # Dependency graph + topological sort
-│   ├── git.ts          # Git tag + GitHub Release automation
-│   ├── npm.ts          # npm registry queries
+│   ├── deps.ts         # Dependency graph helpers
+│   ├── git.ts          # Dirty release input detection
 │   ├── package-json.ts # package.json shape guard
 │   ├── packages.ts     # Discover root + publishable workspace packages
 │   ├── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
-│   ├── release-plan.ts # Release target expansion and dependency ordering
-│   ├── release-preview.ts # Dry-run package version preview helpers
-│   ├── release-targets.ts # Release target parsing and validation
 │   ├── types.ts        # Shared interfaces (PkgJson, PackageInfo, DepGraph, ...)
-│   ├── validate.ts     # Pre-publish manifest validation
-│   └── version.ts      # Version parsing/comparison helpers
+│   └── validate.ts     # Pre-publish manifest validation
 ```
 
 ## Build
@@ -42,53 +35,37 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 
 Run this before `pnpm run release`.
 
-## `publish.ts` — Topological Publish
+## `publish.ts` — Changesets Publish Wrapper
 
 `pnpm run release` / `pnpm run release --dry-run`
 
-Orchestrates npm publishing across the monorepo. Entry point that composes modules from `lib/`:
+Runs project-specific pre-publish checks, then delegates package publishing and git tag creation to Changesets:
 
 1. **Discovery** (`lib/packages.ts`) — scans `extensions/`, `sdk/`, and the root package for publishable packages. Private `internal/*` packages are intentionally excluded.
-2. **Drift detection** (`lib/npm.ts`) — compares local versions against the npm registry.
-3. **Auto-bump planning** (`lib/auto-bump.ts`) — if a package's current version is already published and its release inputs changed since the matching git tag, the script bumps patch version, commits, and pushes before publishing. If you manually set a new unpublished version, it is published as-is.
-   3.5. **Committed-source guard** — release aborts when the scoped packages have uncommitted changes, so tags and GitHub Releases always point at an actual git commit.
-4. **Dependency graph** (`lib/deps.ts`) — builds a graph from `package.json` `dependencies` and topologically sorts so dependencies are published before dependents.
-5. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
-6. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing. Internal packages may produce local `dist/` artifacts, but they are not published.
-7. **Publish + Tag + Release** — runs `pnpm publish` for each out-of-date package (child packages publish from `dist/` via `publishConfig.directory`). As soon as a package is successfully published, `lib/git.ts` immediately creates and pushes its git tag (`@scope/name@version`) and opens a GitHub Release. If a later package fails, earlier packages are never left untagged.
+2. **Committed-source guard** — release aborts when publishable package inputs have uncommitted changes, so Changesets tags point at an actual git commit.
+3. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
+4. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing.
+5. **Changesets publish** — runs `pnpm changeset publish`, which publishes unpublished package versions and creates package git tags.
 
 Flags:
 
-| Flag                            | Short | Description                                             |
-| ------------------------------- | ----- | ------------------------------------------------------- |
-| `--dry-run`                     | —     | Preview what would be published without touching npm    |
-| `--all`                         | `-a`  | Publish all out-of-date packages                        |
-| `--package=<name>[,<name>...]`  | `-p`  | Publish specific package(s) and required workspace deps |
-| `--access=<public\|restricted>` | —     | npm access level (default: `public`)                    |
-| `--otp <code>`                  | —     | One-time password for two-factor authentication         |
+| Flag           | Short | Description                                          |
+| -------------- | ----- | ---------------------------------------------------- |
+| `--dry-run`    | —     | Preview what would be published without touching npm |
+| `--otp <code>` | —     | One-time password for manual local publishing        |
 
-`-p` and `-a` are mutually exclusive. If both are provided, `-p` wins.
+Targeted publish flags (`--package`, `-p`, `--all`, `-a`, and positional package names) are intentionally unsupported. Choose release packages with Changesets instead. Access is configured in `.changeset/config.json` and per-package `publishConfig`.
 
 Examples:
 
 ```bash
-# Publish all out-of-date packages (default when no target is given)
+# Publish unpublished package versions and create Changesets tags
 pnpm run release
-
-# Same as above, explicit
-pnpm run release --all
-
-# Publish a specific package (including required unpublished workspace deps)
-pnpm run release -p @ayulab/pi-rewind
-
-# Publish multiple specific packages
-pnpm run release --package @ayulab/pi-rewind @ayulab/oh-my-pi @ayulab/pi-undo-redo
-pnpm run release --package=@ayulab/pi-rewind,@ayulab/oh-my-pi,@ayulab/pi-undo-redo
 
 # Publish with OTP
 pnpm run release --otp 123456
 
-# Dry-run preview
+# Validate release inputs and print Changesets status without publishing
 pnpm run release --dry-run
 ```
 
