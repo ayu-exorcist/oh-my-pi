@@ -41,7 +41,7 @@ Run this before `pnpm run release`.
 
 Runs project-specific pre-publish checks, then delegates package publishing and git tag creation to Changesets:
 
-1. **Discovery** (`lib/packages.ts`) — scans `extensions/`, `sdk/`, and the root package for publishable packages. Private `internal/*` packages are intentionally excluded.
+1. **Discovery** (`lib/packages.ts`) — scans `extensions/`, `sdk/`, and the root package for publishable packages. Workspace packages marked `private: true` and private `internal/*` packages are intentionally excluded.
 2. **Committed-source guard** — release aborts when publishable package inputs have uncommitted changes, so Changesets tags point at an actual git commit.
 3. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
 4. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing.

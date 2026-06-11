@@ -330,7 +330,7 @@ npm publish
 provenance=true
 ```
 
-**Pre-publish validation** — `scripts/publish.ts` discovers publishable packages from `extensions/`, `sdk/`, and the root package only; private `internal/*` packages are built and tested but not published. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
+**Pre-publish validation** — `scripts/publish.ts` discovers publishable packages from `extensions/`, `sdk/`, and the root package only; packages marked `private: true` and private `internal/*` packages are built and tested but not published. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
 
 **Release credentials** — npm publishing uses Trusted Publishing / OIDC, with package publishing access set to `Require two-factor authentication and disallow tokens`. GitHub Actions uses the built-in `GITHUB_TOKEN` plus `id-token: write`; no `NPM_TOKEN` secret is required.
 

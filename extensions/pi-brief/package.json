@@ -1,6 +1,7 @@
 {
   "name": "@ayulab/pi-brief",
   "version": "0.1.0",
+  "private": true,
   "description": "Pi extension that briefs tool output to show only decision-critical information",
   "keywords": [
     "brief",

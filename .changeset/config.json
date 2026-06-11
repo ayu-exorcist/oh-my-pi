@@ -7,6 +7,7 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
+  "ignore": ["@ayulab/pi-brief", "@ayulab/pi-clarify"],
   "privatePackages": {
     "version": true,
     "tag": false

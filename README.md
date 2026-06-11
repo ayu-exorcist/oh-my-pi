@@ -14,7 +14,7 @@ Install `@ayulab/oh-my-pi` to get all curated extensions. Enable or disable indi
 pi install npm:@ayulab/oh-my-pi
 ```
 
-The curated package enables `pi-rewind` by default, while `pi-clarify`, `pi-brief`, and `pi-undo-redo` stay disabled until you opt in. Use `pi config` to toggle interactively:
+The curated package enables `pi-rewind` by default, while `pi-undo-redo` stays disabled until you opt in. `pi-brief` and `pi-clarify` are still in development and are not bundled or published yet. Use `pi config` to toggle bundled extensions interactively:
 
 ```bash
 pi config
@@ -35,13 +35,14 @@ Or use [Package Filtering](https://pi.dev/docs/latest/packages#package-filtering
 
 ### Atomic Install (Pick What You Need)
 
-Each extension is published independently. Install only what you need:
+Published extensions can also be installed independently:
 
 ```bash
-pi install npm:@ayulab/pi-clarify
 pi install npm:@ayulab/pi-rewind
 pi install npm:@ayulab/pi-undo-redo
 ```
+
+`@ayulab/pi-brief` and `@ayulab/pi-clarify` are private while they are still in development.
 
 ### Local Development
 
@@ -64,9 +65,9 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ```
 @ayulab/oh-my-pi/
-├── extensions/           # Pi extensions (independently published)
-│   ├── pi-clarify/       # @ayulab/pi-clarify — structured one-question clarification
-│   ├── pi-brief/         # @ayulab/pi-brief — brief tool output summaries
+├── extensions/           # Pi extensions
+│   ├── pi-clarify/       # @ayulab/pi-clarify — private, in development
+│   ├── pi-brief/         # @ayulab/pi-brief — private, in development
 │   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 │   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
 ├── sdk/                  # Publishable SDK packages
@@ -95,15 +96,13 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 | Package                                           | Description                                         |
 | ------------------------------------------------- | --------------------------------------------------- |
 | [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)      | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-clarify`](extensions/pi-clarify)     | Structured one-question clarification prompts.      |
-| [`@ayulab/pi-brief`](extensions/pi-brief)         | Brief one-line summaries for built-in tool output.  |
 | [`@ayulab/pi-rewind`](extensions/pi-rewind)       | `/rewind` command — interactive checkpoint restore. |
 | [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo) | `/undo` and `/redo` commands.                       |
 | [`Purple Dream`](themes/purple-dream.json)        | Dark purple theme for long coding sessions.         |
 
 ## Extension Management
 
-After installation, `pi-rewind` is enabled by default. `pi-clarify`, `pi-brief`, and `pi-undo-redo` are bundled but disabled by default. Toggle interactively:
+After installation, `pi-rewind` is enabled by default. `pi-undo-redo` is bundled but disabled by default. Toggle interactively:
 
 ```bash
 pi config
