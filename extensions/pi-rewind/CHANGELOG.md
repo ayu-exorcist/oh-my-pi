@@ -1,6 +1,6 @@
-# @ayulab/oh-my-pi
+# @ayulab/pi-rewind
 
-## 0.4.0
+## 0.3.0
 
 ### Minor Changes
 
@@ -11,10 +11,4 @@
 ### Patch Changes
 
 - Updated dependencies [633b275]
-  - @ayulab/pi-rewind@0.3.0
-
-## 0.3.4
-
-### Patch Changes
-
-- bb2fa92: Stop bundling unpublished pi-brief and pi-clarify extensions while they remain in development.
+  - @ayulab/pi-checkpoint@0.4.0
