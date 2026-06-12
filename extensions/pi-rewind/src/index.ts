@@ -92,6 +92,12 @@ interface TreeRestoreIntent {
   readonly mode: "Restore code and conversation" | "Restore conversation";
 }
 
+function hasCheckpointFileChanges(entries: readonly unknown[]): boolean {
+  return getCheckpointEntries(entries).some(
+    (checkpoint) => checkpoint.fileCount > 0 || checkpoint.fileChanges.length > 0,
+  );
+}
+
 export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
   return isRecord(value);
 }
@@ -415,7 +421,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       const result = await producer.turnStart({
         userEntryId: leaf.id,
-        prompt: extractPrompt(leaf).slice(0, 60),
+        prompt: extractPrompt(leaf),
       });
 
       if (result.ok) {
@@ -449,7 +455,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       await producer.turnEnd({
         userEntryId: leaf.id,
-        prompt: extractPrompt(leaf).slice(0, 60),
+        prompt: extractPrompt(leaf),
       });
     });
   });
@@ -488,7 +494,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
 
     if (config.restoreOnTree === "ask") {
-      if (!ctx.hasUI) return;
+      if (!ctx.hasUI || !hasCheckpointFileChanges(ctx.sessionManager.getEntries())) return;
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {

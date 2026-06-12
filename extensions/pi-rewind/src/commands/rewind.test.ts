@@ -1,5 +1,7 @@
 import { describe, test, expect, vi, type Mock } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
 import {
@@ -7,6 +9,7 @@ import {
   buildCheckpointItem,
   findConversationEntryIdForCheckpoint,
   formatChangeLine,
+  selectCheckpointItem,
 } from "./rewind";
 
 function createMockCtx(
@@ -77,6 +80,579 @@ function createEntry(
     ...partial,
   };
 }
+
+describe("selectCheckpointItem", () => {
+  test("uses bounded custom list with current selected at the bottom", async () => {
+    const items = [
+      ...Array.from({ length: 15 }, (_, index) => `checkpoint ${index}\n`),
+      "(current)\n",
+    ];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const lines = component.render(80);
+      expect(lines.some((line) => line.includes("› (current)"))).toBe(true);
+      expect(lines.some((line) => line.includes("• user: (current)"))).toBe(false);
+      expect(lines.some((line) => line.includes("• user: checkpoint 14"))).toBe(true);
+      expect(lines.some((line) => line.includes("up/down: move"))).toBe(true);
+      expect(lines.filter((line) => line.includes("› "))).toHaveLength(1);
+      expect(lines.some((line) => line.includes("(16/16)"))).toBe(true);
+      expect(lines.every((line) => !line.includes("\n"))).toBe(true);
+      expect(lines.some((line) => line.includes("checkpoint 0"))).toBe(true);
+      return undefined;
+    });
+    const select = vi.fn();
+
+    await selectCheckpointItem(
+      { ui: { custom, select } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+    );
+
+    expect(custom).toHaveBeenCalledTimes(1);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  test("uses tree-matching half-terminal visible line limit", async () => {
+    const items = [
+      ...Array.from({ length: 30 }, (_, index) => `checkpoint ${index}\n   details ${index}\n`),
+      "(current)\n",
+    ];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const lines = component.render(80);
+      const itemLines = lines.filter(
+        (line) =>
+          line.includes("checkpoint ") || line.includes("details ") || line.includes("(current)"),
+      );
+      expect(itemLines.length).toBeLessThanOrEqual(23);
+      expect(lines.some((line) => line.includes("up/down: move"))).toBe(true);
+      expect(lines.some((line) => line.includes("(31/31)"))).toBe(true);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+    );
+  });
+
+  test("renders multiline checkpoint names as one tree-style user line", async () => {
+    const items = ["first prompt line\nsecond prompt line\n   No code changes\n", "(current)\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const lines = component.render(80);
+      expect(lines.filter((line) => line.includes("• user:"))).toHaveLength(1);
+      expect(
+        lines.some((line) => line.includes("• user: first prompt line second prompt line")),
+      ).toBe(true);
+      expect(lines.some((line) => line.includes("No code changes"))).toBe(true);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+      items[0],
+    );
+  });
+
+  test("renders long checkpoint names with tree-style ellipsis", async () => {
+    const items = [`${"long checkpoint ".repeat(10)}\n`, "(current)\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const line = component.render(24).find((renderedLine) => renderedLine.includes("• user:"));
+      expect(line).toBeDefined();
+      if (!line) throw new Error("expected long checkpoint line");
+      expect(line).toContain("...");
+      expect(visibleWidth(line)).toBeLessThanOrEqual(24);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+      items[0],
+    );
+  });
+
+  test("uses the selected item block width for highlighted lines", async () => {
+    const items = ["short\n   \u001b[38;5;245mdetail\u001b[0m\n", "(current)\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => `\u001b[48;5;238m${text}\u001b[49m`,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const highlightedLines = component
+        .render(80)
+        .filter((line) => line.includes("\u001b[48;5;238m"));
+      expect(highlightedLines).toHaveLength(2);
+      expect(visibleWidth(highlightedLines[0] ?? "")).toBe(visibleWidth(highlightedLines[1] ?? ""));
+      expect(visibleWidth(highlightedLines[0] ?? "")).toBeLessThan(80);
+      expect(highlightedLines[1]).toMatch(new RegExp(String.raw`\s+\u001b\[49m$`, "u"));
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+      items[0],
+    );
+  });
+
+  test("renders empty custom list state", async () => {
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      expect(component.render(80)).toContain("  No checkpoints available");
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      [],
+    );
+  });
+
+  test("moves keyboard selection within list boundaries", async () => {
+    const items = ["first\n", "second\n", "third\n"];
+    const selected: Array<string | undefined> = [];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        (item: string | undefined) => selected.push(item),
+      ) as Component;
+      const handleInput = component.handleInput;
+      if (!handleInput) throw new Error("expected input handler");
+      handleInput("\u001b[A");
+      handleInput("\r");
+      handleInput("\u001b[B");
+      handleInput("\r");
+      expect(selected).toEqual(["first\n", "second\n"]);
+      return selected[1];
+    });
+
+    await expect(
+      selectCheckpointItem(
+        { ui: { custom, select: vi.fn() } } as unknown as Parameters<
+          typeof selectCheckpointItem
+        >[0],
+        items,
+        items[1],
+      ),
+    ).resolves.toBe("second\n");
+  });
+
+  test("wraps keyboard navigation at list boundaries", async () => {
+    const items = ["first\n", "second\n"];
+    const selected: Array<string | undefined> = [];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        (item: string | undefined) => selected.push(item),
+      ) as Component;
+      const handleInput = component.handleInput;
+      if (!handleInput) throw new Error("expected input handler");
+      handleInput("\u001b[A");
+      handleInput("\r");
+      handleInput("\u001b[B");
+      handleInput("\r");
+      expect(selected).toEqual(["second\n", "first\n"]);
+      return selected[1];
+    });
+
+    await expect(
+      selectCheckpointItem(
+        { ui: { custom, select: vi.fn() } } as unknown as Parameters<
+          typeof selectCheckpointItem
+        >[0],
+        items,
+        items[0],
+      ),
+    ).resolves.toBe("first\n");
+  });
+
+  test("ignores confirm when the custom list has no selected item", async () => {
+    const selected: Array<string | undefined> = [];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        (item: string | undefined) => selected.push(item),
+      ) as Component;
+      const handleInput = component.handleInput;
+      if (!handleInput) throw new Error("expected input handler");
+      handleInput("\r");
+      expect(selected).toEqual([]);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      [],
+    );
+  });
+
+  test("handles keyboard selection, cancel, and invalidate", async () => {
+    const items = ["first\n", "second\n", "(current)\n"];
+    const selected: Array<string | undefined> = [];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        (item: string | undefined) => selected.push(item),
+      ) as Component;
+      const handleInput = component.handleInput;
+      if (!handleInput) throw new Error("expected input handler");
+      handleInput("\u001b[A");
+      handleInput("\u001b[B");
+      handleInput("\u001b[B");
+      handleInput("\r");
+      handleInput("\u001b");
+      handleInput("unknown");
+      component.invalidate();
+      expect(selected).toEqual(["(current)\n", undefined]);
+      return selected[0];
+    });
+
+    await expect(
+      selectCheckpointItem(
+        { ui: { custom, select: vi.fn() } } as unknown as Parameters<
+          typeof selectCheckpointItem
+        >[0],
+        items,
+        items[1],
+      ),
+    ).resolves.toBe("(current)\n");
+  });
+
+  test("handles empty checkpoint labels and narrow visible range", async () => {
+    const items = ["\n", "middle\n   detail 1\n   detail 2\n   detail 3\n", "last\n   detail\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 2 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const lines = component.render(80);
+      expect(lines.some((line) => line.includes("› "))).toBe(true);
+      expect(lines.some((line) => line.includes("(2/3)"))).toBe(true);
+      expect(lines.some((line) => line.includes("last"))).toBe(false);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+      items[1],
+    );
+  });
+
+  test("renders selected line when background wrapper omits the marker", async () => {
+    const items = ["short\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: () => "",
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      expect(component.render(80).some((line) => line.includes("› • user: short"))).toBe(true);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+    );
+  });
+
+  test("restores selected background after reset-only SGR", async () => {
+    const items = ["short\n   \u001b[mdetail\u001b[m\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => `\u001b[48;5;238m${text}\u001b[49m`,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      expect(component.render(80).some((line) => line.includes("\u001b[m\u001b[48;5;238m"))).toBe(
+        true,
+      );
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+    );
+  });
+
+  test("falls back to full background wrapper when wrapper has visible text", async () => {
+    const items = ["short\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => `[${text}]`,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      expect(component.render(80).some((line) => line.includes("[› • user: short]"))).toBe(true);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+    );
+  });
+
+  test("falls back to select when custom UI is unavailable", async () => {
+    const items = ["(current)\n", "checkpoint 1\n"];
+    const select = vi.fn().mockResolvedValue(items[1]);
+
+    await expect(
+      selectCheckpointItem(
+        { ui: { select } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+        items,
+      ),
+    ).resolves.toBe(items[1]);
+    expect(select).toHaveBeenCalledWith("Rewind to checkpoint:", items);
+  });
+
+  test("uses initial selection when returning to checkpoint list", async () => {
+    const items = ["checkpoint 0\n", "checkpoint 1\n", "(current)\n"];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 46 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        () => undefined,
+      ) as Component;
+      const lines = component.render(80);
+      expect(lines.some((line) => line.includes("› • user: checkpoint 1"))).toBe(true);
+      expect(lines.filter((line) => line.includes("› "))).toHaveLength(1);
+      return undefined;
+    });
+
+    await selectCheckpointItem(
+      { ui: { custom, select: vi.fn() } } as unknown as Parameters<typeof selectCheckpointItem>[0],
+      items,
+      items[1],
+    );
+  });
+});
 
 describe("buildCheckpointItem", () => {
   test("renders no code changes line", () => {
@@ -238,12 +814,12 @@ describe("registerRewind", () => {
     ctx.ui.select.mockResolvedValueOnce(undefined);
     await handler("", ctx);
     expect(ctx.ui.select).toHaveBeenCalledWith("Rewind to checkpoint:", [
-      "(current)\n",
       buildCheckpointItem(firstEntry(entries)),
+      "(current)\n",
     ]);
   });
 
-  test("shows current first followed by newest checkpoints", async () => {
+  test("shows checkpoints oldest first followed by current", async () => {
     const pi = createMockPi();
     const entries = [
       createEntry({ userEntryId: "old-entry", beforeCommit: "old", prompt: "old prompt" }),
@@ -255,9 +831,9 @@ describe("registerRewind", () => {
     ctx.ui.select.mockResolvedValueOnce(undefined);
     await handler("", ctx);
     expect(ctx.ui.select).toHaveBeenCalledWith("Rewind to checkpoint:", [
-      "(current)\n",
-      buildCheckpointItem(entries[1] ?? firstEntry(entries)),
       buildCheckpointItem(firstEntry(entries)),
+      buildCheckpointItem(entries[1] ?? firstEntry(entries)),
+      "(current)\n",
     ]);
   });
 
@@ -295,7 +871,7 @@ describe("registerRewind", () => {
     expect(ctx.ui.select).toHaveBeenCalledTimes(1);
   });
 
-  test("returns early when user cancels mode selection", async () => {
+  test("returns to checkpoint list when user cancels mode selection", async () => {
     const pi = createMockPi();
     const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
     registerRewind(pi, () => createMockRepo());
@@ -303,10 +879,15 @@ describe("registerRewind", () => {
     const ctx = createMockCtx(entries);
     ctx.ui.select
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore conversation");
     await handler("", ctx);
-    expect(ctx.ui.select).toHaveBeenCalledTimes(2);
-    expect(ctx.navigateTree).not.toHaveBeenCalled();
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(3, "Rewind to checkpoint:", [
+      buildCheckpointItem(firstEntry(entries)),
+      "(current)\n",
+    ]);
+    expect(ctx.navigateTree).toHaveBeenCalledWith("e1", { summarize: false });
   });
 
   test("hides code restore modes when checkpoints have no file changes", async () => {
@@ -319,7 +900,7 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce(undefined);
     await handler("", ctx);
-    expect(ctx.ui.select).toHaveBeenLastCalledWith("Restore mode:", ["Restore conversation"]);
+    expect(ctx.ui.select).toHaveBeenCalledWith("Restore mode:", ["Restore conversation"]);
   });
 
   test("conversation restore fails gracefully", async () => {
@@ -511,7 +1092,7 @@ describe("registerRewind", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
   });
 
-  test("uses newest visible checkpoint as dirty guard base with newest-first display", async () => {
+  test("uses newest visible checkpoint as dirty guard base with oldest-first display", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn();
     const stageAll = vi.fn();
@@ -586,6 +1167,34 @@ describe("registerRewind", () => {
       "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
       "warning",
     );
+  });
+
+  test("dirty guard falls back to latest checkpoint when no commit is clean", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const stageAll = vi.fn();
+    const diffAgainst = vi.fn().mockResolvedValue("1\t0\tfile.ts\n");
+    const createSafetyCommit = vi.fn().mockResolvedValue("safety");
+    const safeCheckout = vi.fn().mockResolvedValue({ ok: true });
+    const entries = [
+      createEntry({
+        userEntryId: "e1",
+        beforeCommit: "abc",
+        afterCommit: "def",
+        fileCount: 1,
+        fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      }),
+    ];
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, stageAll, diffAgainst, createSafetyCommit, safeCheckout }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+    await handler("", ctx);
+    expect(safeCheckout).toHaveBeenCalledWith("abc", "def");
   });
 
   test("dirty guard skips when diff fails", async () => {
@@ -698,6 +1307,21 @@ describe("registerRewind", () => {
     expect(createSafetyCommit).toHaveBeenCalled();
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
     expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: git error", "error");
+  });
+
+  test("restore fails gracefully when checkoutCommit is unavailable", async () => {
+    const pi = createMockPi();
+    const stageAll = vi.fn();
+    const diffAgainst = vi.fn().mockResolvedValue("");
+    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc", afterCommit: "def" })];
+    registerRewind(pi, () => createMockRepo({ stageAll, diffAgainst }));
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+    await handler("", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: checkoutCommit not mocked", "error");
   });
 
   test("handles non-Error restore failure", async () => {

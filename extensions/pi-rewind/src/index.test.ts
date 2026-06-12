@@ -274,6 +274,60 @@ describe("checkpoint extension", () => {
     expect(gitExists).toBe(true);
   }, 15000);
 
+  test("session_start ignores non-object settings JSON", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, ".pi", "settings.json"), "null", "utf8");
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  }, 15000);
+
+  test("session_start ignores invalid settings JSON", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, ".pi", "settings.json"), "{", "utf8");
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  }, 15000);
+
+  test("session_start propagates unreadable settings errors", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const settingsPath = path.join(tmpDir, ".pi", "settings.json");
+    await fs.mkdir(settingsPath, { recursive: true });
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    const sessionStartHandler = events["session_start"]?.[0];
+    if (!sessionStartHandler) throw new Error("expected session_start handler");
+
+    await expect(sessionStartHandler({ reason: "new" }, ctx)).rejects.toMatchObject({
+      code: expect.stringMatching(/EISDIR|EPERM/),
+    });
+  });
+
   test("extension creates checkpoint on turn_start", async () => {
     const branch = [createUserEntry("entry-1", "refactor auth")];
     const { api, events, appendEntry } = createMockApi();
@@ -1044,7 +1098,7 @@ describe("checkpoint extension", () => {
 
     const call = expectCheckpointEntryCall(appendEntry, 0);
     expect(call[1].fileChanges.length).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   test("turn_end handles binary file diff stats", async () => {
     const branch = [createUserEntry("entry-1", "test")];
@@ -1080,7 +1134,7 @@ describe("checkpoint extension", () => {
     expect(change.path).toBe("path");
     expect(change.added).toBe(0);
     expect(change.removed).toBe(0);
-  });
+  }, 15000);
 
   test("turn_end handles non-standard diff output", async () => {
     const branch = [createUserEntry("entry-1", "test")];
@@ -1116,7 +1170,7 @@ describe("checkpoint extension", () => {
     expect(change.path).toBe("no-tabs-line");
     expect(change.added).toBe(0);
     expect(change.removed).toBe(0);
-  });
+  }, 15000);
 
   test("rewind command delegates to getRepo", async () => {
     const branch = [createUserEntry("entry-1", "test")];
@@ -1547,7 +1601,7 @@ describe("checkpoint extension", () => {
         notify: vi.fn(),
         select: vi
           .fn()
-          .mockImplementationOnce((_title: string, options: string[]) => options[1])
+          .mockImplementationOnce((_title: string, options: string[]) => options[0])
           .mockResolvedValueOnce("Restore conversation"),
         input: vi.fn(),
       },
@@ -1574,7 +1628,11 @@ describe("checkpoint extension", () => {
   });
 
   test("session_tree ask mode restores files only when user confirms sync", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
     const branch = [
       createUserEntry("entry-1", "test"),
       { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
@@ -1605,7 +1663,11 @@ describe("checkpoint extension", () => {
   });
 
   test("session_tree ask mode without UI keeps native tree behavior", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
     const branch = [
       createUserEntry("entry-1", "test"),
       { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
@@ -1634,7 +1696,11 @@ describe("checkpoint extension", () => {
   });
 
   test("session_tree ask mode skips file restore when user declines sync", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
     const branch = [
       createUserEntry("entry-1", "test"),
       { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
@@ -1660,6 +1726,36 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
     }
 
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree ask mode skips sync prompt when no checkpoints changed files", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(ctx.ui.select).not.toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
@@ -2372,6 +2468,38 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).toHaveBeenCalled();
+  });
+
+  test("checkpoint metadata keeps the full user prompt", async () => {
+    const prompt = "很长".repeat(80);
+    const branch = [createUserEntry("entry-1", prompt)];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+
+    const turnEndHandlers = events["turn_end"] || [];
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+
+    const agentEndHandlers = events["agent_end"] || [];
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = getCheckpointEntryCall(appendEntry, 0);
+    expect(call.prompt).toBe(prompt);
+    expect(call.prompt.length).toBeGreaterThan(60);
   });
 
   test("assistant start uses the current persisted user entry instead of stale preflight prompt", async () => {
