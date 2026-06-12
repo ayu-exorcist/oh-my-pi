@@ -319,11 +319,7 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce(undefined);
     await handler("", ctx);
-    expect(ctx.ui.select).toHaveBeenLastCalledWith("Restore mode:", [
-      "Restore conversation",
-      "Restore conversation with summary",
-      "Restore conversation with custom summary",
-    ]);
+    expect(ctx.ui.select).toHaveBeenLastCalledWith("Restore mode:", ["Restore conversation"]);
   });
 
   test("conversation restore fails gracefully", async () => {
@@ -568,70 +564,6 @@ describe("registerRewind", () => {
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
     expect(ctx.navigateTree).not.toHaveBeenCalled();
-  });
-
-  test("restore conversation with summary handles error", async () => {
-    const pi = createMockPi();
-    const navigateTree = vi.fn().mockRejectedValue(new Error("nav error"));
-    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
-    registerRewind(pi, () => createMockRepo());
-    const handler = getRegisterCall(pi);
-    const ctx = { ...createMockCtx(entries), navigateTree };
-    ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Restore conversation with summary");
-    await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Conversation restore failed: nav error", "error");
-  });
-
-  test("restore conversation with summary handles non-Error failure", async () => {
-    const pi = createMockPi();
-    const navigateTree = vi.fn().mockRejectedValue("string error");
-    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
-    registerRewind(pi, () => createMockRepo({ checkoutCommit: vi.fn() }));
-    const handler = getRegisterCall(pi);
-    const ctx = { ...createMockCtx(entries), navigateTree };
-    ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Restore conversation with summary");
-    await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Conversation restore failed: string error",
-      "error",
-    );
-  });
-
-  test("restore conversation with custom summary input", async () => {
-    const pi = createMockPi();
-    const checkoutCommit = vi.fn();
-    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
-    registerRewind(pi, () => createMockRepo({ checkoutCommit }));
-    const handler = getRegisterCall(pi);
-    const ctx = createMockCtx(entries);
-    ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Restore conversation with custom summary");
-    ctx.ui.input.mockResolvedValueOnce("focus on API");
-    await handler("", ctx);
-    expect(ctx.navigateTree).toHaveBeenCalledWith("e1", {
-      summarize: true,
-      customInstructions: "focus on API",
-    });
-    expect(checkoutCommit).not.toHaveBeenCalled();
-  });
-
-  test("restore conversation with custom summary and empty input uses default summary", async () => {
-    const pi = createMockPi();
-    const entries = [createEntry({ userEntryId: "e1", beforeCommit: "abc" })];
-    registerRewind(pi, () => createMockRepo({ checkoutCommit: vi.fn() }));
-    const handler = getRegisterCall(pi);
-    const ctx = createMockCtx(entries);
-    ctx.ui.select
-      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
-      .mockResolvedValueOnce("Restore conversation with custom summary");
-    ctx.ui.input.mockResolvedValueOnce("");
-    await handler("", ctx);
-    expect(ctx.navigateTree).toHaveBeenCalledWith("e1", { summarize: true });
   });
 
   test("dirty guard blocks rewind when workspace has changes", async () => {

@@ -6,8 +6,7 @@
     "checkpoint",
     "git",
     "pi",
-    "snapshot",
-    "undo"
+    "snapshot"
   ],
   "homepage": "https://github.com/ayu-exorcist/oh-my-pi/tree/main/sdk/pi-checkpoint#readme",
   "bugs": {

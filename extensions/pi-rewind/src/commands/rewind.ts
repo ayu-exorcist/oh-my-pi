@@ -85,12 +85,10 @@ export function buildCheckpointItem(cp: CheckpointEntry): string {
  * Register the `/rewind` command.
  *
  * Presents an interactive list of checkpoints. When the active checkpoint
- * list contains file changes, it supports five options:
+ * list contains file changes, it supports three options:
  *   1. Restore code and conversation
  *   2. Restore conversation
  *   3. Restore code
- *   4. Restore conversation with summary
- *   5. Restore conversation with custom summary
  *
  * If the checkpoint list has no file changes, code restore options are hidden.
  *
@@ -134,18 +132,8 @@ export function registerRewind(
 
       const hasFileChanges = cps.some((cp) => cp.fileCount > 0);
       const modes = hasFileChanges
-        ? [
-            "Restore code and conversation",
-            "Restore conversation",
-            "Restore code",
-            "Restore conversation with summary",
-            "Restore conversation with custom summary",
-          ]
-        : [
-            "Restore conversation",
-            "Restore conversation with summary",
-            "Restore conversation with custom summary",
-          ];
+        ? ["Restore code and conversation", "Restore conversation", "Restore code"]
+        : ["Restore conversation"];
 
       const mode = await ctx.ui.select("Restore mode:", modes);
       if (!mode) return;

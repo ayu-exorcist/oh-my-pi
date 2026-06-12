@@ -55,8 +55,7 @@
     "release:dry": "oxnode scripts/publish.ts --dry-run"
   },
   "dependencies": {
-    "@ayulab/pi-rewind": "workspace:*",
-    "@ayulab/pi-undo-redo": "workspace:*"
+    "@ayulab/pi-rewind": "workspace:*"
   },
   "devDependencies": {
     "@ayulab/repo-tools": "workspace:*",
@@ -73,8 +72,7 @@
     "vitest": "^4.1.8"
   },
   "bundledDependencies": [
-    "@ayulab/pi-rewind",
-    "@ayulab/pi-undo-redo"
+    "@ayulab/pi-rewind"
   ],
   "engines": {
     "node": ">=24.0.0"
@@ -82,8 +80,7 @@
   "packageManager": "pnpm@11.4.0",
   "pi": {
     "extensions": [
-      "node_modules/@ayulab/pi-rewind",
-      "!node_modules/@ayulab/pi-undo-redo"
+      "node_modules/@ayulab/pi-rewind"
     ],
     "skills": [
       "./skills"

@@ -109,30 +109,6 @@ describe("Rewind Restore Mode", () => {
     expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
   });
 
-  test("restores conversation with custom summary instructions", async () => {
-    const ui = createUi();
-    ui.input.mockResolvedValue("focus on tests");
-    const navigateTree = vi.fn().mockResolvedValue(undefined);
-    const repo = mockRepo({ ok: true });
-    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
-
-    await runRestoreMode({
-      mode: "Restore conversation with custom summary",
-      repo,
-      ui,
-      navigateTree,
-      targetCp: target,
-      latestCp: target,
-    });
-
-    expect(repo.safeCheckout).not.toHaveBeenCalled();
-    expect(navigateTree).toHaveBeenCalledWith("entry-1", {
-      summarize: true,
-      customInstructions: "focus on tests",
-    });
-    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
-  });
-
   test("reports Dirty Workspace", async () => {
     const ui = createUi();
     const repo = mockRepo({ ok: false, reason: "dirty" });
@@ -187,45 +163,6 @@ describe("Rewind Restore Mode", () => {
 
     expect(repo.safeCheckout).not.toHaveBeenCalled();
     expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
-  });
-
-  test("restores conversation with default summary", async () => {
-    const ui = createUi();
-    const navigateTree = vi.fn().mockResolvedValue(undefined);
-    const repo = mockRepo({ ok: true });
-    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
-
-    await runRestoreMode({
-      mode: "Restore conversation with summary",
-      repo,
-      ui,
-      navigateTree,
-      targetCp: target,
-      latestCp: target,
-    });
-
-    expect(repo.safeCheckout).not.toHaveBeenCalled();
-    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: true });
-    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
-  });
-
-  test("custom summary falls back to default summary when input is undefined", async () => {
-    const ui = createUi();
-    ui.input.mockResolvedValue(undefined);
-    const navigateTree = vi.fn().mockResolvedValue(undefined);
-    const repo = mockRepo({ ok: true });
-    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
-
-    await runRestoreMode({
-      mode: "Restore conversation with custom summary",
-      repo,
-      ui,
-      navigateTree,
-      targetCp: target,
-      latestCp: target,
-    });
-
-    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: true });
   });
 
   test("code restore uses explicit conversation and dirty base ids", async () => {

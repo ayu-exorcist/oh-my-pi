@@ -10,10 +10,8 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
   1. Restore code and conversation
   2. Restore conversation
   3. Restore code
-  4. Restore conversation with summary
-  5. Restore conversation with custom summary
-- Conversation-only restore options when the checkpoint list has no file changes
-- Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree: "always"`)
+- Conversation-only restore option when the checkpoint list has no file changes
+- Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree`) with `never`, `ask`, and `always` modes
 - Auto-copy checkpoint repo on fork / clone; clone restores code to the selected checkpoint's `afterCommit` by default
 - Real-time file-change counter for the current turn
 - Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
@@ -46,8 +44,6 @@ Use `/rewind` to jump back to any earlier turn and choose the exact restore scop
 - **Restore code and conversation** — roll both the workspace and the conversation back to the selected checkpoint
 - **Restore conversation** — revisit an earlier idea without touching files
 - **Restore code** — bring files back while keeping the current conversation position
-- **Restore conversation with summary** — move the conversation back with Pi's default summary flow
-- **Restore conversation with custom summary** — move the conversation back with custom summary focus instructions
 
 It fits the moments when you want to:
 
@@ -73,8 +69,6 @@ Restore mode:
 [1] Restore code and conversation
 [2] Restore conversation
 [3] Restore code
-[4] Restore conversation with summary
-[5] Restore conversation with custom summary
 
 Select mode: 1
 ✓ Rewind completed
@@ -82,7 +76,7 @@ Select mode: 1
 
 ## Configuration
 
-By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files. To make `/tree` also restore files to the selected record's checkpoint state, opt in with `ayu.rewind.restoreOnTree`:
+By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files. To control whether `/tree` also restores files after Pi's native `No summary` choice, configure `ayu.rewind.restoreOnTree`:
 
 ```json
 {
@@ -96,10 +90,11 @@ By default, `/tree` keeps Pi's native behavior and only changes the conversation
 
 Supported values:
 
-| Setting    | Behavior                                                        |
-| ---------- | --------------------------------------------------------------- |
-| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files. |
-| `"always"` | Restore files when `/tree` navigates to a session record.       |
+| Setting    | Behavior                                                              |
+| ---------- | --------------------------------------------------------------------- |
+| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files.       |
+| `"ask"`    | Ask `Sync files?`; `Yes` restores files, `No` leaves files unchanged. |
+| `"always"` | Restore files when `/tree` navigates with `No summary`.               |
 
 `/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
 

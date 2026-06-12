@@ -82,6 +82,11 @@ interface ForkIntent {
   readonly position: "before" | "at";
 }
 
+interface TreeRestoreIntent {
+  readonly targetId: string;
+  readonly mode: "Restore code and conversation" | "Restore conversation";
+}
+
 export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
   return isRecord(value);
 }
@@ -228,18 +233,18 @@ async function safeRestoreTreeCodeState(
   targetCommit: string | undefined,
   dirtyBaseCommit: string | undefined,
   ui: ExtensionContext["ui"] | undefined,
-): Promise<void> {
-  if (!targetCommit) return;
+): Promise<boolean> {
+  if (!targetCommit) return true;
 
   const result = await repo.safeCheckout(targetCommit, dirtyBaseCommit);
-  if (result.ok) return;
+  if (result.ok) return true;
 
   if (result.reason === "dirty") {
     ui?.notify(
       "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before navigating the tree.",
       "warning",
     );
-    return;
+    return false;
   }
 
   if (result.rollbackError) {
@@ -247,10 +252,11 @@ async function safeRestoreTreeCodeState(
       `Tree file restore failed and rollback also failed: ${result.rollbackError}`,
       "error",
     );
-    return;
+    return false;
   }
 
   ui?.notify(`Tree file restore failed: ${result.error}`, "error");
+  return false;
 }
 
 async function restoreForkCodeState(
@@ -295,7 +301,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const producers = new SessionStateMap<AutoCheckpointProducer>();
   const sessionTasks = createSessionTaskQueue();
   const lastCheckpointTurnIds = new SessionStateMap<string>();
-  const pendingTreeTargets = new SessionStateMap<string>();
+  const pendingTreeRestores = new SessionStateMap<TreeRestoreIntent>();
   const suppressedTreeRestores = new SessionStateMap<boolean>();
 
   function appendCheckpoint(sessionId: string, entry: CheckpointEntry): void {
@@ -368,7 +374,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     producers.set(sessionId, producer);
     sessionTasks.delete(sessionId);
     lastCheckpointTurnIds.delete(sessionId);
-    pendingTreeTargets.delete(sessionId);
+    pendingTreeRestores.delete(sessionId);
     suppressedTreeRestores.delete(sessionId);
 
     if (event.reason === "resume" && config.restoreOnResume === "always") {
@@ -456,24 +462,53 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   });
 
   pi.on("session_before_tree", async (event, ctx) => {
-    const targetId = getTreeEventRecord(event)?.targetId;
-    if (targetId) {
-      pendingTreeTargets.set(ctx.sessionManager.getSessionId(), targetId);
+    const treeEvent = getTreeEventRecord(event);
+    const targetId = treeEvent?.targetId;
+    if (!targetId) return;
+
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (suppressedTreeRestores.getOrUndefined(sessionId)) return;
+
+    pendingTreeRestores.set(sessionId, { targetId, mode: "Restore conversation" });
+
+    if (treeEvent.userWantsSummary !== false) return;
+
+    if (config.restoreOnTree === "always") {
+      pendingTreeRestores.set(sessionId, {
+        targetId,
+        mode: "Restore code and conversation",
+      });
+      return;
     }
+
+    if (config.restoreOnTree === "ask") {
+      if (!ctx.hasUI) return;
+
+      const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
+      if (syncFiles === "Yes") {
+        pendingTreeRestores.set(sessionId, {
+          targetId,
+          mode: "Restore code and conversation",
+        });
+      }
+      return;
+    }
+
+    pendingTreeRestores.delete(sessionId);
   });
 
   pi.on("session_tree", async (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     if (suppressedTreeRestores.getOrUndefined(sessionId)) {
       suppressedTreeRestores.delete(sessionId);
-      pendingTreeTargets.delete(sessionId);
+      pendingTreeRestores.delete(sessionId);
       return;
     }
 
-    if (config.restoreOnTree !== "always") {
-      pendingTreeTargets.delete(sessionId);
-      return;
-    }
+    const restoreIntent = pendingTreeRestores.getOrUndefined(sessionId);
+    pendingTreeRestores.delete(sessionId);
+    if (restoreIntent?.mode === "Restore conversation") return;
+    if (!restoreIntent && config.restoreOnTree !== "always") return;
 
     const repo = repos.getRepo(sessionId);
     if (!repo) return;
@@ -483,8 +518,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const currentBranch = toTreeEntryRecords(ctx.sessionManager.getBranch());
     const oldLeafId = treeEvent?.oldLeafId;
     const oldBranch = oldLeafId ? buildBranchToEntry(entries, oldLeafId) : currentBranch;
-    const targetId = pendingTreeTargets.getOrUndefined(sessionId);
-    pendingTreeTargets.delete(sessionId);
+    const targetId = restoreIntent?.targetId;
     const targetLeafId = targetId ?? treeEvent?.newLeafId;
     const targetBranch = targetLeafId ? buildBranchToEntry(entries, targetLeafId) : currentBranch;
 

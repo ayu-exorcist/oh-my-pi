@@ -63,7 +63,7 @@ Judge by side effect, not by tool name. Follow the tiered policy in this file an
 
 ## Constraints
 
-- Keep Clarify, Rewind, UndoRedo, and checkpoint semantics intact.
+- Keep Clarify, Rewind, and checkpoint semantics intact.
 - Do not weaken safety gates or release validation without explicit approval and regression tests.
 - Do not add network, filesystem, shell, MCP, browser, publish, or release side effects without calling out the risk tier and verification plan in this file.
 - Do not commit, tag, push, publish, or run `pnpm run release` unless explicitly requested.

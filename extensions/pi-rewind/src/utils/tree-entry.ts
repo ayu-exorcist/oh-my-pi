@@ -17,7 +17,10 @@ export interface TreeEventRecord {
   readonly oldLeafId: string | undefined;
   readonly targetId: string | undefined;
   readonly newLeafId: string | undefined;
-  readonly preparation: { readonly targetId: string } | undefined;
+  readonly userWantsSummary: boolean | undefined;
+  readonly preparation:
+    | { readonly targetId: string; readonly userWantsSummary: boolean | undefined }
+    | undefined;
 }
 
 export function isEntryWithId(value: unknown): value is TreeEntryRecord {
@@ -54,9 +57,19 @@ export function getTreeEventRecord(value: unknown): TreeEventRecord | undefined 
     oldLeafId: typeof value.oldLeafId === "string" ? value.oldLeafId : undefined,
     targetId,
     newLeafId: typeof value.newLeafId === "string" ? value.newLeafId : undefined,
+    userWantsSummary:
+      typeof treePreparation?.userWantsSummary === "boolean"
+        ? treePreparation.userWantsSummary
+        : undefined,
     preparation:
       treePreparation && typeof treePreparation.targetId === "string"
-        ? { targetId: treePreparation.targetId }
+        ? {
+            targetId: treePreparation.targetId,
+            userWantsSummary:
+              typeof treePreparation.userWantsSummary === "boolean"
+                ? treePreparation.userWantsSummary
+                : undefined,
+          }
         : undefined,
   };
 }

@@ -31,9 +31,6 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   const restoreCode = options.mode === "Restore code";
   const restoreCodeAndConversation = options.mode === "Restore code and conversation";
   const restoreConversation = options.mode === "Restore conversation";
-  const restoreConversationWithSummary = options.mode === "Restore conversation with summary";
-  const restoreConversationWithCustomSummary =
-    options.mode === "Restore conversation with custom summary";
 
   if (restoreCodeAndConversation) {
     await safeRestore({
@@ -69,26 +66,9 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
     if (!result.ok) return;
   }
 
-  if (
-    restoreConversation ||
-    restoreConversationWithSummary ||
-    restoreConversationWithCustomSummary
-  ) {
+  if (restoreConversation) {
     try {
-      if (restoreConversationWithCustomSummary) {
-        const custom = await options.ui.input(
-          "Summary focus (optional, press Enter for default):",
-          "",
-        );
-        await options.navigateTree(
-          conversationEntryId,
-          custom ? { summarize: true, customInstructions: custom } : { summarize: true },
-        );
-      } else {
-        await options.navigateTree(conversationEntryId, {
-          summarize: restoreConversationWithSummary,
-        });
-      }
+      await options.navigateTree(conversationEntryId, { summarize: false });
     } catch (err) {
       options.ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");
       return;

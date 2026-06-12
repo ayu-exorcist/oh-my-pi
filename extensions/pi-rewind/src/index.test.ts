@@ -33,6 +33,8 @@ type MockContext = ExtensionContext & {
   readonly sessionManager: MockSessionManager;
   readonly ui: {
     notify: ReturnType<typeof vi.fn>;
+    confirm: ReturnType<typeof vi.fn>;
+    select: ReturnType<typeof vi.fn>;
   };
   readonly hasUI: boolean;
 };
@@ -191,7 +193,7 @@ function createMockContext(
   return {
     sessionManager: createMockSessionManager(sessionFile, branch),
     cwd,
-    ui: { notify: vi.fn() },
+    ui: { notify: vi.fn(), confirm: vi.fn(), select: vi.fn() },
     hasUI: true,
   } as MockContext;
 }
@@ -200,13 +202,20 @@ async function createTmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "pi-rewind-test-"));
 }
 
-async function enableTreeRestore(cwd: string): Promise<void> {
+async function setTreeRestoreMode(
+  cwd: string,
+  restoreOnTree: "always" | "ask" | "never",
+): Promise<void> {
   await fs.mkdir(path.join(cwd, ".pi"), { recursive: true });
   await fs.writeFile(
     path.join(cwd, ".pi", "settings.json"),
-    JSON.stringify({ ayu: { rewind: { restoreOnTree: "always" } } }),
+    JSON.stringify({ ayu: { rewind: { restoreOnTree } } }),
     "utf8",
   );
+}
+
+async function enableTreeRestore(cwd: string): Promise<void> {
+  await setTreeRestoreMode(cwd, "always");
 }
 
 describe("checkpoint extension", () => {
@@ -1484,7 +1493,7 @@ describe("checkpoint extension", () => {
     const { api, events, registerCommand } = createMockApi();
     const ext = await import("./index");
     ext.default(api);
-    await enableTreeRestore(tmpDir);
+    await setTreeRestoreMode(tmpDir, "ask");
 
     const safeCheckout = vi
       .spyOn(RepoManager.prototype, "safeCheckout")
@@ -1496,6 +1505,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
+    const beforeTreeHandlers = events["session_before_tree"] || [];
     const treeHandlers = events["session_tree"] || [];
     const rewindCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "rewind");
     expect(rewindCall).toBeDefined();
@@ -1511,6 +1521,9 @@ describe("checkpoint extension", () => {
         input: vi.fn(),
       },
       navigateTree: vi.fn(async () => {
+        for (const h of beforeTreeHandlers) {
+          await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+        }
         for (const h of treeHandlers) {
           await h({ oldLeafId: "entry-1", newLeafId: "entry-1" }, ctx);
         }
@@ -1525,6 +1538,155 @@ describe("checkpoint extension", () => {
     await rewindCall[1].handler("", cmdCtx);
 
     expect(cmdCtx.navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ctx.ui.select).not.toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree ask mode restores files only when user confirms sync", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("Yes");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).toHaveBeenCalledWith("before-hash", undefined);
+  });
+
+  test("session_tree ask mode without UI keeps native tree behavior", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = { ...createMockContext(sessionFile, branch, tmpDir), hasUI: false };
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree ask mode skips file restore when user declines sync", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("No");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree never mode skips file restore after no-summary navigation", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "never");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree does not restore files when tree navigation summarizes", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: true } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
@@ -1850,7 +2012,13 @@ describe("checkpoint extension", () => {
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {
-      await h({ targetId: "target-user" }, ctx);
+      await h(
+        {
+          targetId: "target-user",
+          preparation: { targetId: "target-user", userWantsSummary: false },
+        },
+        ctx,
+      );
     }
 
     const treeHandlers = events["session_tree"] || [];
@@ -1920,7 +2088,7 @@ describe("checkpoint extension", () => {
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {
-      await h({ preparation: { targetId: "target-user" } }, ctx);
+      await h({ preparation: { targetId: "target-user", userWantsSummary: false } }, ctx);
     }
 
     const treeHandlers = events["session_tree"] || [];
@@ -1986,7 +2154,7 @@ describe("checkpoint extension", () => {
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {
-      await h({ preparation: { targetId: "target-assistant" } }, ctx);
+      await h({ preparation: { targetId: "target-assistant", userWantsSummary: false } }, ctx);
     }
 
     const treeHandlers = events["session_tree"] || [];

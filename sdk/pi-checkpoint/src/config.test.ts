@@ -22,7 +22,7 @@ describe("loadConfig", () => {
       },
       ayu: {
         rewind: {
-          restoreOnTree: "always",
+          restoreOnTree: "ask",
         },
       },
     });
@@ -30,7 +30,7 @@ describe("loadConfig", () => {
     expect(config.autoCheckpoint).toBe(false);
     expect(config.restoreOnClone).toBe("always");
     expect(config.restoreOnResume).toBe("never");
-    expect(config.restoreOnTree).toBe("always");
+    expect(config.restoreOnTree).toBe("ask");
     expect(config.defaultSummaryInstructions).toBe("focus on API");
     expect(config.exclude).toEqual(["custom/**"]);
   });

@@ -1,6 +1,6 @@
 # Checkpoint Engine
 
-A file-level snapshot engine for Pi sessions. Uses git bare repositories to capture workspace state at turn boundaries, enabling restore, rewind, and undo operations across the conversation tree.
+A file-level snapshot engine for Pi sessions. Uses git bare repositories to capture workspace state at turn boundaries, enabling restore and rewind operations across the conversation tree.
 
 ## Language
 
@@ -29,7 +29,7 @@ The on-disk git bare repository and index file that hold the file snapshots refe
 _Avoid_: repo storage, snapshot store, shared provider
 
 **Dirty Workspace**:
-A working tree that contains unsnapshotted changes — modifications made after the latest `afterCommit` that have not been committed. Commands like `/undo` and `/rewind` refuse to proceed against a dirty workspace to prevent data loss.
+A working tree that contains unsnapshotted changes — modifications made after the latest `afterCommit` that have not been committed. Commands like `/rewind` refuse to proceed against a dirty workspace to prevent data loss.
 _Avoid_: modified, uncommitted, out of sync
 
 **Safety Commit**:
@@ -43,7 +43,7 @@ _Avoid_: repo factory, repo registry, repo store
 ## Flagged ambiguities
 
 - **"Checkpoint" vs "CheckpointEntry"**: `Checkpoint` is the domain concept (a snapshot of a Turn). `CheckpointEntry` is the concrete schema object stored in the Pi session. In casual discussion they are used interchangeably; in precise discussion, `CheckpointEntry` refers to the data structure.
-- **"Undo" is not an engine concept**: `/undo` and `/redo` are extension-level commands. The engine only knows `safeCheckout`. Whether a checkout represents "undoing" a Turn is decided by the caller.
+- **User-facing restore actions are not engine concepts**: The engine only knows `safeCheckout`. Whether a checkout represents rewinding, restoring, or another product action is decided by the caller.
 - **Checkpoint Storage is the cross-package seam**: Pi Packages may load separate copies of `@ayulab/pi-checkpoint`, so cross-package coordination must use `CheckpointEntry` metadata plus Checkpoint Storage on disk, not a shared `RepoProvider` instance.
 
 ## Example dialogue

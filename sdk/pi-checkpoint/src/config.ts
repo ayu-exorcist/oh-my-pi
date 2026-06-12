@@ -17,10 +17,16 @@ import type { CheckpointConfig } from "./types";
  * knows every possible value at the type level (skill: const assertions).
  */
 const RESTORE_OPTIONS = ["always", "ask", "never"] as const;
+const TREE_RESTORE_OPTIONS = RESTORE_OPTIONS;
 type RestoreOption = (typeof RESTORE_OPTIONS)[number];
+type TreeRestoreOption = (typeof TREE_RESTORE_OPTIONS)[number];
 
 function isRestoreOption(value: unknown): value is RestoreOption {
   return isString(value) && RESTORE_OPTIONS.some((v) => v === value);
+}
+
+function isTreeRestoreOption(value: unknown): value is TreeRestoreOption {
+  return isString(value) && TREE_RESTORE_OPTIONS.some((v) => v === value);
 }
 
 export const defaultConfig: CheckpointConfig = {
@@ -65,7 +71,7 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
     restoreOnResume: isRestoreOption(checkpoint.restoreOnResume)
       ? checkpoint.restoreOnResume
       : defaultConfig.restoreOnResume,
-    restoreOnTree: isRestoreOption(rewind.restoreOnTree)
+    restoreOnTree: isTreeRestoreOption(rewind.restoreOnTree)
       ? rewind.restoreOnTree
       : defaultConfig.restoreOnTree,
     defaultSummaryInstructions:

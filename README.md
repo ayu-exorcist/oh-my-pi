@@ -14,7 +14,7 @@ Install `@ayulab/oh-my-pi` to get all curated extensions. Enable or disable indi
 pi install npm:@ayulab/oh-my-pi
 ```
 
-The curated package enables `pi-rewind` by default, while `pi-undo-redo` stays disabled until you opt in. `pi-brief` and `pi-clarify` are still in development and are not bundled or published yet. Use `pi config` to toggle bundled extensions interactively:
+The curated package enables `pi-rewind` by default. `pi-brief` and `pi-clarify` are still in development and are not bundled or published yet. Use `pi config` to toggle bundled extensions interactively:
 
 ```bash
 pi config
@@ -39,7 +39,6 @@ Published extensions can also be installed independently:
 
 ```bash
 pi install npm:@ayulab/pi-rewind
-pi install npm:@ayulab/pi-undo-redo
 ```
 
 `@ayulab/pi-brief` and `@ayulab/pi-clarify` are private while they are still in development.
@@ -68,8 +67,7 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ├── extensions/           # Pi extensions
 │   ├── pi-clarify/       # @ayulab/pi-clarify — private, in development
 │   ├── pi-brief/         # @ayulab/pi-brief — private, in development
-│   ├── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
-│   └── pi-undo-redo/     # @ayulab/pi-undo-redo — /undo /redo commands
+│   └── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 ├── sdk/                  # Publishable SDK packages
 │   └── pi-checkpoint/    # @ayulab/pi-checkpoint — git checkpoint engine
 ├── internal/             # Private workspace packages, not published
@@ -93,16 +91,15 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                           | Description                                         |
-| ------------------------------------------------- | --------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint)      | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)       | `/rewind` command — interactive checkpoint restore. |
-| [`@ayulab/pi-undo-redo`](extensions/pi-undo-redo) | `/undo` and `/redo` commands.                       |
-| [`Purple Dream`](themes/purple-dream.json)        | Dark purple theme for long coding sessions.         |
+| Package                                      | Description                                         |
+| -------------------------------------------- | --------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint) | Git bare-repo checkpoint engine. Zero deps.         |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)  | `/rewind` command — interactive checkpoint restore. |
+| [`Purple Dream`](themes/purple-dream.json)   | Dark purple theme for long coding sessions.         |
 
 ## Extension Management
 
-After installation, `pi-rewind` is enabled by default. `pi-undo-redo` is bundled but disabled by default. Toggle interactively:
+After installation, `pi-rewind` is enabled by default. Toggle interactively:
 
 ```bash
 pi config
@@ -119,17 +116,15 @@ Use `/rewind` to return to any earlier turn and choose the restore scope that ma
 - **Restore code and conversation** — roll the workspace and the conversation back together
 - **Restore conversation** — revisit an earlier idea without touching files
 - **Restore code** — bring files back while keeping the current conversation position
-- **Restore conversation with summary** — move the conversation back using Pi's default summary flow
-- **Restore conversation with custom summary** — move the conversation back with custom summary focus instructions
 
 It shines when you want to:
 
 - retry a prompt after fixing the code it produced
 - inspect an earlier branch of thought without changing the workspace
 - restore files from a checkpoint and keep working on the same conversation path
-- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is enabled
+- use `/tree` for navigation and choose whether file state should sync after Pi's native `No summary` choice
 
-Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"always"` if you want `/tree` to restore files too.
+Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` if you want `/tree` to offer or perform file sync.
 
 ```
 > /rewind
@@ -149,8 +144,6 @@ Restore mode:
 [1] Restore code and conversation
 [2] Restore conversation
 [3] Restore code
-[4] Restore conversation with summary
-[5] Restore conversation with custom summary
 
 Select mode: 1
 ✓ Rewind completed
