@@ -38,4 +38,4 @@ jobs:
 
       - name: Push Changesets tags
         if: steps.changesets.outputs.published == 'true'
-        run: git push --follow-tags
+        run: git push origin "refs/tags/*:refs/tags/*"
