@@ -12,8 +12,8 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
   3. Restore code
 - Conversation-only restore option when the checkpoint list has no file changes
 - Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree`) with `never`, `ask`, and `always` modes
-- Auto-copy checkpoint repo on fork / clone; clone restores code to the selected checkpoint's `afterCommit` by default
-- Real-time file-change counter for the current turn
+- Auto-copy checkpoint storage on fork; clone can restore code to the selected checkpoint's `afterCommit` when `restoreOnClone` is enabled
+- File-change stats shown for each checkpoint in the selection list
 - Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
 
 ## Dependencies
@@ -37,7 +37,7 @@ pi install npm:@ayulab/pi-rewind
 
 ## Usage
 
-The extension registers automatically after Pi starts, and quietly captures a checkpoint for every prompt.
+The extension registers automatically after Pi starts, and captures checkpoints around each turn.
 
 Use `/rewind` to jump back to any earlier turn and choose the exact restore scope you want:
 
@@ -50,7 +50,7 @@ It fits the moments when you want to:
 - retry a prompt after fixing the code it generated
 - inspect an earlier branch of thought without changing the workspace
 - restore files from a checkpoint while staying on the current conversation path
-- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is enabled
+- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is `ask` or `always`
 
 ```
 > /rewind
@@ -76,9 +76,23 @@ Select mode: 1
 
 ## Configuration
 
-By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files. To control whether `/tree` also restores files after Pi's native `No summary` choice, configure `ayu.rewind.restoreOnTree`:
+`pi-rewind` reads its settings from `ayu.rewind`, while checkpoint behavior comes from `ayu.checkpoint`. The `ayu` tree is merged recursively across scopes, so project settings override user settings field-by-field and missing values fall back to defaults. By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files.
+
+Example: keep a shared `ayu.rewind` default in user settings, then override just one field in the project.
 
 ```json
+// ~/.pi/agent/settings.json
+{
+  "ayu": {
+    "rewind": {
+      "restoreOnTree": "ask"
+    }
+  }
+}
+```
+
+```json
+// .pi/settings.json
 {
   "ayu": {
     "rewind": {
@@ -97,6 +111,8 @@ Supported values:
 | `"always"` | Restore files when `/tree` navigates with `No summary`.               |
 
 `/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
+
+Legacy top-level `checkpoint` settings are still accepted for compatibility, but new setups should use `ayu.checkpoint`.
 
 ## Session deletion
 

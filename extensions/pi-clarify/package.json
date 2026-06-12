@@ -2,7 +2,7 @@
   "name": "@ayulab/pi-clarify",
   "version": "0.1.0",
   "private": true,
-  "description": "Pi extension providing structured one-question user clarification prompts",
+  "description": "Pi extension providing structured one-question clarification prompts",
   "keywords": [
     "clarify",
     "extension",

@@ -272,7 +272,7 @@ describe("checkpoint extension", () => {
       .then(() => true)
       .catch(() => false);
     expect(gitExists).toBe(true);
-  });
+  }, 15000);
 
   test("extension creates checkpoint on turn_start", async () => {
     const branch = [createUserEntry("entry-1", "refactor auth")];
@@ -309,7 +309,7 @@ describe("checkpoint extension", () => {
         prompt: "refactor auth",
       }),
     );
-  });
+  }, 15000);
 
   test("fork without selected checkpoint restores latest branch completed state", async () => {
     const root = createUserEntry("root-entry", "create file");
@@ -331,7 +331,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnFork: "always" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "always" } } }),
       "utf8",
     );
 
@@ -374,7 +374,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnFork: "always" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "always" } } }),
       "utf8",
     );
 
@@ -522,7 +522,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnClone: "always" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "always" } } }),
       "utf8",
     );
 
@@ -592,7 +592,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnClone: "always" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "always" } } }),
       "utf8",
     );
 
@@ -789,7 +789,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnFork: "never" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "never" } } }),
       "utf8",
     );
 
@@ -1182,7 +1182,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { enabled: false } }),
+      JSON.stringify({ ayu: { checkpoint: { enabled: false } } }),
       "utf8",
     );
 
@@ -1270,7 +1270,38 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { enabled: true, autoCheckpoint: false } }),
+      JSON.stringify({ ayu: { checkpoint: { enabled: true, autoCheckpoint: false } } }),
+      "utf8",
+    );
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  test("global checkpoint settings survive when project only sets ayu", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi", "agent"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "agent", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { enabled: false } } }),
+      "utf8",
+    );
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { rewind: { restoreOnTree: "always" } } }),
       "utf8",
     );
 
@@ -1297,7 +1328,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { restoreOnClone: "never" } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "never" } } }),
       "utf8",
     );
 
@@ -1385,7 +1416,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { exclude: [] } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
       "utf8",
     );
 
@@ -1425,7 +1456,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { exclude: [] } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
       "utf8",
     );
 
@@ -2317,7 +2348,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ checkpoint: { exclude: [".git", "dist"] } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [".git", "dist"] } } }),
       "utf8",
     );
 

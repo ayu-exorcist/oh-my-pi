@@ -56,8 +56,9 @@ export const defaultConfig: CheckpointConfig = {
  * returned object is guaranteed to conform to {@link CheckpointConfig}.
  */
 export function loadConfig(settings: Record<string, unknown>): CheckpointConfig {
-  const checkpoint = getRecordField(settings, "checkpoint") ?? {};
   const ayu = getRecordField(settings, "ayu") ?? {};
+  const checkpoint =
+    getRecordField(ayu, "checkpoint") ?? getRecordField(settings, "checkpoint") ?? {};
   const rewind = getRecordField(ayu, "rewind") ?? {};
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,

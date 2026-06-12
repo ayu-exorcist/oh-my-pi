@@ -23,11 +23,11 @@ describe("loadConfig integration", () => {
     await fs.writeFile(
       path.join(globalDir, "settings.json"),
       JSON.stringify({
-        checkpoint: {
-          enabled: false,
-          restoreOnFork: "never",
-        },
         ayu: {
+          checkpoint: {
+            enabled: false,
+            restoreOnFork: "never",
+          },
           rewind: {
             restoreOnTree: "always",
           },
@@ -51,8 +51,10 @@ describe("loadConfig integration", () => {
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
       JSON.stringify({
-        checkpoint: {
-          exclude: ["custom/**"],
+        ayu: {
+          checkpoint: {
+            exclude: ["custom/**"],
+          },
         },
       }),
       "utf8",

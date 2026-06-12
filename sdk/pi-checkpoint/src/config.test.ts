@@ -12,15 +12,15 @@ describe("loadConfig", () => {
 
   test("user overrides merge with defaults", () => {
     const config = loadConfig({
-      checkpoint: {
-        enabled: false,
-        autoCheckpoint: false,
-        restoreOnClone: "always",
-        restoreOnResume: "never",
-        defaultSummaryInstructions: "focus on API",
-        exclude: ["custom/**"],
-      },
       ayu: {
+        checkpoint: {
+          enabled: false,
+          autoCheckpoint: false,
+          restoreOnClone: "always",
+          restoreOnResume: "never",
+          defaultSummaryInstructions: "focus on API",
+          exclude: ["custom/**"],
+        },
         rewind: {
           restoreOnTree: "ask",
         },
@@ -37,13 +37,13 @@ describe("loadConfig", () => {
 
   test("invalid restore options and missing fields fall back to defaults", () => {
     const config = loadConfig({
-      checkpoint: {
-        restoreOnFork: null,
-        restoreOnClone: 123,
-        restoreOnResume: undefined,
-        defaultSummaryInstructions: null,
-      },
       ayu: {
+        checkpoint: {
+          restoreOnFork: null,
+          restoreOnClone: 123,
+          restoreOnResume: undefined,
+          defaultSummaryInstructions: null,
+        },
         rewind: {
           restoreOnTree: "invalid",
         },
@@ -58,16 +58,26 @@ describe("loadConfig", () => {
 
   test("invalid primitive types fall back to defaults", () => {
     const config = loadConfig({
-      checkpoint: {
-        enabled: "yes",
-        autoCheckpoint: "no",
-        exclude: "not-an-array",
+      ayu: {
+        checkpoint: {
+          enabled: "yes",
+          autoCheckpoint: "no",
+          exclude: "not-an-array",
+        },
       },
-      ayu: "not-an-object",
     });
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
     expect(config.restoreOnTree).toBe("never");
     expect(config.exclude).toEqual(defaultConfig.exclude);
+  });
+
+  test("legacy top-level checkpoint config still works for compatibility", () => {
+    const config = loadConfig({
+      checkpoint: {
+        enabled: false,
+      },
+    });
+    expect(config.enabled).toBe(false);
   });
 });

@@ -5,11 +5,11 @@ Pi extension that automatically captures a Checkpoint for every Turn and provide
 ## Language
 
 **Auto Checkpoint**:
-The automatic creation of a Checkpoint at each Turn's boundaries (`turn_start` and `turn_end`). Controlled by `CheckpointConfig.autoCheckpoint`. Requires no user intervention.
+The automatic creation of a Checkpoint around each Turn. Controlled by `CheckpointConfig.autoCheckpoint`. Requires no user intervention.
 _Avoid_: implicit checkpoint, automatic save, per-turn snapshot
 
 **Rewind**:
-The `/rewind` command that presents an interactive Checkpoint List and restores the workspace and/or conversation to a selected historical Turn.
+The `/rewind` command that presents an interactive Checkpoint List and restores the workspace and/or conversation to a selected historical checkpoint.
 _Avoid_: rollback, revert, go back, restore
 
 **Checkpoint List**:
@@ -38,6 +38,7 @@ _Avoid_: diff stats, change metrics, file metrics
 - **"Restore code" does not include "only" in its name**: While it only affects files, the name is intentionally "Restore code" (not "Restore code only") to keep the UI labels concise and natural.
 - **Rewind is not quick undo**: `/rewind` lets the user pick any historical Checkpoint from a list instead of only stepping back to the most recent Checkpoint.
 - **Tree file restore is opt-in**: Pi-native `/tree` only changes conversation state. `pi-rewind` preserves that by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` to offer or perform file sync after Pi's native `No summary` choice. Summary navigation does not restore files.
+- **`ayu` merges recursively across scopes**: Project settings override user settings field-by-field, and missing values fall back to defaults. `pi-rewind` documents `ayu.rewind` examples directly; checkpoint behavior remains in `ayu.checkpoint`.
 - **Session deletion is not inferred**: If users delete sessions via `pi -r` or `/resume` with `Ctrl+D`, Pi currently has no documented deletion lifecycle hook for extensions. Do not auto-delete checkpoint storage by guessing from missing JSONL files. If Pi later adds `session_before_delete` / `session_deleted`, use that exact hook to delete only the matching session's checkpoint storage and clear related in-memory state.
 
 ## Example dialogue

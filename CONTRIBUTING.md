@@ -71,7 +71,7 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 | `pnpm run changeset`         | Create a Changesets release note                    |
 | `pnpm run version-packages`  | Apply Changesets version bumps + update lockfile    |
 | `pnpm run release`           | Build, validate, and run Changesets publish         |
-| `pnpm run release --dry-run` | Dry-run preview of publish                          |
+| `pnpm run release:dry`       | Dry-run preview of publish                          |
 | `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo            |
 
 ## Quality Gate
@@ -334,7 +334,9 @@ provenance=true
 
 **Release credentials** — npm publishing uses Trusted Publishing / OIDC, with package publishing access set to `Require two-factor authentication and disallow tokens`. GitHub Actions uses the built-in `GITHUB_TOKEN` plus `id-token: write`; no `NPM_TOKEN` secret is required.
 
-**Git tags** — `changeset publish` creates package tags automatically. Format: `@scope/name@version`. In CI, the release workflow pushes those tags with `git push --follow-tags` after publishing. For manual local releases, run `git push --follow-tags` after `pnpm run release`.
+**Git tags** — `changeset publish` creates package tags automatically. Format: `@scope/name@version`. When the release workflow is run manually and publishing succeeds, it pushes those tags with `git push --follow-tags`. For manual local releases, run `git push --follow-tags` after `pnpm run release`.
+
+**Manual release workflow** — The GitHub Actions `Release` workflow is triggered from the Actions page with `workflow_dispatch`. Use it when you want to batch accumulated changesets and publish intentionally instead of on every `main` push.
 
 **GitHub Releases** — disabled in the release workflow; npm packages and git tags are the release artifacts.
 

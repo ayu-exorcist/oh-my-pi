@@ -5,8 +5,6 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import {
   loadConfig,
-  loadConfigFromFile,
-  defaultConfig,
   RepoManager,
   filterCheckpointEntries,
   extractCheckpointData,
@@ -31,29 +29,36 @@ import {
   type TreeEntryRecord,
 } from "./utils/tree-entry";
 
-/** Deep-equal for string arrays used to detect whether exclude was overridden. */
-function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((v, i) => v === b[i]);
+function mergeSettingsRecords(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, overrideValue] of Object.entries(override)) {
+    const baseValue = merged[key];
+    if (isRecord(baseValue) && isRecord(overrideValue)) {
+      merged[key] = mergeSettingsRecords(baseValue, overrideValue);
+      continue;
+    }
+    merged[key] = overrideValue;
+  }
+  return merged;
 }
 
-/**
- * Merge global and project-level checkpoint configs.
- *
- * Project values win, except for `exclude`: if the project config still
- * contains the default exclude list, fall back to the global list so that
- * users can define workspace-wide ignores in `~/.pi/agent/settings.json`.
- */
-function mergeConfigs(global: CheckpointConfig, project: CheckpointConfig): CheckpointConfig {
-  return {
-    ...global,
-    ...project,
-    restoreOnTree:
-      project.restoreOnTree === defaultConfig.restoreOnTree
-        ? global.restoreOnTree
-        : project.restoreOnTree,
-    exclude: arraysEqual(project.exclude, defaultConfig.exclude) ? global.exclude : project.exclude,
-  };
+async function readSettingsRecord(configDir: string): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(path.join(configDir, "settings.json"), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : {};
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return {};
+    }
+    if (isRecord(error) && error.code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
 }
 
 /** Find the checkpoint that was created right before a given user entry. */
@@ -331,10 +336,11 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const sessionFile = ctx.sessionManager.getSessionFile();
     const sessionId = ctx.sessionManager.getSessionId();
 
-    // Load merged config: global first, then project overrides.
-    const globalConfig = loadConfigFromFile(path.join(os.homedir(), ".pi", "agent"));
-    const projectConfig = loadConfigFromFile(path.join(ctx.cwd, ".pi"));
-    config = mergeConfigs(globalConfig, projectConfig);
+    // Merge raw settings first so project files inherit missing values from global settings
+    // before the checkpoint defaults are applied.
+    const globalSettings = await readSettingsRecord(path.join(os.homedir(), ".pi", "agent"));
+    const projectSettings = await readSettingsRecord(path.join(ctx.cwd, ".pi"));
+    config = loadConfig(mergeSettingsRecords(globalSettings, projectSettings));
 
     if (event.reason === "fork") {
       if (!event.previousSessionFile) return;

@@ -8,7 +8,7 @@ File-level checkpoint engine powered by git bare repositories. Usable as an SDK 
 - **Metadata persistence**: read `CheckpointEntry` metadata stored as Pi session custom entries
 - **Fork support**: clone Checkpoint Storage when a Pi session forks
 - **Restore**: safely checkout to any previous Checkpoint's code state
-- **Zero runtime dependencies**: relies only on Node.js built-ins and system git
+- **No external runtime dependencies**: bundled with private runtime helpers, and relies on Node.js built-ins plus system git
 
 ## Installation
 
@@ -121,26 +121,30 @@ const checkpoints = filterCheckpointEntries(dataList);
 
 ## Configuration
 
-Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settings live under `checkpoint`; Ayu extension behavior settings live under top-level `ayu`.
+Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settings live under `ayu.checkpoint`; Ayu extension behavior settings live under `ayu.rewind`.
+
+`ayu` is merged recursively across scopes: project settings override user settings field-by-field, and missing values fall back to defaults. Legacy top-level `checkpoint` is still accepted for compatibility, but new configs should use `ayu.checkpoint`.
 
 ```json
 {
-  "checkpoint": {
-    "enabled": true,
-    "autoCheckpoint": true,
-    "restoreOnFork": "always",
-    "restoreOnClone": "always",
-    "restoreOnResume": "always",
-    "defaultSummaryInstructions": "",
-    "exclude": ["node_modules/", ".git/", "*.log"]
-  },
   "ayu": {
+    "checkpoint": {
+      "enabled": true,
+      "autoCheckpoint": true,
+      "restoreOnFork": "always",
+      "restoreOnClone": "always",
+      "restoreOnResume": "always",
+      "defaultSummaryInstructions": "",
+      "exclude": ["node_modules/", ".git/", "*.log"]
+    },
     "rewind": {
       "restoreOnTree": "never"
     }
   }
 }
 ```
+
+For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
 ## Development
 

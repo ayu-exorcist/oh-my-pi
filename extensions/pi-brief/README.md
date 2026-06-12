@@ -1,15 +1,15 @@
 # @ayulab/pi-brief
 
-Pi extension that briefs built-in tool output to one-line summaries, keeping sessions focused on decisions.
+Pi extension that collapses built-in tool output into compact summaries, keeping sessions focused on decisions.
 
 ## Why?
 
-Pi agents often run many `read`, `grep`, `find`, and `bash` calls while exploring a codebase. Most of that output is intermediate context the user never needs to read. `@ayulab/pi-brief` collapses every built-in tool result to a single summary line so you can focus on what matters — especially when paired with `@ayulab/pi-clarify` for structured decision prompts.
+Pi agents often run many `read`, `grep`, `find`, and `bash` calls while exploring a codebase. Most of that output is intermediate context the user never needs to read. `@ayulab/pi-brief` collapses built-in tool results to a compact summary so you can focus on what matters — especially when paired with `@ayulab/pi-clarify` for structured decision prompts.
 
 ## Features
 
 - One-line summaries for `read`, `bash`, `edit`, `write`, `find`, `grep`, `ls`
-- `Ctrl+O` expands any result to see full output
+- Expanded mode shows full output when you need it
 - `/brief on | off | status` toggle
 - Session-persistent state
 
@@ -46,7 +46,7 @@ grep /foo/ in src → 3 matches
 edit src/auth.ts → edited +2 -1
 ```
 
-Press `Ctrl+O` to expand any result.
+Switch to expanded mode to view the full output.
 
 ## Out of Scope
 

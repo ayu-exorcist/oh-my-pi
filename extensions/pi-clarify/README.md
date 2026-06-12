@@ -1,6 +1,6 @@
 # @ayulab/pi-clarify
 
-Pi extension providing structured one-question user clarification prompts for agents.
+Pi extension providing structured one-question clarification prompts for agents.
 
 ## Features
 
@@ -8,7 +8,7 @@ Pi extension providing structured one-question user clarification prompts for ag
 - One prompt per tool call by design — no batch question walls.
 - Supports:
   - `select` with optional custom text answer;
-  - `multiselect` with space toggle and Enter confirm;
+  - `multiselect` answered with numbers separated by spaces or commas, or `all`;
   - `text` single-line input;
   - `confirm` yes/no confirmation.
 - `/clarify status` and `/clarify demo` management commands.

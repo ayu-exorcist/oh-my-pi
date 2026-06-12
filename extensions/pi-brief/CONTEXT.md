@@ -7,8 +7,8 @@
 ## Public Behavior
 
 - Overrides renderers for 7 built-in tools: `read`, `bash`, `edit`, `write`, `find`, `grep`, `ls`.
-- **Collapsed mode** (default): each tool result shows a single-line summary (line count, match count, exit status, diff stat).
-- **Expanded mode** (`Ctrl+O`): shows full output via simple text rendering.
+- **Collapsed mode** (default): each tool result shows a single-line summary tailored to that tool.
+- **Expanded mode**: shows full output via simple text rendering.
 - `/brief on | off | status` toggles the mode per session.
 - State persists across session reloads via custom session entries.
 

@@ -12,7 +12,7 @@ It exists to avoid long question walls in CLI conversations. When missing inform
 - Registers `/clarify` for status and demo commands.
 - Supports four prompt kinds:
   - `select` — choose one option, optionally with a custom text option;
-  - `multiselect` — choose multiple options with space toggle;
+  - `multiselect` — choose multiple options by replying with numbers separated by spaces or commas, or `all`;
   - `text` — provide a single-line free-form answer;
   - `confirm` — answer yes/no.
 - Returns a structured answer as the tool result.
@@ -43,10 +43,7 @@ Clarify intentionally does not provide password prompts. Secrets should not pass
 - `ask_user` must accept exactly one prompt per tool call.
 - Do not add a `questions` array or batch flow.
 - Do not add password/secret input support.
-- Do not use single-key submit shortcuts that can accidentally approve a prompt.
-- Prefer arrows + Enter, and Esc to cancel.
-- Number keys (1-6) jump to options in select/multiselect; y/n jump in confirm.
-- Space toggles selection in multiselect.
+- Do not add batch-question flows or non-serial clarification prompts.
 - In non-interactive mode, return a structured unavailable result instead of guessing.
 
 ## Verification Focus

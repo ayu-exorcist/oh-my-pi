@@ -10,6 +10,6 @@
 
 ## Relationships
 
-- **Clarify Extension ↔ Other Extensions**: Clarify is independent of Write Mode and checkpointing. Other extensions and agents can use `ask_user` for structured user decisions without gaining write permissions.
+- **Clarify Extension ↔ Other Extensions**: Clarify is independent of checkpointing and other tool renderers. Other extensions and agents can use `ask_user` for structured user decisions without affecting file writes.
 - **Brief Extension ↔ Clarify Extension**: Brief reduces exploration noise so Clarify decision prompts stand out. Brief does not modify Clarify rendering or behavior.
 - **Checkpoint Engine → Rewind Extension**: Rewind depends on Checkpoint Engine for `RepoManager`, config loading, diff parsing, and `CheckpointEntry` extraction.

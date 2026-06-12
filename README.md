@@ -1,6 +1,6 @@
 # @ayulab/oh-my-pi
 
-> Personal [Pi](https://pi.dev) toolkit: extensions, skills, prompts, and themes.
+> Personal [Pi](https://pi.dev) toolkit with rewind, brief, clarify, checkpoint, skills, prompts, and themes.
 >
 > Published as a [Pi Package](https://pi.dev/docs/latest/packages). Install with `pi install`.
 
@@ -91,11 +91,11 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 
 ## What's Included
 
-| Package                                      | Description                                         |
-| -------------------------------------------- | --------------------------------------------------- |
-| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint) | Git bare-repo checkpoint engine. Zero deps.         |
-| [`@ayulab/pi-rewind`](extensions/pi-rewind)  | `/rewind` command — interactive checkpoint restore. |
-| [`Purple Dream`](themes/purple-dream.json)   | Dark purple theme for long coding sessions.         |
+| Package                                      | Description                                                   |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| [`@ayulab/pi-checkpoint`](sdk/pi-checkpoint) | Git bare-repo checkpoint engine with bundled runtime helpers. |
+| [`@ayulab/pi-rewind`](extensions/pi-rewind)  | `/rewind` command — interactive checkpoint restore.           |
+| [`Purple Dream`](themes/purple-dream.json)   | Dark purple theme for long coding sessions.                   |
 
 ## Extension Management
 
@@ -124,7 +124,7 @@ It shines when you want to:
 - restore files from a checkpoint and keep working on the same conversation path
 - use `/tree` for navigation and choose whether file state should sync after Pi's native `No summary` choice
 
-Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` if you want `/tree` to offer or perform file sync.
+Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` if you want `/tree` to offer or perform file sync. `ayu` settings are merged recursively across user and project scopes, so `ayu.checkpoint` and `ayu.rewind` can be split across `~/.pi/agent/settings.json` and `.pi/settings.json`.
 
 ```
 > /rewind

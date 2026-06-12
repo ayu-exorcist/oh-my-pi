@@ -37,7 +37,7 @@ Run this before `pnpm run release`.
 
 ## `publish.ts` — Changesets Publish Wrapper
 
-`pnpm run release` / `pnpm run release --dry-run`
+`pnpm run release` / `pnpm run release:dry`
 
 Runs project-specific pre-publish checks, then delegates package publishing and git tag creation to Changesets:
 
@@ -66,7 +66,7 @@ pnpm run release
 pnpm run release --otp 123456
 
 # Validate release inputs and print Changesets status without publishing
-pnpm run release --dry-run
+pnpm run release:dry
 ```
 
 ## `setup.ts` — Register in Pi Settings
