@@ -75,7 +75,9 @@ pnpm run release --otp 123456
 
 `pnpm run setup`
 
-Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without re-installing.
+Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without repeated `pi install` / `pi uninstall` cycles.
+
+Use this during active development when you want the checkout to stay visible to Pi.
 
 Displays the planned change and asks for `y` confirmation before writing.
 
@@ -86,6 +88,8 @@ Uses `lib/pi-settings.ts` for settings I/O and prompt handling.
 `pnpm run teardown`
 
 Removes the repository root path from `~/.pi/agent/settings.json`. Reverses `setup.ts`.
+
+Use this to stop Pi from loading the checkout after development or testing.
 
 Skips if the path is not currently registered. Asks for `y` confirmation before writing.
 

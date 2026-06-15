@@ -38,7 +38,24 @@ This reads `mise.toml` and installs the pinned versions of `node`, `pnpm`, `pi`,
 pnpm install
 ```
 
-### 4. Initialize CodeGraph (optional)
+### 4. Build workspace packages
+
+```bash
+pnpm run build
+```
+
+This prepares the workspace packages and extension bundles used by local-path package operations such as `pi install /path/to/oh-my-pi` and `pi uninstall /path/to/oh-my-pi`. Pi installs package dependencies automatically, but it does not run the repository build for you.
+
+If you want Pi to discover the checkout without package installation, use:
+
+```bash
+pnpm run setup
+pnpm run teardown
+```
+
+`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again.
+
+### 5. Initialize CodeGraph (optional)
 
 If you plan to use CodeGraph for code navigation:
 

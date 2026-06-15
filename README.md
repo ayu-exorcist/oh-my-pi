@@ -45,10 +45,30 @@ pi install npm:@ayulab/pi-rewind
 
 ### Local Development
 
+For a checkout that you want to install or uninstall by path, prepare the workspace first:
+
+```bash
+pnpm install
+pnpm run build
+```
+
+Then you can use the Pi package manager against the local path:
+
 ```bash
 pi install /path/to/oh-my-pi
 pi install ./relative/path/to/oh-my-pi
+pi uninstall /path/to/oh-my-pi
+pi uninstall ./relative/path/to/oh-my-pi
 ```
+
+If you want Pi to discover the checkout without reinstalling it as a package, use the repository scripts instead:
+
+```bash
+pnpm run setup
+pnpm run teardown
+```
+
+`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again. These scripts are useful for active development when you want local extensions, skills, prompts, and themes to be visible to Pi without repeated package installs.
 
 After installation, Pi loads bundled extension packages from the package manifest, and automatically loads resources from these convention directories when present:
 
@@ -130,15 +150,15 @@ Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTre
 > /rewind
 
 Recent checkpoints:
-[1] (current)
-
-[2] add tests
+[1] add tests
    src/auth.test.ts +1 -0
 
-[3] refactor auth
+[2] refactor auth
    2 files changed  +6 -2
 
-Select checkpoint: 2
+[3] (current)
+
+Select checkpoint: 1
 
 Restore mode:
 [1] Restore code and conversation
