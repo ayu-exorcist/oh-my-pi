@@ -5,7 +5,7 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
 ## Features
 
 - Interactive checkpoint list with file-change statistics
-- Rewind restores a selected prompt to its pre-run code state (`beforeCommit`), so the turn can be run again
+- Rewind can restore a selected prompt to its pre-run code state (`beforeCommit`) so the turn can be run again
 - Restore options for checkpoints with file changes:
   1. Restore code and conversation
   2. Restore conversation
@@ -56,15 +56,15 @@ It fits the moments when you want to:
 > /rewind
 
 Recent checkpoints:
-[1] (current)
-
-[2] add tests
+[1] add tests
    src/auth.test.ts +1 -0
 
-[3] refactor auth
+[2] refactor auth
    2 files changed  +6 -2
 
-Select checkpoint: 2
+[3] (current)
+
+Select checkpoint: 1
 Restore mode:
 [1] Restore code and conversation
 [2] Restore conversation

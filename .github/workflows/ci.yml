@@ -21,10 +21,9 @@ jobs:
       - name: Install dependencies
         run: mise install && pnpm install
 
-      - name: Configure Git
-        run: |
-          git config --global user.name "@ayulab/oh-my-pi"
-          git config --global user.email "noreply@example.com"
+      - name: Fetch base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
 
       - name: Check Changesets status
         if: >-

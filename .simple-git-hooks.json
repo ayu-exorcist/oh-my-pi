@@ -1,0 +1,4 @@
+{
+  "pre-commit": "pnpm run pre-commit",
+  "pre-push": "pnpm run coverage"
+}

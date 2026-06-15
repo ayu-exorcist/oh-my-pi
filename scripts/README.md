@@ -33,11 +33,13 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 3. **Generate `dist/package.json`** — `pi-dist-manifest` from `@ayulab/repo-tools` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.js`), strips `scripts`/`devDependencies`/`engines`, removes workspace dependencies, copies `README.md` when present, and writes `files` from actual `dist/` artifacts.
 4. **Copy README** — copies `README.md` into `dist/`.
 
-Run this before `pnpm run release`.
+`pnpm run release` runs this automatically before publishing. Run it directly for local build validation.
 
 ## `publish.ts` — Changesets Publish Wrapper
 
 `pnpm run release` / `pnpm run release:dry`
+
+The `Release` GitHub Actions workflow calls `pnpm run release` after the generated `changeset-release/main` PR is merged. Local release commands are for maintainer recovery and dry-run validation; normal releases should happen by merging the generated release PR.
 
 Runs project-specific pre-publish checks, then delegates package publishing and git tag creation to Changesets:
 
@@ -59,21 +61,23 @@ Targeted publish flags (`--package`, `-p`, `--all`, `-a`, and positional package
 Examples:
 
 ```bash
-# Publish unpublished package versions and create Changesets tags
-pnpm run release
-
-# Publish with OTP
-pnpm run release --otp 123456
-
 # Validate release inputs and print Changesets status without publishing
 pnpm run release:dry
+
+# Maintainer recovery only: publish unpublished package versions and create tags
+pnpm run release
+
+# Maintainer recovery only: publish with OTP
+pnpm run release --otp 123456
 ```
 
 ## `setup.ts` — Register in Pi Settings
 
 `pnpm run setup`
 
-Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without re-installing.
+Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without repeated `pi install` / `pi uninstall` cycles.
+
+Use this during active development when you want the checkout to stay visible to Pi.
 
 Displays the planned change and asks for `y` confirmation before writing.
 
@@ -84,6 +88,8 @@ Uses `lib/pi-settings.ts` for settings I/O and prompt handling.
 `pnpm run teardown`
 
 Removes the repository root path from `~/.pi/agent/settings.json`. Reverses `setup.ts`.
+
+Use this to stop Pi from loading the checkout after development or testing.
 
 Skips if the path is not currently registered. Asks for `y` confirmation before writing.
 
