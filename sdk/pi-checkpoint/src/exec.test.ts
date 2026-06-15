@@ -63,6 +63,8 @@ describe("exec", () => {
     };
 
     await exec("git", ["init", "--bare", env.GIT_DIR]);
+    await exec("git", ["config", "user.name", "Test User"], env);
+    await exec("git", ["config", "user.email", "test@test.com"], env);
     await fs.writeFile(path.join(dirWithSpace, "hello world.txt"), "content", "utf8");
     await exec("git", ["add", "-A"], env);
     await exec("git", ["commit", "-m", "test"], env);
