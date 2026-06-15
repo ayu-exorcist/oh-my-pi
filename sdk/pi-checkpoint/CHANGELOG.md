@@ -1,5 +1,11 @@
 # @ayulab/pi-checkpoint
 
+## 0.5.0
+
+### Minor Changes
+
+- c339a13: Add locked checkpoint APIs and safe session checkpoint storage helpers to reduce repo-race issues in `pi-rewind` and support safer extension/runtime checkpoint workflows.
+
 ## 0.4.1
 
 ### Patch Changes

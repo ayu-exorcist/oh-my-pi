@@ -1,5 +1,15 @@
 # @ayulab/oh-my-pi
 
+## 0.4.2
+
+### Patch Changes
+
+- c339a13: Add locked checkpoint APIs and safe session checkpoint storage helpers to reduce repo-race issues in `pi-rewind` and support safer extension/runtime checkpoint workflows.
+- 6b44c21: Clarify the local install and uninstall workflow for `pi install /path/to/oh-my-pi` and `pi uninstall /path/to/oh-my-pi`, and document the `pnpm run setup` / `pnpm run teardown` development workflow.
+- Updated dependencies [c339a13]
+- Updated dependencies [6b44c21]
+  - @ayulab/pi-rewind@0.3.2
+
 ## 0.4.1
 
 ### Patch Changes
