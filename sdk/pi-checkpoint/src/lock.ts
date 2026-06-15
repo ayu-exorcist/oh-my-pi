@@ -22,7 +22,7 @@ async function acquire(lockPath: string): Promise<void> {
       await fs.mkdir(lockPath);
       return;
     } catch (err) {
-      if (!isNodeError(err) || err.code !== "EEXIST") throw err;
+      if (!isNodeError(err) || (err.code !== "EEXIST" && err.code !== "EPERM")) throw err;
 
       try {
         const s = await fs.stat(lockPath);

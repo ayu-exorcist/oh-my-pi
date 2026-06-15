@@ -88,6 +88,13 @@ export class RepoManager {
     );
   }
 
+  /** Initialize the bare repo while holding the repo lock. */
+  async lockedInit(): Promise<void> {
+    await this.withLock(async () => {
+      await this.init();
+    });
+  }
+
   /**
    * Silently re-initialise the bare repo if it has been deleted externally.
    *
@@ -105,11 +112,25 @@ export class RepoManager {
     }
   }
 
+  /** Ensure the bare repo exists while holding the repo lock. */
+  async lockedEnsureReady(excludePatterns?: readonly string[]): Promise<void> {
+    await this.withLock(async () => {
+      await this.ensureReady(excludePatterns);
+    });
+  }
+
   /** Write exclude patterns to `info/exclude` inside the bare repo. */
   async setExclude(patterns: readonly string[]): Promise<void> {
     const excludePath = path.join(this.gitDir, "info", "exclude");
     await mkdir(path.dirname(excludePath), { recursive: true });
     await writeFile(excludePath, patterns.join("\n") + "\n", "utf8");
+  }
+
+  /** Write exclude patterns while holding the repo lock. */
+  async lockedSetExclude(patterns: readonly string[]): Promise<void> {
+    await this.withLock(async () => {
+      await this.setExclude(patterns);
+    });
   }
 
   /**
@@ -135,10 +156,22 @@ export class RepoManager {
     return stdout.trim();
   }
 
+  /** Create a checkpoint while holding the repo lock. */
+  async lockedCheckpoint(entryId: string): Promise<string> {
+    return this.withLock(async () => this.checkpoint(entryId));
+  }
+
   /** Hard-reset the work tree to `commitHash` and remove untracked files. */
   async checkoutCommit(commitHash: string): Promise<void> {
     await exec("git", [...this.gitArgs(), "reset", "--hard", commitHash], this.env, this.workTree);
     await exec("git", [...this.gitArgs(), "clean", "-fd"], this.env, this.workTree);
+  }
+
+  /** Check out a commit while holding the repo lock. */
+  async lockedCheckoutCommit(commitHash: string): Promise<void> {
+    await this.withLock(async () => {
+      await this.checkoutCommit(commitHash);
+    });
   }
 
   /**
@@ -159,6 +192,11 @@ export class RepoManager {
     return stdout.trim();
   }
 
+  /** Create a safety commit while holding the repo lock. */
+  async lockedCreateSafetyCommit(): Promise<string> {
+    return this.withLock(async () => this.createSafetyCommit());
+  }
+
   /** Clone a bare repo (used when forking/cloning a session). */
   static async cloneFrom(srcGitDir: string, dstGitDir: string): Promise<void> {
     await exec("git", ["clone", "--local", "--bare", srcGitDir, dstGitDir]);
@@ -167,6 +205,13 @@ export class RepoManager {
   /** Update a git ref to point at `commitHash`. */
   async updateRef(ref: string, commitHash: string): Promise<void> {
     await exec("git", [...this.gitArgs(), "update-ref", ref, commitHash], this.env, this.workTree);
+  }
+
+  /** Update a git ref while holding the repo lock. */
+  async lockedUpdateRef(ref: string, commitHash: string): Promise<void> {
+    await this.withLock(async () => {
+      await this.updateRef(ref, commitHash);
+    });
   }
 
   /**
@@ -208,6 +253,13 @@ export class RepoManager {
   /** Stage all changes in the working tree. */
   async stageAll(): Promise<void> {
     await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+  }
+
+  /** Stage all changes while holding the repo lock. */
+  async lockedStageAll(): Promise<void> {
+    await this.withLock(async () => {
+      await this.stageAll();
+    });
   }
 
   /** Return `--numstat` diff between the staged index and `commitHash`. */

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { RepoManager } from "./repo-manager";
+import { withRepoLock } from "./lock";
 import { getGitDir, getIndexPath, getRepoDir } from "./resolver";
 
 export interface SessionCheckpointStorageOptions {
@@ -86,6 +87,33 @@ export async function cloneSessionCheckpointStorage(
   return storage;
 }
 
+export async function safeCloneSessionCheckpointStorage(
+  options: CloneSessionCheckpointStorageOptions,
+): Promise<CloneSessionCheckpointStorageResult> {
+  const sourceRepoDir = getRepoDir(options.previousSessionFile);
+  const sourceGitDir = getGitDir(sourceRepoDir);
+  const storage = createStorage(options);
+
+  await fs.mkdir(storage.repoDir, { recursive: true });
+  return withRepoLock(storage.repoDir, async () => {
+    const sourceExists = await fs
+      .access(sourceRepoDir)
+      .then(() => true)
+      .catch(() => false);
+    if (!sourceExists) return { ok: false, reason: "source-not-found" };
+
+    const destinationExists = await fs
+      .access(storage.gitDir)
+      .then(() => true)
+      .catch(() => false);
+    if (destinationExists) return { ok: false, reason: "destination-exists" };
+
+    await fs.mkdir(storage.repoDir, { recursive: true });
+    await RepoManager.cloneFrom(sourceGitDir, storage.gitDir);
+    return storage;
+  });
+}
+
 export async function ensureSessionCheckpointStorage(
   options: EnsureSessionCheckpointStorageOptions,
 ): Promise<Exclude<SessionCheckpointStorageResult, { readonly ok: false }>> {
@@ -101,4 +129,24 @@ export async function ensureSessionCheckpointStorage(
   }
 
   return storage;
+}
+
+export async function safeEnsureSessionCheckpointStorage(
+  options: EnsureSessionCheckpointStorageOptions,
+): Promise<Exclude<SessionCheckpointStorageResult, { readonly ok: false }>> {
+  const storage = createStorage(options);
+  await fs.mkdir(storage.repoDir, { recursive: true });
+  return withRepoLock(storage.repoDir, async () => {
+    const exists = await fs
+      .access(storage.gitDir)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!exists) {
+      await storage.repo.init();
+      await storage.repo.setExclude(options.exclude);
+    }
+
+    return storage;
+  });
 }

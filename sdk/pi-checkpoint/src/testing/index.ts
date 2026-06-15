@@ -5,15 +5,23 @@ import type { SafeCheckoutResult } from "../repo-manager";
 type RepoMockMethodName =
   | "withLock"
   | "init"
+  | "lockedInit"
   | "ensureReady"
+  | "lockedEnsureReady"
   | "setExclude"
+  | "lockedSetExclude"
   | "checkpoint"
+  | "lockedCheckpoint"
   | "checkoutCommit"
+  | "lockedCheckoutCommit"
   | "createSafetyCommit"
+  | "lockedCreateSafetyCommit"
   | "updateRef"
+  | "lockedUpdateRef"
   | "diffStats"
   | "diffWorkingTree"
   | "stageAll"
+  | "lockedStageAll"
   | "diffAgainst"
   | "safeCheckout";
 
@@ -49,6 +57,37 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
     withLock: vi.fn((fn: () => Promise<unknown>) => fn()),
   };
   const repo = { ...defaults, ...partial } as unknown as RepoManager & Record<string, unknown>;
+
+  repo.lockedInit = vi.fn(async () => repo.withLock(async () => repo.init()));
+  repo.lockedEnsureReady = vi.fn(async (excludePatterns?: readonly string[]) =>
+    repo.withLock(async () => repo.ensureReady(excludePatterns)),
+  );
+  repo.lockedSetExclude = vi.fn(async (patterns: readonly string[]) =>
+    repo.withLock(async () => repo.setExclude(patterns)),
+  );
+  repo.lockedCheckpoint = vi.fn(async (entryId: string) =>
+    repo.withLock(async () => {
+      const checkpoint = asMock(repo.checkpoint);
+      if (!checkpoint) throw new Error("checkpoint not mocked");
+      const result = await checkpoint(entryId);
+      return typeof result === "string" ? result : String(result);
+    }),
+  );
+  repo.lockedCheckoutCommit = vi.fn(async (commitHash: string) =>
+    repo.withLock(async () => repo.checkoutCommit(commitHash)),
+  );
+  repo.lockedCreateSafetyCommit = vi.fn(async () =>
+    repo.withLock(async () => {
+      const createSafetyCommit = asMock(repo.createSafetyCommit);
+      if (!createSafetyCommit) throw new Error("createSafetyCommit not mocked");
+      const result = await createSafetyCommit();
+      return typeof result === "string" ? result : String(result);
+    }),
+  );
+  repo.lockedUpdateRef = vi.fn(async (ref: string, commitHash: string) =>
+    repo.withLock(async () => repo.updateRef(ref, commitHash)),
+  );
+  repo.lockedStageAll = vi.fn(async () => repo.withLock(async () => repo.stageAll()));
 
   if (!partial?.safeCheckout) {
     repo.safeCheckout = vi.fn(

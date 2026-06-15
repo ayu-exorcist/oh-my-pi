@@ -50,7 +50,11 @@ _Avoid_: repo factory, repo registry, repo store
 
 > **Dev**: I'm adding `/branch` support and need to fork a session's checkpoint history. What's the right entry point?
 >
-> **Domain expert**: Use `RepoManager.cloneFrom` to copy the bare repo, then bind the new session to the cloned repo via `RepoProvider.setRepo`. The cloned repo inherits the full commit graph, so you can check out any historical `beforeCommit` or `afterCommit`.
+> **Domain expert**: Use `safeCloneSessionCheckpointStorage` to copy the bare repo under the session storage seam, then restore the fork target if needed. If you need to compose several raw repo steps yourself, use `RepoManager.withLock` and the low-level primitives.
+>
+> **Dev**: What if the user wants a single checkpoint write with built-in serialization?
+>
+> **Domain expert**: Use `lockedCheckpoint`. It's a convenience wrapper around the raw `checkpoint` primitive, so the caller does not need to manage locking manually.
 >
 > **Dev**: What if the user has unsaved changes when they run `/branch`?
 >

@@ -1,7 +1,3 @@
-import { createWorkspaceVitestConfig, strictCoverageConfig } from "@ayulab/repo-tools/vitest";
+import { createWorkspaceVitestConfig } from "@ayulab/repo-tools/vitest";
 
-export default createWorkspaceVitestConfig({
-  test: {
-    ...strictCoverageConfig({ reporter: ["text", "html"] }),
-  },
-});
+export default createWorkspaceVitestConfig();

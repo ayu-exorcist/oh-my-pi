@@ -19,6 +19,8 @@ export {
   cloneSessionCheckpointStorage,
   ensureSessionCheckpointStorage,
   resolveSessionCheckpointStorage,
+  safeCloneSessionCheckpointStorage,
+  safeEnsureSessionCheckpointStorage,
 } from "./session-checkpoint-storage";
 export { bindSessionRepo } from "./session-repo-binder";
 export type {
