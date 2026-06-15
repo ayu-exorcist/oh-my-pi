@@ -4,10 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { getGitDir, getRepoDir } from "./resolver";
 import { RepoManager } from "./repo-manager";
+import * as lock from "./lock";
 import {
   cloneSessionCheckpointStorage,
   ensureSessionCheckpointStorage,
   resolveSessionCheckpointStorage,
+  safeCloneSessionCheckpointStorage,
+  safeEnsureSessionCheckpointStorage,
 } from "./session-checkpoint-storage";
 
 async function createTmpDir(): Promise<string> {
@@ -115,6 +118,53 @@ describe("Session Checkpoint Storage", () => {
     });
 
     expect(result).toEqual({ ok: false, reason: "destination-exists" });
+  });
+
+  test("safeEnsureSessionCheckpointStorage serialises storage bootstrap", async () => {
+    const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "safe-created.jsonl");
+    const withRepoLock = vi
+      .spyOn(lock, "withRepoLock")
+      .mockImplementation(async (_repoDir, fn) => fn());
+    const init = vi.spyOn(RepoManager.prototype, "init").mockResolvedValue(undefined);
+    const setExclude = vi.spyOn(RepoManager.prototype, "setExclude").mockResolvedValue(undefined);
+
+    const result = await safeEnsureSessionCheckpointStorage({
+      sessionFile,
+      cwd: tmpDir,
+      exclude: ["node_modules/**"],
+    });
+
+    expect(withRepoLock).toHaveBeenCalled();
+    expect(result.repoDir).toBe(getRepoDir(sessionFile));
+    expect(init).toHaveBeenCalled();
+    expect(setExclude).toHaveBeenCalledWith(["node_modules/**"]);
+  });
+
+  test("safeCloneSessionCheckpointStorage serialises clone bootstrap", async () => {
+    const sourceSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "safe-source.jsonl");
+    const forkSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "safe-fork.jsonl");
+    const sourceRepoDir = getRepoDir(sourceSessionFile);
+    await fs.mkdir(getGitDir(sourceRepoDir), { recursive: true });
+
+    const withRepoLock = vi
+      .spyOn(lock, "withRepoLock")
+      .mockImplementation(async (_repoDir, fn) => fn());
+    const cloneFrom = vi.spyOn(RepoManager, "cloneFrom").mockResolvedValue(undefined);
+
+    const result = await safeCloneSessionCheckpointStorage({
+      previousSessionFile: sourceSessionFile,
+      sessionFile: forkSessionFile,
+      cwd: tmpDir,
+    });
+
+    expect(withRepoLock).toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, repoDir: getRepoDir(forkSessionFile) }),
+    );
+    expect(cloneFrom).toHaveBeenCalledWith(
+      getGitDir(sourceRepoDir),
+      getGitDir(getRepoDir(forkSessionFile)),
+    );
   });
 
   test("Producer reuses existing Checkpoint Storage", async () => {

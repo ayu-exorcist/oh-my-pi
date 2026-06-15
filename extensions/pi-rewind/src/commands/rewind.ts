@@ -26,16 +26,17 @@ async function findCleanDirtyBaseCommit(
   }
 
   try {
-    await repo.stageAll();
-    for (const commit of commits) {
-      const diff = await repo.diffAgainst(commit);
-      if (diff.trim().length === 0) return commit;
-    }
+    return await repo.withLock(async () => {
+      await repo.stageAll();
+      for (const commit of commits) {
+        const diff = await repo.diffAgainst(commit);
+        if (diff.trim().length === 0) return commit;
+      }
+      return fallbackCommit;
+    });
   } catch {
     return fallbackCommit;
   }
-
-  return fallbackCommit;
 }
 
 export function findConversationEntryIdForCheckpoint(

@@ -9,7 +9,7 @@ import {
   filterCheckpointEntries,
   extractCheckpointData,
   createDefaultRepoProvider,
-  cloneSessionCheckpointStorage,
+  safeCloneSessionCheckpointStorage,
   bindSessionRepo,
   getRepoDir,
   getCheckpointEntries,
@@ -227,16 +227,17 @@ async function findCleanCheckpointCommit(
   }
 
   try {
-    await repo.stageAll();
-    for (const commit of commits) {
-      const diff = await repo.diffAgainst(commit);
-      if (diff.trim().length === 0) return commit;
-    }
+    return await repo.withLock(async () => {
+      await repo.stageAll();
+      for (const commit of commits) {
+        const diff = await repo.diffAgainst(commit);
+        if (diff.trim().length === 0) return commit;
+      }
+      return undefined;
+    });
   } catch {
     return undefined;
   }
-
-  return undefined;
 }
 
 async function safeRestoreTreeCodeState(
@@ -282,7 +283,9 @@ async function restoreForkCodeState(
   const targetCommit =
     selectedCp?.beforeCommit ?? findLatestBranchCheckpoint(entries, branch)?.afterCommit;
   if (targetCommit) {
-    await repo.checkoutCommit(targetCommit);
+    await repo.withLock(async () => {
+      await repo.checkoutCommit(targetCommit);
+    });
   }
 }
 
@@ -294,7 +297,9 @@ async function restoreCloneCodeState(
   const targetCp =
     findCheckpointForEntryId(entries, selectedEntryId) ?? findLatestCheckpoint(entries);
   if (targetCp) {
-    await repo.checkoutCommit(targetCp.afterCommit);
+    await repo.withLock(async () => {
+      await repo.checkoutCommit(targetCp.afterCommit);
+    });
   }
 }
 
@@ -352,7 +357,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       if (!event.previousSessionFile) return;
 
       const forkIntent = await readForkIntent(sessionFile);
-      const storage = await cloneSessionCheckpointStorage({
+      const storage = await safeCloneSessionCheckpointStorage({
         previousSessionFile: event.previousSessionFile,
         sessionFile,
         cwd: ctx.cwd,

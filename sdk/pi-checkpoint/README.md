@@ -34,6 +34,8 @@ import {
   resolveSessionCheckpointStorage,
   ensureSessionCheckpointStorage,
   cloneSessionCheckpointStorage,
+  safeEnsureSessionCheckpointStorage,
+  safeCloneSessionCheckpointStorage,
   RepoManager,
   parseDiffStats,
   extractCheckpointData,
@@ -69,7 +71,7 @@ const result = await storage.repo.safeCheckout(targetCommit, dirtyBaseCommit);
 Checkpoint Producers create storage when missing:
 
 ```typescript
-const storage = await ensureSessionCheckpointStorage({
+const storage = await safeEnsureSessionCheckpointStorage({
   sessionFile: ctx.sessionManager.getSessionFile(),
   cwd: ctx.cwd,
   exclude: config.exclude,
@@ -81,7 +83,7 @@ const beforeCommit = await storage.repo.checkpoint(entryId);
 Fork handlers clone storage from a previous session:
 
 ```typescript
-const storage = await cloneSessionCheckpointStorage({
+const storage = await safeCloneSessionCheckpointStorage({
   previousSessionFile,
   sessionFile: ctx.sessionManager.getSessionFile(),
   cwd: ctx.cwd,
@@ -91,6 +93,12 @@ if (storage.ok) {
   await storage.repo.checkoutCommit(forkPoint.beforeCommit);
 }
 ```
+
+### API Layers
+
+- `locked*` methods are single-step convenience entry points, such as `lockedCheckpoint()`, `lockedStageAll()`, `lockedCheckoutCommit()`, `lockedUpdateRef()`, `lockedInit()`, and `lockedSetExclude()`.
+- `safe*` methods wrap complete flows with their own safety semantics, such as `safeCheckout()`, `safeEnsureSessionCheckpointStorage()`, and `safeCloneSessionCheckpointStorage()`.
+- Raw primitives such as `checkpoint()`, `stageAll()`, `checkoutCommit()`, `updateRef()`, `init()`, `setExclude()`, `cloneFrom()`, and `withLock()` stay available for advanced composition.
 
 ### RepoManager
 

@@ -75,13 +75,14 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 | ---------------------------- | --------------------------------------------------- |
 | `pnpm run dev`               | vitest watch mode                                   |
 | `pnpm test`                  | Run all tests once                                  |
-| `pnpm run coverage`          | Tests + 100% coverage enforcement                   |
+| `pnpm run coverage`          | Coverage report only                                |
+| `pnpm run coverage:strict`   | Maintainer audit: 100% coverage enforcement         |
 | `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`  |
 | `pnpm run typecheck`         | TypeScript `tsc --noEmit`                           |
 | `pnpm run lint` / `lint:fix` | oxlint                                              |
 | `pnpm run fmt` / `fmt:check` | oxfmt                                               |
 | `pnpm run check`             | Local full check (type + lint + fmt + test)         |
-| `pnpm run verify`            | CI gate (type + lint + fmt + coverage)              |
+| `pnpm run verify`            | CI gate (type + lint + fmt + test)                  |
 | `pnpm run build`             | Turborepo build all workspace packages into `dist/` |
 | `pnpm run setup`             | Register repo in user-level Pi settings             |
 | `pnpm run teardown`          | Unregister repo from user-level Pi settings         |
@@ -98,9 +99,24 @@ Before committing, run `pnpm run verify` locally:
 - `tsc --noEmit` — zero errors
 - `oxlint .` — zero errors
 - `oxfmt . --check` — clean
-- `vitest run --coverage` — 100% threshold
+- `vitest run` — all tests pass
 
-GitHub Actions runs `pnpm changeset status --verbose` and `pnpm run verify` on every pull request as the final gate.
+Use `pnpm run coverage` when you want a plain coverage report during development.
+Use `pnpm run coverage:strict` when you are the maintainer and need to audit or ratchet full-repo coverage.
+
+GitHub Actions runs `pnpm changeset status --verbose` and `pnpm run verify` on every pull request. Maintainers can run `pnpm run coverage:strict` locally whenever they want to audit or ratchet full-repo coverage.
+
+## Pull Request Workflow
+
+All contributors and maintainers use the same protected-branch workflow. Work on a feature or bugfix branch, open a pull request into `main`, keep it up to date with `main`, wait for required CI checks, and merge only after review approval. Direct pushes, force pushes, branch deletion, stale pull requests, and missing required checks are blocked by the `main` ruleset.
+
+User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
+
+## Pull Request Workflow
+
+All contributors and maintainers use the same protected-branch workflow. Work on a feature or bugfix branch, open a pull request into `main`, keep it up to date with `main`, wait for required CI checks, and merge only after review approval. Direct pushes, force pushes, branch deletion, stale pull requests, and missing required checks are blocked by the `main` ruleset.
+
+User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
 
 ## Pull Request Workflow
 

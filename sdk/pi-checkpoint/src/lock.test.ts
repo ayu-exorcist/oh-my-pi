@@ -173,12 +173,12 @@ describe("withRepoLock", () => {
 
   test("throws when mkdir fails with an unexpected error", async () => {
     const mkdirSpy = vi.spyOn(fs, "mkdir").mockImplementation(async () => {
-      const err = new Error("EPERM") as NodeJS.ErrnoException;
-      err.code = "EPERM";
+      const err = new Error("EINVAL") as NodeJS.ErrnoException;
+      err.code = "EINVAL";
       throw err;
     });
 
-    await expect(withRepoLock(tmpDir, async () => "ok")).rejects.toThrow("EPERM");
+    await expect(withRepoLock(tmpDir, async () => "ok")).rejects.toThrow("EINVAL");
 
     mkdirSpy.mockRestore();
   });

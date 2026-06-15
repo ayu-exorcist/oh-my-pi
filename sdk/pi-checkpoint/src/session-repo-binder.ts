@@ -1,8 +1,8 @@
 import type { RepoManager } from "./repo-manager";
 import type { RepoProvider } from "./repo-provider";
 import {
-  ensureSessionCheckpointStorage,
   resolveSessionCheckpointStorage,
+  safeEnsureSessionCheckpointStorage,
 } from "./session-checkpoint-storage";
 
 /**
@@ -37,7 +37,7 @@ export async function bindSessionRepo(
   if (existing) return existing;
 
   if (options?.exclude) {
-    const storage = await ensureSessionCheckpointStorage({
+    const storage = await safeEnsureSessionCheckpointStorage({
       sessionFile,
       cwd,
       exclude: options.exclude,

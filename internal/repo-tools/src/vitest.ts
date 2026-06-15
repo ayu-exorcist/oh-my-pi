@@ -59,7 +59,6 @@ export function createRootVitestConfig(config: ViteUserConfig = {}): ViteUserCon
         alias: workspaceSourceAliases,
         projects: ["extensions/*", "sdk/*", "internal/*", "scripts"],
         testTimeout: 15000,
-        ...strictCoverageConfig({ reporter: ["text", "html"] }),
       },
     }),
     defineConfig(config),

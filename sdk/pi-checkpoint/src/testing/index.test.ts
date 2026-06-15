@@ -37,6 +37,64 @@ describe("createMockRepo", () => {
     expect(result).toBe("result");
   });
 
+  test("locked helpers delegate to withLock and raw operations", async () => {
+    const repo = createMockRepo({
+      init: vi.fn().mockResolvedValue(undefined),
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      setExclude: vi.fn().mockResolvedValue(undefined),
+      checkpoint: vi.fn().mockResolvedValue("checkpoint-hash"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+      createSafetyCommit: vi.fn().mockResolvedValue("safety-hash"),
+      updateRef: vi.fn().mockResolvedValue(undefined),
+      stageAll: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(repo.lockedInit()).resolves.toBeUndefined();
+    await expect(repo.lockedEnsureReady(["*.log"])).resolves.toBeUndefined();
+    await expect(repo.lockedSetExclude(["*.log"])).resolves.toBeUndefined();
+    await expect(repo.lockedCheckpoint("entry-1")).resolves.toBe("checkpoint-hash");
+    await expect(repo.lockedCheckoutCommit("commit-hash")).resolves.toBeUndefined();
+    await expect(repo.lockedCreateSafetyCommit()).resolves.toBe("safety-hash");
+    await expect(repo.lockedUpdateRef("refs/heads/test", "commit-hash")).resolves.toBeUndefined();
+    await expect(repo.lockedStageAll()).resolves.toBeUndefined();
+
+    expect(repo.withLock).toHaveBeenCalledTimes(8);
+    expect(repo.init).toHaveBeenCalledTimes(1);
+    expect(repo.ensureReady).toHaveBeenCalledWith(["*.log"]);
+    expect(repo.setExclude).toHaveBeenCalledWith(["*.log"]);
+    expect(repo.checkpoint).toHaveBeenCalledWith("entry-1");
+    expect(repo.checkoutCommit).toHaveBeenCalledWith("commit-hash");
+    expect(repo.createSafetyCommit).toHaveBeenCalledTimes(1);
+    expect(repo.updateRef).toHaveBeenCalledWith("refs/heads/test", "commit-hash");
+    expect(repo.stageAll).toHaveBeenCalledTimes(1);
+  });
+
+  test("lockedCheckpoint throws when checkpoint is missing", async () => {
+    const repo = createMockRepo();
+    await expect(repo.lockedCheckpoint("entry-1")).rejects.toThrow("checkpoint not mocked");
+  });
+
+  test("lockedCheckpoint stringifies non-string checkpoint result", async () => {
+    const repo = createMockRepo({
+      checkpoint: vi.fn().mockResolvedValue(123),
+    });
+
+    await expect(repo.lockedCheckpoint("entry-1")).resolves.toBe("123");
+  });
+
+  test("lockedCreateSafetyCommit throws when safety commit is missing", async () => {
+    const repo = createMockRepo();
+    await expect(repo.lockedCreateSafetyCommit()).rejects.toThrow("createSafetyCommit not mocked");
+  });
+
+  test("lockedCreateSafetyCommit stringifies non-string safety result", async () => {
+    const repo = createMockRepo({
+      createSafetyCommit: vi.fn().mockResolvedValue(123),
+    });
+
+    await expect(repo.lockedCreateSafetyCommit()).resolves.toBe("123");
+  });
+
   test("default safeCheckout reports non-Error checkout failure without safety commit", async () => {
     const repo = createMockRepo({
       checkoutCommit: vi.fn().mockRejectedValue("string error"),
@@ -48,6 +106,17 @@ describe("createMockRepo", () => {
       reason: "checkout-failed",
       error: "string error",
     });
+  });
+
+  test("default safeCheckout returns dirty when diffAgainst reports changes", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue("1\t0\tfile.txt\n"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+    const result = await repo.safeCheckout("target", "base");
+    expect(result).toEqual({ ok: false, reason: "dirty" });
+    expect(repo.checkoutCommit).not.toHaveBeenCalled();
   });
 
   test("default safeCheckout treats non-string diffAgainst result as empty", async () => {

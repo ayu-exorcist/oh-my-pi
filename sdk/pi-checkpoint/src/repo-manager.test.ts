@@ -323,6 +323,173 @@ describe("RepoManager", () => {
     spy.mockRestore();
   });
 
+  test("lockedCheckpoint runs checkpoint inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const checkpoint = vi.spyOn(repo, "checkpoint").mockResolvedValue("locked-checkpoint");
+
+    const hash = await repo.lockedCheckpoint("entry-1");
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(checkpoint).toHaveBeenCalledWith("entry-1");
+    expect(hash).toBe("locked-checkpoint");
+
+    lock.mockRestore();
+    checkpoint.mockRestore();
+  });
+
+  test("lockedCheckpoint throws when checkpoint is not mocked", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+
+    await expect(repo.lockedCheckpoint("entry-1")).rejects.toThrow("checkpoint");
+  });
+
+  test("lockedInit runs init inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const init = vi.spyOn(repo, "init").mockResolvedValue(undefined);
+
+    await repo.lockedInit();
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledTimes(1);
+
+    lock.mockRestore();
+    init.mockRestore();
+  });
+
+  test("lockedEnsureReady runs ensureReady inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const ensureReady = vi.spyOn(repo, "ensureReady").mockResolvedValue(undefined);
+
+    await repo.lockedEnsureReady(["*.log"]);
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(ensureReady).toHaveBeenCalledWith(["*.log"]);
+
+    lock.mockRestore();
+    ensureReady.mockRestore();
+  });
+
+  test("lockedCheckoutCommit runs checkout inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const checkoutCommit = vi.spyOn(repo, "checkoutCommit").mockResolvedValue(undefined);
+
+    await repo.lockedCheckoutCommit("commit-hash");
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(checkoutCommit).toHaveBeenCalledWith("commit-hash");
+
+    lock.mockRestore();
+    checkoutCommit.mockRestore();
+  });
+
+  test("lockedUpdateRef runs updateRef inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const updateRef = vi.spyOn(repo, "updateRef").mockResolvedValue(undefined);
+
+    await repo.lockedUpdateRef("refs/heads/test", "commit-hash");
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(updateRef).toHaveBeenCalledWith("refs/heads/test", "commit-hash");
+
+    lock.mockRestore();
+    updateRef.mockRestore();
+  });
+
+  test("lockedSetExclude runs setExclude inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const setExclude = vi.spyOn(repo, "setExclude").mockResolvedValue(undefined);
+
+    await repo.lockedSetExclude(["*.log"]);
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(setExclude).toHaveBeenCalledWith(["*.log"]);
+
+    lock.mockRestore();
+    setExclude.mockRestore();
+  });
+
+  test("lockedCreateSafetyCommit runs createSafetyCommit inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const createSafetyCommit = vi
+      .spyOn(repo, "createSafetyCommit")
+      .mockResolvedValue("safety-hash");
+
+    await expect(repo.lockedCreateSafetyCommit()).resolves.toBe("safety-hash");
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(createSafetyCommit).toHaveBeenCalledTimes(1);
+
+    lock.mockRestore();
+    createSafetyCommit.mockRestore();
+  });
+
+  test("lockedStageAll runs stageAll inside withLock", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    const lock = vi.spyOn(repo, "withLock").mockImplementation(async (fn) => fn());
+    const stageAll = vi.spyOn(repo, "stageAll").mockResolvedValue(undefined);
+
+    await repo.lockedStageAll();
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stageAll).toHaveBeenCalledTimes(1);
+
+    lock.mockRestore();
+    stageAll.mockRestore();
+  });
+
   test("withLock serialises access through filesystem lock", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");

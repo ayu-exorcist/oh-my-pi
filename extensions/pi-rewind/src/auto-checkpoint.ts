@@ -64,8 +64,10 @@ export class AutoCheckpointProducer {
     this.pendingPrompt = input.prompt;
 
     try {
-      await this.options.repo.ensureReady(this.options.exclude);
-      this.pendingBeforeCommit = await this.options.repo.checkpoint(input.userEntryId);
+      await this.options.repo.withLock(async () => {
+        await this.options.repo.ensureReady(this.options.exclude);
+        this.pendingBeforeCommit = await this.options.repo.checkpoint(input.userEntryId);
+      });
       return { ok: true, entries };
     } catch (err) {
       this.beginRun();
@@ -90,29 +92,32 @@ export class AutoCheckpointProducer {
     }
 
     try {
-      await this.options.repo.stageAll();
-      const stdout = await this.options.repo.diffAgainst(this.pendingBeforeCommit);
-      const parsed = parseDiffStats(stdout);
-      const afterCommit =
-        parsed.length > 0
-          ? await this.options.repo.checkpoint(this.pendingUserEntryId)
-          : this.pendingBeforeCommit;
+      const turnId = this.pendingTurnId;
+      const userEntryId = this.pendingUserEntryId;
+      const beforeCommit = this.pendingBeforeCommit;
+      const prompt = this.pendingPrompt;
+      const entry = await this.options.repo.withLock(async (): Promise<CheckpointEntry> => {
+        await this.options.repo.stageAll();
+        const stdout = await this.options.repo.diffAgainst(beforeCommit);
+        const parsed = parseDiffStats(stdout);
+        const afterCommit =
+          parsed.length > 0 ? await this.options.repo.checkpoint(userEntryId) : beforeCommit;
 
-      return {
-        ok: true,
-        entry: {
+        return {
           v: 2,
           kind: "checkpoint",
-          turnId: this.pendingTurnId,
-          userEntryId: this.pendingUserEntryId,
-          beforeCommit: this.pendingBeforeCommit,
+          turnId,
+          userEntryId,
+          beforeCommit,
           afterCommit,
-          prompt: this.pendingPrompt,
+          prompt,
           fileCount: parsed.length,
           fileChanges: parsed,
           createdAt: this.options.now().toISOString(),
-        },
-      };
+        };
+      });
+
+      return { ok: true, entry };
     } catch {
       return { ok: false };
     } finally {
