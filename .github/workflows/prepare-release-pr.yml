@@ -1,0 +1,38 @@
+name: Prepare Release PR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release-pr-main
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+
+      - name: Install dependencies
+        run: mise install && pnpm install
+
+      - name: Create or update Release PR
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version-packages
+          title: "chore(release): version packages"
+          commit: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

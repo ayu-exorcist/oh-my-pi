@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("node:child_process", () => ({
@@ -23,12 +26,40 @@ vi.mock("./lib/cli", () => ({
   parseCLI: vi.fn(() => ({ flags: new Map(), positionals: [] })),
 }));
 
-import { findUncommittedReleasePackages } from "./publish";
+import { findUncommittedReleasePackages, stripRootManifestForPublish } from "./publish";
 import { execSync as mockedExecSync } from "node:child_process";
 import { collectDependencies as mockedCollectDependencies } from "./lib/deps";
 
 const mockExecSync = vi.mocked(mockedExecSync);
 const mockCollectDependencies = vi.mocked(mockedCollectDependencies);
+
+function createPublishFixture(): string {
+  const root = mkdtemp(join(tmpdir(), "publish-test-"));
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "@ayulab/oh-my-pi",
+        version: "0.4.1",
+        scripts: { prepare: "simple-git-hooks" },
+        devDependencies: { "simple-git-hooks": "^2.13.1" },
+        engines: { node: ">=24.0.0" },
+        publishConfig: { access: "public" },
+        "simple-git-hooks": { "pre-commit": "pnpm run check" },
+      },
+      null,
+      2,
+    ),
+  );
+  return root;
+}
+
+function mkdtemp(prefix: string): string {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = `${prefix}${suffix}`;
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 function pkg(name: string, path: string) {
   return {
@@ -57,10 +88,7 @@ describe("release entry point", () => {
     const nameMap = new Map([[rootPkg.name, rootPkg]]);
 
     mockExecSync.mockImplementation((command: string) => {
-      if (
-        command ===
-        'git diff --name-only HEAD..HEAD -- "package.json" "README.md" "prompts" "skills" "themes"'
-      ) {
+      if (command.startsWith("git diff --name-only HEAD..HEAD")) {
         return "package.json\n" as never;
       }
       return "" as never;
@@ -76,6 +104,27 @@ describe("release entry point", () => {
     mockExecSync.mockReturnValueOnce("" as never).mockReturnValueOnce("" as never);
 
     expect(findUncommittedReleasePackages([rootPkg], nameMap)).toEqual([]);
+  });
+
+  test("strips root development hooks while publishing and restores them afterward", () => {
+    const root = createPublishFixture();
+    const original = readFileSync(join(root, "package.json"), "utf8");
+
+    try {
+      const restore = stripRootManifestForPublish(root);
+      const stripped = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+      expect(stripped.scripts).toBeUndefined();
+      expect(stripped.devDependencies).toBeUndefined();
+      expect(stripped.engines).toBeUndefined();
+      expect(stripped["simple-git-hooks"]).toBeUndefined();
+      expect(stripped.publishConfig).toEqual({ access: "public" });
+
+      restore();
+      expect(readFileSync(join(root, "package.json"), "utf8")).toBe(original);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("includes private internal workspace dependencies in release input paths", () => {

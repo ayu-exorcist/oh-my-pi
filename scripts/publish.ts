@@ -1,7 +1,9 @@
 import { execSync } from "node:child_process";
-import { relative, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { relative, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isRecord } from "@ayulab/runtime-core";
 import { parseCLI } from "./lib/cli";
 import { buildDepGraph, collectDependencies } from "./lib/deps";
 import { hasPathChangesSinceRef } from "./lib/git";
@@ -132,9 +134,42 @@ function ensureReleaseValidation(packages: readonly PackageInfo[]): void {
   process.exit(1);
 }
 
+export function stripRootManifestForPublish(rootDir = root): () => void {
+  const packageJsonPath = join(rootDir, "package.json");
+  const original = readFileSync(packageJsonPath, "utf8");
+  const parsed: unknown = JSON.parse(original);
+
+  if (!isRecord(parsed)) {
+    throw new Error("package.json must be an object");
+  }
+
+  const manifest: Record<string, unknown> = { ...parsed };
+
+  delete manifest.scripts;
+  delete manifest.devDependencies;
+  delete manifest.engines;
+  delete manifest["simple-git-hooks"];
+
+  const publishConfig = manifest.publishConfig;
+  if (isRecord(publishConfig)) {
+    const cleanedPublishConfig = { ...publishConfig };
+    delete cleanedPublishConfig.scripts;
+    manifest.publishConfig = cleanedPublishConfig;
+  }
+
+  writeFileSync(packageJsonPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  return () => writeFileSync(packageJsonPath, original);
+}
+
 function runChangesetsPublish(): void {
   const otpFlag = OTP ? ` --otp ${OTP}` : "";
-  execSync(`pnpm changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
+  const restoreRootManifest = stripRootManifestForPublish();
+  try {
+    execSync(`pnpm changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
+  } finally {
+    restoreRootManifest();
+  }
 }
 
 async function main(): Promise<void> {

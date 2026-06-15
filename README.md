@@ -163,6 +163,8 @@ Publish current unpublished package versions:
 pnpm run release # build, validate, publish via Changesets, and create tags
 ```
 
+Release PRs are created automatically from `main`, accumulate pending changesets until you are ready, and publish when the `changeset-release/main` PR is merged. Use `pnpm run release:dry` for local release-readiness checks.
+
 See `CONTRIBUTING.md` for the full development guide — mise setup, scripts, quality gate, adding extensions, build config, and release workflow.
 
 ## License
