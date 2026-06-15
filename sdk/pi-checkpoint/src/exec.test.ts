@@ -46,6 +46,7 @@ describe("exec", () => {
     };
 
     await exec("git", ["init", "--bare", env.GIT_DIR]);
+    await exec("git", ["config", "user.name", "Test User"], env);
     await exec("git", ["config", "user.email", "test@test.com"], env);
 
     const { stdout } = await exec("git", ["config", "user.email"], env);
