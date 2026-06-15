@@ -150,6 +150,10 @@ describe("RepoManager", () => {
 
     await RepoManager.cloneFrom(srcGitDir, dstGitDir);
 
+    const dstEnv = { GIT_DIR: dstGitDir, GIT_WORK_TREE: dstWork, GIT_INDEX_FILE: dstIndex };
+    const { stdout: clonedName } = await exec("git", ["config", "user.name"], dstEnv);
+    expect(clonedName.trim()).toBe("Pi Checkpoint");
+
     const dstRepo = new RepoManager(dstGitDir, dstIndex, dstWork);
     await dstRepo.checkoutCommit("HEAD");
 

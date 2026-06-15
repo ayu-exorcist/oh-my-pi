@@ -70,22 +70,16 @@ export class RepoManager {
     ];
   }
 
+  private static async configureIdentity(gitDir: string): Promise<void> {
+    await exec("git", [`--git-dir=${gitDir}`, "config", "user.email", "pi@checkpoint.local"]);
+    await exec("git", [`--git-dir=${gitDir}`, "config", "user.name", "Pi Checkpoint"]);
+  }
+
   /** Initialize a fresh bare repo and set default git config. */
   async init(): Promise<void> {
     await mkdir(path.dirname(this.gitDir), { recursive: true });
     await exec("git", ["init", "--bare", this.gitDir]);
-    await exec(
-      "git",
-      [...this.gitArgs(), "config", "user.email", "pi@checkpoint.local"],
-      this.env,
-      this.workTree,
-    );
-    await exec(
-      "git",
-      [...this.gitArgs(), "config", "user.name", "Pi Checkpoint"],
-      this.env,
-      this.workTree,
-    );
+    await RepoManager.configureIdentity(this.gitDir);
   }
 
   /** Initialize the bare repo while holding the repo lock. */
@@ -200,6 +194,7 @@ export class RepoManager {
   /** Clone a bare repo (used when forking/cloning a session). */
   static async cloneFrom(srcGitDir: string, dstGitDir: string): Promise<void> {
     await exec("git", ["clone", "--local", "--bare", srcGitDir, dstGitDir]);
+    await RepoManager.configureIdentity(dstGitDir);
   }
 
   /** Update a git ref to point at `commitHash`. */

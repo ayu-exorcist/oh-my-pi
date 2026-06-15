@@ -112,6 +112,12 @@ All contributors and maintainers use the same protected-branch workflow. Work on
 
 User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
 
+## Pull Request Workflow
+
+All contributors and maintainers use the same protected-branch workflow. Work on a feature or bugfix branch, open a pull request into `main`, keep it up to date with `main`, wait for required CI checks, and merge only after review approval. Direct pushes, force pushes, branch deletion, stale pull requests, and missing required checks are blocked by the `main` ruleset.
+
+User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
+
 ## Directory Conventions
 
 ### Adding an Extension
