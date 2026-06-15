@@ -19,9 +19,9 @@ const { flags, positionals } = parseCLI();
 const DRY_RUN = flags.has("dry-run");
 const OTP = typeof flags.get("otp") === "string" ? String(flags.get("otp")) : undefined;
 
-function rejectUnsupportedFlags(): void {
+function rejectUnsupportedFlags(): boolean {
   const unsupported = ["package", "p", "all", "a", "access"].filter((name) => flags.has(name));
-  if (unsupported.length === 0 && positionals.length === 0) return;
+  if (unsupported.length === 0 && positionals.length === 0) return true;
 
   console.error("❌ Unsupported release arguments.");
   if (unsupported.length > 0) console.error(`   Flags: ${unsupported.join(", ")}`);
@@ -30,6 +30,7 @@ function rejectUnsupportedFlags(): void {
     "   Use Changesets to choose release packages and .changeset/config.json for access.",
   );
   process.exit(1);
+  return false;
 }
 
 function packageReleasePaths(pkg: PackageInfo, related: readonly PackageInfo[]): string[] {
@@ -93,14 +94,15 @@ export function findUncommittedReleasePackages(
 export function ensureReleaseScopeIsCommitted(
   scopedPackages: readonly PackageInfo[],
   inputNameMap: ReadonlyMap<string, PackageInfo>,
-): void {
+): boolean {
   const dirtyPackages = findUncommittedReleasePackages(scopedPackages, inputNameMap);
-  if (dirtyPackages.length === 0) return;
+  if (dirtyPackages.length === 0) return true;
 
   console.error(
     `❌ Release aborted: uncommitted changes detected for ${dirtyPackages.join(", ")}. Commit first, then rerun release.`,
   );
   process.exit(1);
+  return false;
 }
 
 function collectValidationErrors(packages: readonly PackageInfo[]): ValidationError[] {
@@ -122,9 +124,9 @@ function collectValidationErrors(packages: readonly PackageInfo[]): ValidationEr
   return validationErrors;
 }
 
-function ensureReleaseValidation(packages: readonly PackageInfo[]): void {
+function ensureReleaseValidation(packages: readonly PackageInfo[]): boolean {
   const validationErrors = collectValidationErrors(packages);
-  if (validationErrors.length === 0) return;
+  if (validationErrors.length === 0) return true;
 
   console.error("\n❌ Package validation failed:");
   for (const err of validationErrors) {
@@ -132,6 +134,7 @@ function ensureReleaseValidation(packages: readonly PackageInfo[]): void {
   }
   console.error("");
   process.exit(1);
+  return false;
 }
 
 export function stripRootManifestForPublish(rootDir = root): () => void {
@@ -172,8 +175,8 @@ function runChangesetsPublish(): void {
   }
 }
 
-async function main(): Promise<void> {
-  rejectUnsupportedFlags();
+export async function runRelease(): Promise<void> {
+  if (!rejectUnsupportedFlags()) return;
 
   const packages = getPackages(root);
   const releaseInputPackages = getReleaseInputWorkspacePackages(root);
@@ -182,10 +185,8 @@ async function main(): Promise<void> {
     ...packages.filter((pkg) => pkg.isRoot),
   ]);
 
-  if (!DRY_RUN) {
-    ensureReleaseScopeIsCommitted(packages, inputNameMap);
-  }
-  ensureReleaseValidation(packages);
+  if (!DRY_RUN && !ensureReleaseScopeIsCommitted(packages, inputNameMap)) return;
+  if (!ensureReleaseValidation(packages)) return;
 
   console.log("🔨 Building packages...");
   execSync("pnpm run build", { cwd: root, stdio: "inherit" });
@@ -203,7 +204,7 @@ async function main(): Promise<void> {
 
 const entrypoint = process.argv[1] ? resolve(process.argv[1]) : null;
 if (entrypoint === fileURLToPath(import.meta.url)) {
-  void main().catch((err: unknown) => {
+  void runRelease().catch((err: unknown) => {
     console.error(err);
     process.exit(1);
   });
