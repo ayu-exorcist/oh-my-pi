@@ -1,27 +1,28 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, sep } from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-const repoRoot = process.cwd();
-const rootPackagePath = `${repoRoot}/package.json`;
+let workspaceRoot = process.cwd();
+let fixtureRoot = "";
+let fixtureScriptsDir = "";
+let publishEntrypoint = "";
+let rootPackagePath = "";
+let workspaceManifest = "";
 
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-  const packageJsonPath = `${process.cwd()}/package.json`;
-  const initialManifest = actual.readFileSync(packageJsonPath, "utf8");
-  let currentManifest = initialManifest;
-
+vi.mock("node:url", async () => {
+  const actual = await vi.importActual<typeof import("node:url")>("node:url");
   return {
     ...actual,
-    readFileSync: ((filePath: string, options?: BufferEncoding) => {
-      if (filePath === packageJsonPath) return currentManifest;
-      return actual.readFileSync(filePath, options);
-    }) as typeof actual.readFileSync,
-    writeFileSync: ((filePath: string, data: string) => {
-      if (filePath === packageJsonPath) {
-        currentManifest = data;
-        return;
+    fileURLToPath: (input: string | URL) => {
+      const actualPath = actual.fileURLToPath(input);
+      const normalizedPath = actualPath.replace(/\\/g, "/");
+      if (normalizedPath.endsWith("/scripts/publish.ts")) return publishEntrypoint;
+      if (normalizedPath.endsWith("/scripts/") || normalizedPath.endsWith("/scripts")) {
+        return fixtureScriptsDir;
       }
-      return actual.writeFileSync(filePath, data);
-    }) as typeof actual.writeFileSync,
+      return actualPath;
+    },
   };
 });
 
@@ -52,7 +53,6 @@ vi.mock("./lib/cli", () => ({
   parseCLI: vi.fn(() => ({ flags: new Map(), positionals: [] })),
 }));
 
-import { readFileSync } from "node:fs";
 import { execSync as mockedExecSync } from "node:child_process";
 import { buildDepGraph as mockedBuildDepGraph } from "./lib/deps";
 import { hasPathChangesSinceRef as mockedHasPathChangesSinceRef } from "./lib/git";
@@ -75,13 +75,13 @@ const mockParseCLI = vi.mocked(mockedParseCLI);
 const mockValidatePackage = vi.mocked(mockedValidatePackage);
 const mockValidateRootConsistency = vi.mocked(mockedValidateRootConsistency);
 
-const publishEntrypoint = `${repoRoot}/scripts/publish.ts`;
+let consoleErrorSpy: ReturnType<typeof vi.spyOn> | undefined;
 
 function prepareRelease(flags = new Map<string, boolean | string>()) {
   const rootPkg = {
     name: "@ayulab/oh-my-pi",
     version: "0.4.1",
-    path: repoRoot,
+    path: fixtureRoot,
     pkg: { name: "@ayulab/oh-my-pi", version: "0.4.1" },
     isRoot: true,
   };
@@ -107,7 +107,18 @@ async function runEntrypoint(): Promise<void> {
 }
 
 describe("publish entrypoint", () => {
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "publish-entrypoint-test-"));
+    fixtureScriptsDir = `${join(fixtureRoot, "scripts")}${sep}`;
+    publishEntrypoint = join(fixtureRoot, "scripts", "publish.ts");
+    rootPackagePath = join(fixtureRoot, "package.json");
+    workspaceManifest = readFileSync(join(workspaceRoot, "package.json"), "utf8");
+    mkdirSync(join(fixtureRoot, "scripts"), { recursive: true });
+    writeFileSync(rootPackagePath, workspaceManifest, "utf8");
+  });
+
   beforeEach(() => {
+    writeFileSync(rootPackagePath, workspaceManifest, "utf8");
     mockExecSync.mockReset();
     mockBuildDepGraph.mockReset();
     mockHasPathChangesSinceRef.mockReset();
@@ -116,6 +127,8 @@ describe("publish entrypoint", () => {
     mockParseCLI.mockReset();
     mockValidatePackage.mockReset();
     mockValidateRootConsistency.mockReset();
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
     mockParseCLI.mockReturnValue({ flags: new Map(), positionals: [] } as never);
     mockHasPathChangesSinceRef.mockReturnValue(false);
     mockValidatePackage.mockReturnValue([] as never);
@@ -125,6 +138,10 @@ describe("publish entrypoint", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
   });
 
   test("aborts on unsupported flags", async () => {
@@ -163,7 +180,7 @@ describe("publish entrypoint", () => {
       {
         name: "@ayulab/pi-clarify",
         version: "0.4.1",
-        path: `${repoRoot}/extensions/pi-clarify`,
+        path: `${fixtureRoot}/extensions/pi-clarify`,
         pkg: { name: "@ayulab/pi-clarify", version: "0.4.1" },
         isRoot: false,
       },
@@ -194,11 +211,11 @@ describe("publish entrypoint", () => {
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(mockExecSync).toHaveBeenCalledWith("pnpm run build", {
-      cwd: repoRoot,
+      cwd: fixtureRoot,
       stdio: "inherit",
     });
     expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset status --verbose", {
-      cwd: repoRoot,
+      cwd: fixtureRoot,
       stdio: "inherit",
     });
     expect(mockExecSync).not.toHaveBeenCalledWith(
@@ -212,7 +229,7 @@ describe("publish entrypoint", () => {
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish", {
-      cwd: repoRoot,
+      cwd: fixtureRoot,
       stdio: "inherit",
     });
   });
@@ -223,14 +240,14 @@ describe("publish entrypoint", () => {
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(mockExecSync).toHaveBeenCalledWith("pnpm run build", {
-      cwd: repoRoot,
+      cwd: fixtureRoot,
       stdio: "inherit",
     });
     expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish --otp 123456", {
-      cwd: repoRoot,
+      cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(JSON.parse(readFileSync(rootPackagePath, "utf8"))).toEqual(JSON.parse(originalManifest));
+    expect(readFileSync(rootPackagePath, "utf8")).toBe(originalManifest);
   });
 
   test("does not execute the entrypoint when argv[1] is missing", async () => {
@@ -248,13 +265,12 @@ describe("publish entrypoint", () => {
 
   test("reports uncaught entrypoint errors through the catch handler", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     mockGetPackages.mockImplementation(() => {
       throw new Error("boom");
     });
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(consoleSpy).toHaveBeenCalledWith(new Error("boom"));
+    expect(consoleErrorSpy).toHaveBeenCalledWith(new Error("boom"));
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });
