@@ -91,6 +91,8 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 | `pnpm run release:dry` | Dry-run preview of publish |
 | `pnpm run clean` | Remove coverage, caches, and tsbuildinfo |
 
+Git hooks are intentionally lightweight: `simple-git-hooks` only runs `pnpm run pre-commit` locally. Coverage stays in CI and in the explicit maintainer commands above.
+
 ## Quality Gate
 
 Before committing, run `pnpm run verify` locally:

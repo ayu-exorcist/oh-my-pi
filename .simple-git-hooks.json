@@ -1,4 +1,3 @@
 {
-  "pre-commit": "pnpm run pre-commit",
-  "pre-push": "pnpm run coverage"
+  "pre-commit": "pnpm run pre-commit"
 }
