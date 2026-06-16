@@ -17,7 +17,7 @@ vi.mock("node:url", async () => {
     fileURLToPath: (input: string | URL) => {
       const actualPath = actual.fileURLToPath(input);
       const normalizedPath = actualPath.replace(/\\/g, "/");
-      if (normalizedPath.endsWith("/scripts/publish.ts")) return publishEntrypoint;
+      if (normalizedPath.endsWith("/scripts/publish-packages.ts")) return publishEntrypoint;
       if (normalizedPath.endsWith("/scripts/") || normalizedPath.endsWith("/scripts")) {
         return fixtureScriptsDir;
       }
@@ -100,7 +100,7 @@ async function runEntrypoint(): Promise<void> {
   process.argv[1] = publishEntrypoint;
   try {
     vi.resetModules();
-    await import("./publish");
+    await import("./publish-packages");
   } finally {
     process.argv[1] = previousArgv1;
   }
@@ -110,7 +110,7 @@ describe("publish entrypoint", () => {
   beforeAll(() => {
     fixtureRoot = mkdtempSync(join(tmpdir(), "publish-entrypoint-test-"));
     fixtureScriptsDir = `${join(fixtureRoot, "scripts")}${sep}`;
-    publishEntrypoint = join(fixtureRoot, "scripts", "publish.ts");
+    publishEntrypoint = join(fixtureRoot, "scripts", "publish-packages.ts");
     rootPackagePath = join(fixtureRoot, "package.json");
     workspaceManifest = readFileSync(join(workspaceRoot, "package.json"), "utf8");
     mkdirSync(join(fixtureRoot, "scripts"), { recursive: true });
@@ -160,6 +160,7 @@ describe("publish entrypoint", () => {
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(mockGetPackages).not.toHaveBeenCalled();
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 
@@ -214,12 +215,12 @@ describe("publish entrypoint", () => {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset status --verbose", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset status --verbose", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
     expect(mockExecSync).not.toHaveBeenCalledWith(
-      expect.stringContaining("pnpm changeset publish"),
+      expect.stringContaining("pnpm exec changeset publish"),
       expect.anything(),
     );
   });
@@ -228,7 +229,7 @@ describe("publish entrypoint", () => {
     prepareRelease();
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset publish", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
@@ -243,7 +244,7 @@ describe("publish entrypoint", () => {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish --otp 123456", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset publish --otp 123456", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
@@ -255,7 +256,7 @@ describe("publish entrypoint", () => {
     process.argv[1] = undefined as never;
     try {
       vi.resetModules();
-      await import("./publish");
+      await import("./publish-packages");
     } finally {
       process.argv[1] = previousArgv1;
     }

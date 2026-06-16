@@ -34,5 +34,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error(err);
+  /* c8 ignore next */
   process.exit(1);
 });

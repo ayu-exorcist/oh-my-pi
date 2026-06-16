@@ -35,14 +35,11 @@ jobs:
 
       - name: Ensure changesets were consumed
         run: |
-          if find .changeset -type f -name '*.md' | grep -q .; then
+          if find .changeset -type f -name '*.md' -print -quit | grep -q .; then
             echo "Pending changeset files exist. Merge the release PR before publishing."
             find .changeset -type f -name '*.md' -print
             exit 1
           fi
 
-      - name: Publish packages
+      - name: Release
         run: pnpm run release
-
-      - name: Push Changesets tags
-        run: git push origin "refs/tags/*:refs/tags/*"

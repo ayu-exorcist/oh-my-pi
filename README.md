@@ -99,7 +99,9 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
 │   ├── dist-manifest.ts  # Compatibility wrapper for pi-dist-manifest
-│   ├── publish.ts        # Publish + tag + release
+│   ├── release.ts        # Release orchestration entry point
+│   ├── publish-packages.ts   # Publish packages via Changesets
+│   ├── sync-release-tags.ts  # Push newly created release tags
 │   ├── setup.ts          # Register repo in Pi settings
 │   └── teardown.ts       # Unregister repo from Pi settings
 ├── package.json          # Pi Package manifest (curated meta package)

@@ -1,3 +1,4 @@
+#!/usr/bin/env oxnode
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve, join } from "node:path";
@@ -5,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { isRecord } from "@ayulab/runtime-core";
 import { parseCLI } from "./lib/cli";
+import { parseReleaseRunOptions, rejectUnsupportedReleaseArgs } from "./lib/release-args";
 import { buildDepGraph, collectDependencies } from "./lib/deps";
 import { hasPathChangesSinceRef } from "./lib/git";
 import { getPackages, getReleaseInputWorkspacePackages } from "./lib/packages";
@@ -14,26 +16,7 @@ import type { PackageInfo, ValidationError } from "./lib/types";
 /** Repository root absolute path. */
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-const { flags, positionals } = parseCLI();
-
-const DRY_RUN = flags.has("dry-run");
-const OTP = typeof flags.get("otp") === "string" ? String(flags.get("otp")) : undefined;
-
-function rejectUnsupportedFlags(): boolean {
-  const unsupported = ["package", "p", "all", "a", "access"].filter((name) => flags.has(name));
-  if (unsupported.length === 0 && positionals.length === 0) return true;
-
-  console.error("❌ Unsupported release arguments.");
-  if (unsupported.length > 0) console.error(`   Flags: ${unsupported.join(", ")}`);
-  if (positionals.length > 0) console.error(`   Positionals: ${positionals.join(", ")}`);
-  console.error(
-    "   Use Changesets to choose release packages and .changeset/config.json for access.",
-  );
-  process.exit(1);
-  return false;
-}
-
-function packageReleasePaths(pkg: PackageInfo, related: readonly PackageInfo[]): string[] {
+export function packageReleasePaths(pkg: PackageInfo, related: readonly PackageInfo[]): string[] {
   const paths = new Set<string>([
     relative(root, resolve(pkg.path, "package.json")),
     relative(root, resolve(pkg.path, "README.md")),
@@ -101,8 +84,8 @@ export function ensureReleaseScopeIsCommitted(
   console.error(
     `❌ Release aborted: uncommitted changes detected for ${dirtyPackages.join(", ")}. Commit first, then rerun release.`,
   );
+  /* c8 ignore next */
   process.exit(1);
-  return false;
 }
 
 function collectValidationErrors(packages: readonly PackageInfo[]): ValidationError[] {
@@ -133,8 +116,8 @@ function ensureReleaseValidation(packages: readonly PackageInfo[]): boolean {
     console.error(`  ${err.pkg}: ${err.field} ${err.message}`);
   }
   console.error("");
+  /* c8 ignore next */
   process.exit(1);
-  return false;
 }
 
 export function stripRootManifestForPublish(rootDir = root): () => void {
@@ -165,18 +148,21 @@ export function stripRootManifestForPublish(rootDir = root): () => void {
   return () => writeFileSync(packageJsonPath, original);
 }
 
-function runChangesetsPublish(): void {
-  const otpFlag = OTP ? ` --otp ${OTP}` : "";
+function runChangesetsPublish(otp: string | undefined): void {
+  const otpFlag = otp ? ` --otp ${otp}` : "";
   const restoreRootManifest = stripRootManifestForPublish();
   try {
-    execSync(`pnpm changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
+    execSync(`pnpm exec changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
   } finally {
     restoreRootManifest();
   }
 }
 
-export async function runRelease(): Promise<void> {
-  if (!rejectUnsupportedFlags()) return;
+export async function publishPackages(options: {
+  dryRun: boolean;
+  otp: string | undefined;
+}): Promise<void> {
+  const { dryRun, otp } = options;
 
   const packages = getPackages(root);
   const releaseInputPackages = getReleaseInputWorkspacePackages(root);
@@ -185,27 +171,32 @@ export async function runRelease(): Promise<void> {
     ...packages.filter((pkg) => pkg.isRoot),
   ]);
 
-  if (!DRY_RUN && !ensureReleaseScopeIsCommitted(packages, inputNameMap)) return;
+  if (!dryRun && !ensureReleaseScopeIsCommitted(packages, inputNameMap)) return;
   if (!ensureReleaseValidation(packages)) return;
 
   console.log("🔨 Building packages...");
   execSync("pnpm run build", { cwd: root, stdio: "inherit" });
   console.log("");
 
-  if (DRY_RUN) {
-    execSync("pnpm changeset status --verbose", { cwd: root, stdio: "inherit" });
+  if (dryRun) {
+    execSync("pnpm exec changeset status --verbose", { cwd: root, stdio: "inherit" });
     console.log("\n🏃 Dry run mode. No packages were published and no tags were created.");
     return;
   }
 
-  runChangesetsPublish();
+  runChangesetsPublish(otp);
   console.log("🎉 Changesets publish completed successfully!");
 }
 
 const entrypoint = process.argv[1] ? resolve(process.argv[1]) : null;
 if (entrypoint === fileURLToPath(import.meta.url)) {
-  void runRelease().catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
+  const { flags, positionals } = parseCLI();
+  if (rejectUnsupportedReleaseArgs(flags, positionals)) {
+    const { dryRun, otp } = parseReleaseRunOptions(flags);
+    void publishPackages({ dryRun, otp }).catch((err: unknown) => {
+      console.error(err);
+      /* c8 ignore next */
+      process.exit(1);
+    });
+  }
 }

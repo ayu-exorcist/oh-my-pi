@@ -45,7 +45,7 @@ import {
   validatePackage as mockedValidatePackage,
   validateRootConsistency as mockedValidateRootConsistency,
 } from "./lib/validate";
-import { findUncommittedReleasePackages, stripRootManifestForPublish } from "./publish";
+import { findUncommittedReleasePackages, stripRootManifestForPublish } from "./publish-packages";
 
 const mockExecSync = vi.mocked(mockedExecSync);
 const mockBuildDepGraph = vi.mocked(mockedBuildDepGraph);

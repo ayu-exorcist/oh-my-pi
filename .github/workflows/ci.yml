@@ -23,7 +23,9 @@ jobs:
 
       - name: Fetch base branch
         if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch origin "$BASE_REF:$BASE_REF"
 
       - name: Check Changesets status
         if: >-
@@ -31,7 +33,7 @@ jobs:
           (github.event.pull_request.user.login != 'github-actions[bot]' ||
           github.event.pull_request.head.repo.full_name != github.repository ||
           github.event.pull_request.head.ref != format('changeset-release/{0}', github.event.pull_request.base.ref))
-        run: pnpm changeset status --verbose
+        run: pnpm exec changeset status --verbose
 
       - name: Run CI gate
         run: pnpm run verify

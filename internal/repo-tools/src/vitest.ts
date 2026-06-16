@@ -58,6 +58,7 @@ export function createRootVitestConfig(config: ViteUserConfig = {}): ViteUserCon
       test: {
         alias: workspaceSourceAliases,
         projects: ["extensions/*", "sdk/*", "internal/*", "scripts"],
+        silent: true,
         testTimeout: 15000,
       },
     }),

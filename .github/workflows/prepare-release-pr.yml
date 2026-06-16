@@ -31,7 +31,7 @@ jobs:
       - name: Create or update Release PR
         uses: changesets/action@v1
         with:
-          version: pnpm run version-packages
+          version: bash -lc 'pnpm exec changeset version && pnpm install'
           title: "chore(release): version packages"
           commit: "chore(release): version packages"
         env:

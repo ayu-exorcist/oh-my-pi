@@ -86,11 +86,10 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 | `pnpm run build`             | Turborepo build all workspace packages into `dist/` |
 | `pnpm run setup`             | Register repo in user-level Pi settings             |
 | `pnpm run teardown`          | Unregister repo from user-level Pi settings         |
-| `pnpm run changeset`         | Create a Changesets release note                    |
-| `pnpm run version-packages`  | Apply Changesets version bumps + update lockfile    |
-| `pnpm run release`           | Build, validate, and run Changesets publish         |
-| `pnpm run release:dry`       | Dry-run preview of publish                          |
-| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo            |
+
+| `pnpm run release` | Build, validate, and run Changesets publish |
+| `pnpm run release:dry` | Dry-run preview of publish |
+| `pnpm run clean` | Remove coverage, caches, and tsbuildinfo |
 
 ## Quality Gate
 
@@ -104,7 +103,7 @@ Before committing, run `pnpm run verify` locally:
 Use `pnpm run coverage` when you want a plain coverage report during development.
 Use `pnpm run coverage:strict` when you are the maintainer and need to audit or ratchet full-repo coverage.
 
-GitHub Actions runs `pnpm changeset status --verbose` and `pnpm run verify` on every pull request. Maintainers can run `pnpm run coverage:strict` locally whenever they want to audit or ratchet full-repo coverage.
+GitHub Actions runs `pnpm exec changeset status --verbose` and `pnpm run verify` on every pull request. Maintainers can run `pnpm run coverage:strict` locally whenever they want to audit or ratchet full-repo coverage.
 
 ## Pull Request Workflow
 
@@ -253,7 +252,7 @@ export default defineConfig(
 
 ### Adding an Internal Package
 
-Internal packages live under `internal/`, must set `"private": true`, and are not published by `scripts/publish.ts`.
+Internal packages live under `internal/`, must set `"private": true`, and are not published by `scripts/publish-packages.ts`.
 
 Use `internal/runtime-core` for shared runtime helpers that published packages bundle into their output. Keep it zero-dependency unless there is a deliberate architectural reason to add a dependency.
 
@@ -338,13 +337,13 @@ Describe PRs clearly enough that reviewers can understand the change, the motiva
 Create a Changesets entry for user-facing package changes before merging. Add it in the same PR as the feature or bug fix so the generated release PR can preserve the correct version and changelog history:
 
 ```bash
-pnpm run changeset
+pnpm exec changeset add
 ```
 
 Pull requests that affect published packages should not be merged without a changeset. For infrastructure-only changes that should not publish packages, create an empty changeset:
 
 ```bash
-pnpm changeset add --empty
+pnpm exec changeset add --empty
 ```
 
 The `Prepare Release PR` workflow creates and updates the version PR automatically after changesets reach `main`. Keep that release PR open to accumulate multiple changes, then merge it when you are ready to release. The release PR follows the same branch protection rules as every other pull request: it must be up to date with `main`, pass required CI checks, and receive the required review approval before merging.
@@ -352,7 +351,7 @@ The `Prepare Release PR` workflow creates and updates the version PR automatical
 For local recovery, maintainers can apply pending version bumps and update the lockfile manually:
 
 ```bash
-pnpm run version-packages
+pnpm exec changeset version && pnpm install
 ```
 
 Normal releases should use the generated release PR instead of manual version commits. `pnpm run release` builds, validates, and delegates npm publishing plus git tag creation to `changeset publish`.
@@ -373,11 +372,11 @@ npm publish
 provenance=true
 ```
 
-**Pre-publish validation** — `scripts/publish.ts` discovers publishable packages from `extensions/`, `sdk/`, and the root package only; packages marked `private: true` and private `internal/*` packages are built and tested but not published. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
+**Pre-publish validation** — `scripts/publish-packages.ts` discovers publishable packages from `extensions/`, `sdk/`, and the root package only; packages marked `private: true` and private `internal/*` packages are built and tested but not published. Missing `README.md`, `repository`, `homepage`, `bugs`, or incorrect `keywords` / `pi.extensions` will abort the release with a clear error.
 
 **Release credentials** — npm publishing uses Trusted Publishing / OIDC, with package publishing access set to `Require two-factor authentication and disallow tokens`. GitHub Actions uses the built-in `GITHUB_TOKEN` plus `id-token: write`; no `NPM_TOKEN` secret is required.
 
-**Git tags** — `changeset publish` creates package tags automatically. Format: `@scope/name@version`. The `Release` workflow pushes those tags after publishing succeeds. For manual local releases, run `git push --follow-tags` after `pnpm run release`.
+**Git tags** — `changeset publish` creates package tags automatically. Format: `@scope/name@version`. The `Release` workflow runs `scripts/sync-release-tags.ts` after publishing succeeds, which pushes only the newly created tags.
 
 **Release workflow** — `Prepare Release PR` runs automatically on `main` pushes and only creates or updates the Changesets release PR. The `Release` workflow runs after the `changeset-release/main` PR is merged, verifies no pending `.changeset/*.md` files remain, then publishes packages and tags.
 

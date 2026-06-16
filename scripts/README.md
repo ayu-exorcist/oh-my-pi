@@ -7,7 +7,7 @@ All top-level scripts are TypeScript files executed via [`oxnode`](https://githu
 ```
 scripts/
 ├── dist-manifest.ts    # Compatibility wrapper for @ayulab/repo-tools/dist-manifest
-├── publish.ts          # Release entry point
+├── release.ts          # Release entry point
 ├── setup.ts            # Register repo in Pi settings
 ├── teardown.ts         # Unregister repo from Pi settings
 ├── vitest.config.ts    # Script test config
@@ -35,19 +35,18 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 
 `pnpm run release` runs this automatically before publishing. Run it directly for local build validation.
 
-## `publish.ts` — Changesets Publish Wrapper
+## `release.ts` — Release Flow
 
 `pnpm run release` / `pnpm run release:dry`
 
-The `Release` GitHub Actions workflow calls `pnpm run release` after the generated `changeset-release/main` PR is merged. Local release commands are for maintainer recovery and dry-run validation; normal releases should happen by merging the generated release PR.
+This is the single release entry point used by GitHub Actions and local maintainer recovery.
 
-Runs project-specific pre-publish checks, then delegates package publishing and git tag creation to Changesets:
+What it does:
 
-1. **Discovery** (`lib/packages.ts`) — scans `extensions/`, `sdk/`, and the root package for publishable packages. Workspace packages marked `private: true` and private `internal/*` packages are intentionally excluded.
-2. **Committed-source guard** — release aborts when publishable package inputs have uncommitted changes, so Changesets tags point at an actual git commit.
-3. **Validation** (`lib/validate.ts`) — enforces manifest compliance (`README.md` present, correct `keywords`/`pi.extensions` per package kind, `repository`/`homepage`/`bugs`, `publishConfig.access`, root `bundledDependencies` consistency). Fails fast on violations.
-4. **Build** — runs `pnpm run build` (via Turborepo) to compile all workspace packages into `dist/` before publishing.
-5. **Changesets publish** — runs `pnpm changeset publish`, which publishes unpublished package versions and creates package git tags.
+1. validates the release scope and package manifests
+2. runs the workspace build
+3. publishes unpublished packages with Changesets
+4. syncs the newly created git tags to `origin`
 
 Flags:
 
@@ -56,18 +55,13 @@ Flags:
 | `--dry-run`    | —     | Preview what would be published without touching npm |
 | `--otp <code>` | —     | One-time password for manual local publishing        |
 
-Targeted publish flags (`--package`, `-p`, `--all`, `-a`, and positional package names) are intentionally unsupported. Choose release packages with Changesets instead. Access is configured in `.changeset/config.json` and per-package `publishConfig`.
+Targeted publish flags (`--package`, `-p`, `--all`, `-a`, and positional package names) are intentionally unsupported. Choose release packages with Changesets instead.
 
 Examples:
 
 ```bash
-# Validate release inputs and print Changesets status without publishing
 pnpm run release:dry
-
-# Maintainer recovery only: publish unpublished package versions and create tags
 pnpm run release
-
-# Maintainer recovery only: publish with OTP
 pnpm run release --otp 123456
 ```
 
