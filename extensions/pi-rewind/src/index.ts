@@ -98,6 +98,15 @@ function hasCheckpointFileChanges(entries: readonly unknown[]): boolean {
   );
 }
 
+function rememberCheckpointFileChanges(
+  state: SessionStateMap<boolean>,
+  sessionId: string,
+  entries: readonly unknown[],
+): void {
+  const hasFileChanges = hasCheckpointFileChanges(entries);
+  state.set(sessionId, state.getOrUndefined(sessionId) === true || hasFileChanges);
+}
+
 export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
   return isRecord(value);
 }
@@ -319,10 +328,12 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const lastCheckpointTurnIds = new SessionStateMap<string>();
   const pendingTreeRestores = new SessionStateMap<TreeRestoreIntent>();
   const suppressedTreeRestores = new SessionStateMap<boolean>();
+  const sessionHasCheckpointFileChanges = new SessionStateMap<boolean>();
 
   function appendCheckpoint(sessionId: string, entry: CheckpointEntry): void {
     if (lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
     lastCheckpointTurnIds.set(sessionId, entry.turnId);
+    rememberCheckpointFileChanges(sessionHasCheckpointFileChanges, sessionId, [entry]);
     pi.appendEntry("pi-checkpoint", entry);
   }
 
@@ -367,6 +378,10 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       repos.setRepo(sessionId, storage.repo);
       producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
+      sessionHasCheckpointFileChanges.set(
+        sessionId,
+        hasCheckpointFileChanges(ctx.sessionManager.getEntries()),
+      );
 
       const entries = ctx.sessionManager.getEntries();
       if (forkIntent?.position === "at") {
@@ -393,6 +408,10 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     lastCheckpointTurnIds.delete(sessionId);
     pendingTreeRestores.delete(sessionId);
     suppressedTreeRestores.delete(sessionId);
+    sessionHasCheckpointFileChanges.set(
+      sessionId,
+      hasCheckpointFileChanges(ctx.sessionManager.getEntries()),
+    );
 
     if (event.reason === "resume" && config.restoreOnResume === "always") {
       const entries = ctx.sessionManager.getEntries();
@@ -499,7 +518,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
 
     if (config.restoreOnTree === "ask") {
-      if (!ctx.hasUI || !hasCheckpointFileChanges(ctx.sessionManager.getEntries())) return;
+      if (!ctx.hasUI || !sessionHasCheckpointFileChanges.getOrUndefined(sessionId)) return;
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {

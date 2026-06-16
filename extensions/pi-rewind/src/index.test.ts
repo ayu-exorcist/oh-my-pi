@@ -1729,6 +1729,50 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
+  async function runTreeAskScenario(
+    events: Record<string, Array<MockEventHandler>>,
+    ctx: ExtensionContext,
+    sessionStartEvent: {
+      readonly reason: "new" | "resume" | "fork";
+      readonly previousSessionFile?: string;
+    },
+  ): Promise<void> {
+    for (const h of events["session_start"] || []) {
+      await h(sessionStartEvent, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+  }
+
+  async function prepareForkSourceSession(
+    events: Record<string, Array<MockEventHandler>>,
+    sourceCtx: ExtensionContext,
+    targetSessionFile: string,
+    position: "before" | "at",
+  ): Promise<void> {
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, sourceCtx);
+    }
+    for (const h of events["session_before_fork"] || []) {
+      await h({ entryId: "entry-1", position }, sourceCtx);
+    }
+    for (const h of events["session_shutdown"] || []) {
+      await h({ reason: "fork", targetSessionFile }, sourceCtx);
+    }
+  }
+
+  async function prepareCloneSourceSession(
+    events: Record<string, Array<MockEventHandler>>,
+    sourceCtx: ExtensionContext,
+    targetSessionFile: string,
+  ): Promise<void> {
+    await prepareForkSourceSession(events, sourceCtx, targetSessionFile, "at");
+  }
+
   test("session_tree ask mode skips sync prompt when no checkpoints changed files", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
     const branch = [
@@ -1745,17 +1789,187 @@ describe("checkpoint extension", () => {
       .mockResolvedValue({ ok: true });
     const ctx = createMockContext(sessionFile, branch, tmpDir);
 
-    for (const h of events["session_start"] || []) {
-      await h({ reason: "new" }, ctx);
-    }
-    for (const h of events["session_before_tree"] || []) {
-      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
-    }
-    for (const h of events["session_tree"] || []) {
-      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
-    }
+    await runTreeAskScenario(events, ctx, { reason: "new" });
 
     expect(ctx.ui.select).not.toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_tree ask mode keeps prompting when any checkpoint in the session changed files", async () => {
+    const changedCheckpoint = createCheckpointEntry({
+      afterCommit: "changed-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const unchangedCheckpoint = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: unchangedCheckpoint },
+    ];
+    let entries: readonly unknown[] = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = {
+      ...createMockContext(sessionFile, branch, tmpDir),
+      sessionManager: {
+        ...createMockSessionManager(sessionFile, branch),
+        getEntries: () => entries,
+      },
+    } as unknown as ExtensionContext;
+    vi.mocked(ctx.ui.select).mockResolvedValueOnce("No");
+
+    await runTreeAskScenario(events, ctx, { reason: "new" });
+
+    entries = branch;
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_start new session rebuilds ask cache from session history", async () => {
+    const changedCheckpoint = createCheckpointEntry({
+      afterCommit: "changed-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    await runTreeAskScenario(events, ctx, { reason: "new" });
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_start resume session rebuilds ask cache from resumed history", async () => {
+    const changedCheckpoint = createCheckpointEntry({
+      afterCommit: "changed-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    await runTreeAskScenario(events, ctx, { reason: "resume" });
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_start fork session rebuilds ask cache from forked history", async () => {
+    const changedCheckpoint = createCheckpointEntry({
+      afterCommit: "changed-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const sourceBranch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+    ];
+    const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
+    await fs.writeFile(forkSessionFile, "", "utf8");
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({
+        ayu: {
+          rewind: { restoreOnTree: "ask" },
+          checkpoint: { restoreOnFork: "never", restoreOnClone: "never" },
+        },
+      }),
+      "utf8",
+    );
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const sourceCtx = createMockContext(sessionFile, sourceBranch, tmpDir);
+    await prepareForkSourceSession(events, sourceCtx, forkSessionFile, "before");
+
+    const forkCtx = createMockContext(forkSessionFile, sourceBranch, tmpDir);
+    await runTreeAskScenario(events, forkCtx, {
+      reason: "fork",
+      previousSessionFile: sessionFile,
+    });
+
+    expect(forkCtx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_start clone session rebuilds ask cache from cloned history", async () => {
+    const changedCheckpoint = createCheckpointEntry({
+      afterCommit: "changed-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const sourceBranch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+    ];
+    const cloneSessionFile = path.join(tmpDir, "clone-session.jsonl");
+    await fs.writeFile(cloneSessionFile, "", "utf8");
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({
+        ayu: {
+          rewind: { restoreOnTree: "ask" },
+          checkpoint: { restoreOnFork: "never", restoreOnClone: "never" },
+        },
+      }),
+      "utf8",
+    );
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const sourceCtx = createMockContext(sessionFile, sourceBranch, tmpDir);
+    await prepareCloneSourceSession(events, sourceCtx, cloneSessionFile);
+
+    const cloneCtx = createMockContext(cloneSessionFile, sourceBranch, tmpDir);
+    await runTreeAskScenario(events, cloneCtx, {
+      reason: "fork",
+      previousSessionFile: sessionFile,
+    });
+
+    expect(cloneCtx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
