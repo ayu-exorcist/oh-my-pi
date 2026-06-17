@@ -18,9 +18,8 @@ export function syncReleaseTags(): void {
   const tags = selectReleaseTagsToPush(localTags, remoteTags);
 
   if (tags.length === 0) {
-    console.error("No release tags were created on HEAD.");
-    /* c8 ignore next */
-    process.exit(1);
+    console.log("All release tags already exist on remote. Nothing to push.");
+    return;
   }
 
   execFileSync("git", ["push", "--no-verify", "origin", ...tags], { stdio: "inherit" });

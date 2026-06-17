@@ -86,12 +86,17 @@ describe("sync release tags", { retry: 2 }, () => {
     }
   });
 
-  test("fails when no release tags were created", () => {
+  test("returns normally when all release tags already exist on remote", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
     mockSelectReleaseTagsToPush.mockReturnValueOnce([]);
+    mockExecFileSync.mockClear();
 
     syncReleaseTags();
 
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    const pushCalls = mockExecFileSync.mock.calls.filter(
+      (call) => call && call[0] === "git" && call[1]?.includes("push"),
+    );
+    expect(pushCalls).toHaveLength(0);
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });
