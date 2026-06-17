@@ -3,6 +3,8 @@ name: Prepare Release PR
 on:
   push:
     branches: [main]
+    paths:
+      - ".changeset/*.md"
   workflow_dispatch:
 
 permissions:
