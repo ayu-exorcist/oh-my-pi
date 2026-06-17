@@ -104,21 +104,35 @@ Example: keep a shared `ayu.rewind` default in user settings, then override just
 
 Supported values:
 
-| Setting    | Behavior                                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files.                                                                                   |
-| `"ask"`    | Ask `Sync files?` when the session has ever produced checkpointed file changes; once any checkpoint changes files, later `/tree` prompts stay on. |
-| `"always"` | Restore files when `/tree` navigates with `No summary`.                                                                                           |
+| Setting    | Behavior                                                                                                                                                                                                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files.                                                                                                                                                                                                                                                    |
+| `"ask"`    | When `/tree` is used with **No summary**, ask `Sync files?` if the session has ever produced checkpointed file changes; once any checkpoint changes files, later `/tree` prompts stay on during the session. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore). |
+| `"always"` | When `/tree` is used with **No summary**, restore files automatically without prompting. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore).                                                                                                                     |
 
 `/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
 
 `restoreOnTree: "ask"` is session-scoped: the extension caches whether any checkpoint in the current session has ever changed files, and `/reload` rebuilds that cache from the current session history.
 
-Known limitation: when `restoreOnTree` is `"ask"`, pressing Esc in Pi's `Sync files?` dialog cancels the prompt after Pi has already left the tree selector. The built-in `/tree` selector has already called `done()` and closed before `pi-rewind` can show `Sync files?`, so an extension cannot return focus to the previous tree level without changing Pi's package implementation. `pi-rewind` documents this behavior instead of emulating tree navigation.
+### /tree — file restore flow
 
-Note: pressing Esc in the `Sync files?` dialog is equivalent to selecting `No` — the file sync is skipped and the tree navigation proceeds with conversation-only state change.
+When you navigate the session tree with `/tree`, the user is first asked whether to **Summarize**, **Summarize with custom prompt**, or produce **No summary**. The `restoreOnTree` setting determines what happens next:
 
-Legacy top-level `checkpoint` settings are still accepted for compatibility, but new setups should use `ayu.checkpoint`.
+```mermaid
+flowchart TD
+    A[/tree navigation/] --> B{Summarize<br/>or<br/>Summarize with<br/>custom prompt?}
+    B -->|Yes| C[Conversation-only<br/>navigation<br/><i>native /tree behaviour</i>]
+    B -->|No summary| D{restoreOnTree?}
+    D -->|"never"| C
+    D -->|"ask"| E{Session has<br/>checkpointed<br/>file changes?}
+    E -->|No| C
+    E -->|Yes| F[Prompt:<br/>Sync files?]
+    F -->|Yes| G[Restore code<br/>+ conversation]
+    F -->|No| C
+    D -->|"always"| G
+
+    note1[Note: Esc in the Sync files? dialog<br/>is equivalent to selecting No.] -.-> F
+```
 
 ## Session deletion
 
