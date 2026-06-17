@@ -1,5 +1,5 @@
 ---
-"@ayulab/pi-rewind": minor
+"@ayulab/pi-rewind": patch
 ---
 
 fix(pi-rewind): show Sync files? dialog in ask mode when userWantsSummary is undefined or false
