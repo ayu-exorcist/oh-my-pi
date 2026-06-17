@@ -116,6 +116,8 @@ Supported values:
 
 Known limitation: when `restoreOnTree` is `"ask"`, pressing Esc in Pi's `Sync files?` dialog cancels the prompt after Pi has already left the tree selector. The built-in `/tree` selector has already called `done()` and closed before `pi-rewind` can show `Sync files?`, so an extension cannot return focus to the previous tree level without changing Pi's package implementation. `pi-rewind` documents this behavior instead of emulating tree navigation.
 
+Note: pressing Esc in the `Sync files?` dialog is equivalent to selecting `No` — the file sync is skipped and the tree navigation proceeds with conversation-only state change.
+
 Legacy top-level `checkpoint` settings are still accepted for compatibility, but new setups should use `ayu.checkpoint`.
 
 ## Session deletion

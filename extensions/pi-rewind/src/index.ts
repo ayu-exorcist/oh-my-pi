@@ -92,10 +92,12 @@ interface TreeRestoreIntent {
   readonly mode: "Restore code and conversation" | "Restore conversation";
 }
 
+function checkpointHasFileChanges(checkpoint: CheckpointEntry): boolean {
+  return checkpoint.fileCount > 0 || checkpoint.fileChanges.length > 0;
+}
+
 function hasCheckpointFileChanges(entries: readonly unknown[]): boolean {
-  return getCheckpointEntries(entries).some(
-    (checkpoint) => checkpoint.fileCount > 0 || checkpoint.fileChanges.length > 0,
-  );
+  return getCheckpointEntries(entries).some(checkpointHasFileChanges);
 }
 
 function rememberCheckpointFileChanges(
@@ -103,7 +105,8 @@ function rememberCheckpointFileChanges(
   sessionId: string,
   entries: readonly unknown[],
 ): void {
-  const hasFileChanges = hasCheckpointFileChanges(entries);
+  const checkpoints = filterCheckpointEntries(entries);
+  const hasFileChanges = checkpoints.some(checkpointHasFileChanges);
   state.set(sessionId, state.getOrUndefined(sessionId) === true || hasFileChanges);
 }
 
@@ -329,6 +332,11 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const pendingTreeRestores = new SessionStateMap<TreeRestoreIntent>();
   const suppressedTreeRestores = new SessionStateMap<boolean>();
   const sessionHasCheckpointFileChanges = new SessionStateMap<boolean>();
+  const sessionConfigs = new SessionStateMap<CheckpointConfig>();
+
+  function getSessionConfig(sessionId: string): CheckpointConfig {
+    return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
+  }
 
   function appendCheckpoint(sessionId: string, entry: CheckpointEntry): void {
     if (lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
@@ -337,7 +345,6 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     pi.appendEntry("pi-checkpoint", entry);
   }
 
-  let config = loadConfig({});
   let pendingForkIntent: ForkIntent | undefined;
 
   pi.on("session_before_fork", async (event) => {
@@ -362,7 +369,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     // before the checkpoint defaults are applied.
     const globalSettings = await readSettingsRecord(path.join(os.homedir(), ".pi", "agent"));
     const projectSettings = await readSettingsRecord(path.join(ctx.cwd, ".pi"));
-    config = loadConfig(mergeSettingsRecords(globalSettings, projectSettings));
+    const config = loadConfig(mergeSettingsRecords(globalSettings, projectSettings));
+    sessionConfigs.set(sessionId, config);
 
     if (event.reason === "fork") {
       if (!event.previousSessionFile) return;
@@ -432,12 +440,25 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
   });
 
+  async function finalizeCheckpointForSession(sessionId: string): Promise<void> {
+    await sessionTasks.run(sessionId, async () => {
+      const producer = producers.getOrUndefined(sessionId);
+      if (!producer) return;
+
+      const result = await producer.finalizeRun();
+      if (result.ok) {
+        appendCheckpoint(sessionId, result.entry);
+      }
+    });
+  }
+
   async function startCheckpointForLatestUser(
     sessionId: string,
     ctx: ExtensionContext,
   ): Promise<void> {
     await sessionTasks.run(sessionId, async () => {
       const producer = producers.getOrUndefined(sessionId);
+      const config = getSessionConfig(sessionId);
       if (!config.enabled || !config.autoCheckpoint || !producer) return;
 
       const leaf = findLastUserEntry(ctx.sessionManager.getBranch());
@@ -485,16 +506,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sessionTasks.run(sessionId, async () => {
-      const producer = producers.getOrUndefined(sessionId);
-      if (!producer) return;
-
-      const result = await producer.finalizeRun();
-      if (result.ok) {
-        appendCheckpoint(sessionId, result.entry);
-      }
-    });
+    await finalizeCheckpointForSession(ctx.sessionManager.getSessionId());
   });
 
   pi.on("session_before_tree", async (event, ctx) => {
@@ -503,11 +515,18 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!targetId) return;
 
     const sessionId = ctx.sessionManager.getSessionId();
+    const config = getSessionConfig(sessionId);
     if (suppressedTreeRestores.getOrUndefined(sessionId)) return;
 
     pendingTreeRestores.set(sessionId, { targetId, mode: "Restore conversation" });
 
     if (treeEvent.userWantsSummary !== false) return;
+
+    await finalizeCheckpointForSession(sessionId);
+    const hasKnownFileChanges =
+      sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
+      hasCheckpointFileChanges(ctx.sessionManager.getEntries());
+    sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
 
     if (config.restoreOnTree === "always") {
       pendingTreeRestores.set(sessionId, {
@@ -518,7 +537,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
 
     if (config.restoreOnTree === "ask") {
-      if (!ctx.hasUI || !sessionHasCheckpointFileChanges.getOrUndefined(sessionId)) return;
+      if (!ctx.hasUI || !hasKnownFileChanges) return;
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {
@@ -543,6 +562,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
     const restoreIntent = pendingTreeRestores.getOrUndefined(sessionId);
     pendingTreeRestores.delete(sessionId);
+    const config = getSessionConfig(sessionId);
     if (restoreIntent?.mode === "Restore conversation") return;
     if (!restoreIntent && config.restoreOnTree !== "always") return;
 

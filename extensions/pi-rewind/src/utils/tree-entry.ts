@@ -54,7 +54,12 @@ export function getTreeEventRecord(value: unknown): TreeEventRecord | undefined 
         : undefined;
 
   return {
-    oldLeafId: typeof value.oldLeafId === "string" ? value.oldLeafId : undefined,
+    oldLeafId:
+      typeof value.oldLeafId === "string"
+        ? value.oldLeafId
+        : typeof treePreparation?.oldLeafId === "string"
+          ? treePreparation.oldLeafId
+          : undefined,
     targetId,
     newLeafId: typeof value.newLeafId === "string" ? value.newLeafId : undefined,
     userWantsSummary:

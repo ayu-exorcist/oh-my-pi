@@ -38,8 +38,11 @@ describe("tree entry guards", () => {
       preparation: undefined,
     });
 
-    expect(getTreeEventRecord({ preparation: { targetId: "prepared" } })?.targetId).toBe(
-      "prepared",
-    );
+    expect(
+      getTreeEventRecord({ preparation: { oldLeafId: "prepared-old", targetId: "prepared" } }),
+    ).toMatchObject({
+      oldLeafId: "prepared-old",
+      targetId: "prepared",
+    });
   });
 });

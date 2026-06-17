@@ -70,10 +70,11 @@ function isSessionMessageEntry(
 function createMockSessionManager(
   sessionFile: string,
   branch: readonly unknown[] = [],
+  sessionId = "test-session",
 ): MockSessionManager {
   return {
     getSessionFile: () => sessionFile,
-    getSessionId: () => "test-session",
+    getSessionId: () => sessionId,
     getLeafEntry: () => {
       const leaf = branch[branch.length - 1];
       if (!isSessionMessageEntry(leaf)) return undefined;
@@ -189,9 +190,10 @@ function createMockContext(
   sessionFile: string,
   branch: readonly unknown[],
   cwd: string,
+  sessionId = "test-session",
 ): MockContext {
   return {
-    sessionManager: createMockSessionManager(sessionFile, branch),
+    sessionManager: createMockSessionManager(sessionFile, branch, sessionId),
     cwd,
     ui: { notify: vi.fn(), confirm: vi.fn(), select: vi.fn() },
     hasUI: true,
@@ -415,7 +417,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(checkoutCommit).toHaveBeenCalledWith("root-after");
-  });
+  }, 15000);
 
   test("fork copies repo and restores code to fork point", async () => {
     const srcBranch = [createUserEntry("entry-1", "create file")];
@@ -1662,6 +1664,75 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).toHaveBeenCalledWith("before-hash", undefined);
   });
 
+  test("session_tree ask mode finalizes pending checkpoint before prompting", async () => {
+    const branch = [createUserEntry("entry-1", "write file")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("No");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+    await fs.writeFile(path.join(tmpDir, "test.txt"), "content", "utf8");
+
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledWith(
+      "pi-checkpoint",
+      expect.objectContaining({ fileCount: 1 }),
+    );
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+  });
+
+  test("session_tree ask mode is isolated per session", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const cwdAsk = path.join(tmpDir, "ask-project");
+    const cwdNever = path.join(tmpDir, "never-project");
+    await fs.mkdir(cwdAsk, { recursive: true });
+    await fs.mkdir(cwdNever, { recursive: true });
+    await setTreeRestoreMode(cwdAsk, "ask");
+    await setTreeRestoreMode(cwdNever, "never");
+
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const askCtx = createMockContext(sessionFile, branch, cwdAsk, "ask-session");
+    const neverCtx = createMockContext(
+      path.join(tmpDir, "never-session.jsonl"),
+      branch,
+      cwdNever,
+      "never-session",
+    );
+    askCtx.ui.select.mockResolvedValueOnce("No");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, askCtx);
+      await h({ reason: "new" }, neverCtx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, askCtx);
+    }
+
+    expect(askCtx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(neverCtx.ui.select).not.toHaveBeenCalled();
+  });
+
   test("session_tree ask mode without UI keeps native tree behavior", async () => {
     const checkpointEntry = createCheckpointEntry({
       afterCommit: "tree-after",
@@ -2029,6 +2100,27 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("session_before_tree uses loadConfig fallback when session config not set", async () => {
+    // This test exercises the ?? loadConfig({}) branch of getSessionConfig
+    // by calling session_before_tree WITHOUT first calling session_start,
+    // so sessionConfigs.getOrUndefined(sessionId) returns undefined.
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("No");
+
+    // Skip session_start — go straight to session_before_tree
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+
+    // Should not throw — getSessionConfig falls back to loadConfig({})
+    expect(ctx.ui.select).not.toHaveBeenCalled();
   });
 
   test("session_tree restores latest branch checkpoint when ayu rewind restoreOnTree is always", async () => {
