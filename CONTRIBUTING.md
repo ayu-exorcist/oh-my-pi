@@ -105,7 +105,7 @@ Before committing, run `pnpm run verify` locally:
 Use `pnpm run coverage` when you want a plain coverage report during development.
 Use `pnpm run coverage:strict` when you are the maintainer and need to audit or ratchet full-repo coverage.
 
-GitHub Actions runs `pnpm exec changeset status --verbose` and `pnpm run verify` on every pull request. Maintainers can run `pnpm run coverage:strict` locally whenever they want to audit or ratchet full-repo coverage.
+GitHub Actions runs `pnpm changeset status --verbose` and `pnpm run verify` on every pull request. Maintainers can run `pnpm run coverage:strict` locally whenever they want to audit or ratchet full-repo coverage.
 
 ## Pull Request Workflow
 
@@ -339,13 +339,13 @@ Describe PRs clearly enough that reviewers can understand the change, the motiva
 Create a Changesets entry for user-facing package changes before merging. Add it in the same PR as the feature or bug fix so the generated release PR can preserve the correct version and changelog history:
 
 ```bash
-pnpm exec changeset add
+pnpm changeset add
 ```
 
 Pull requests that affect published packages should not be merged without a changeset. For infrastructure-only changes that should not publish packages, create an empty changeset:
 
 ```bash
-pnpm exec changeset add --empty
+pnpm changeset add --empty
 ```
 
 The `Prepare Release PR` workflow creates and updates the version PR automatically after changesets reach `main`. Keep that release PR open to accumulate multiple changes, then merge it when you are ready to release. The release PR follows the same branch protection rules as every other pull request: it must be up to date with `main`, pass required CI checks, and receive the required review approval before merging.
@@ -353,7 +353,7 @@ The `Prepare Release PR` workflow creates and updates the version PR automatical
 For local recovery, maintainers can apply pending version bumps and update the lockfile manually:
 
 ```bash
-pnpm exec changeset version && pnpm install
+pnpm run version
 ```
 
 Normal releases should use the generated release PR instead of manual version commits. `pnpm run release` builds, validates, and delegates npm publishing plus git tag creation to `changeset publish`.

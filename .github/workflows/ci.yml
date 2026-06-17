@@ -33,7 +33,7 @@ jobs:
           (github.event.pull_request.user.login != 'github-actions[bot]' ||
           github.event.pull_request.head.repo.full_name != github.repository ||
           github.event.pull_request.head.ref != format('changeset-release/{0}', github.event.pull_request.base.ref))
-        run: pnpm exec changeset status --verbose
+        run: pnpm changeset status --verbose
 
       - name: Run CI gate
         run: pnpm run verify

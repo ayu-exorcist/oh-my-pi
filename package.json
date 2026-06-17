@@ -51,6 +51,8 @@
     "prepare": "simple-git-hooks",
     "pre-commit": "oxnode scripts/pre-commit.ts",
     "build": "turbo run build --filter=\"!@ayulab/oh-my-pi\"",
+    "changeset": "changeset",
+    "version": "changeset version && pnpm install",
     "release": "oxnode scripts/release.ts",
     "release:dry": "oxnode scripts/release.ts --dry-run"
   },

@@ -215,12 +215,12 @@ describe("publish entrypoint", () => {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset status --verbose", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm run changeset status --verbose", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
     expect(mockExecSync).not.toHaveBeenCalledWith(
-      expect.stringContaining("pnpm exec changeset publish"),
+      expect.stringContaining("pnpm run changeset publish"),
       expect.anything(),
     );
   });
@@ -229,7 +229,7 @@ describe("publish entrypoint", () => {
     prepareRelease();
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset publish", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm run changeset publish", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
@@ -244,7 +244,7 @@ describe("publish entrypoint", () => {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm exec changeset publish --otp 123456", {
+    expect(mockExecSync).toHaveBeenCalledWith("pnpm run changeset publish --otp 123456", {
       cwd: fixtureRoot,
       stdio: "inherit",
     });

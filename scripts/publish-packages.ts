@@ -152,7 +152,7 @@ function runChangesetsPublish(otp: string | undefined): void {
   const otpFlag = otp ? ` --otp ${otp}` : "";
   const restoreRootManifest = stripRootManifestForPublish();
   try {
-    execSync(`pnpm exec changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
+    execSync(`pnpm run changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
   } finally {
     restoreRootManifest();
   }
@@ -179,7 +179,7 @@ export async function publishPackages(options: {
   console.log("");
 
   if (dryRun) {
-    execSync("pnpm exec changeset status --verbose", { cwd: root, stdio: "inherit" });
+    execSync("pnpm run changeset status --verbose", { cwd: root, stdio: "inherit" });
     console.log("\n🏃 Dry run mode. No packages were published and no tags were created.");
     return;
   }
