@@ -72,12 +72,12 @@ describe("loadConfig", () => {
     expect(config.exclude).toEqual(defaultConfig.exclude);
   });
 
-  test("legacy top-level checkpoint config still works for compatibility", () => {
+  test("top-level checkpoint config is ignored", () => {
     const config = loadConfig({
       checkpoint: {
         enabled: false,
       },
     });
-    expect(config.enabled).toBe(false);
+    expect(config.enabled).toBe(defaultConfig.enabled);
   });
 });

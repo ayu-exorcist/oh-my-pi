@@ -17,8 +17,13 @@ export function syncReleaseTags(): void {
   const remoteTags = parseRemoteTagList(git(["ls-remote", "--tags", "--refs", "origin"]));
   const tags = selectReleaseTagsToPush(localTags, remoteTags);
 
+  if (localTags.length === 0) {
+    console.warn("No local release tags point at HEAD. Nothing to push.");
+    return;
+  }
+
   if (tags.length === 0) {
-    console.log("All release tags already exist on remote. Nothing to push.");
+    console.log("All local release tags already exist on remote. Nothing to push.");
     return;
   }
 

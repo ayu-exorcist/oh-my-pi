@@ -131,7 +131,7 @@ const checkpoints = filterCheckpointEntries(dataList);
 
 Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settings live under `ayu.checkpoint`; Ayu extension behavior settings live under `ayu.rewind`.
 
-`ayu` is merged recursively across scopes: project settings override user settings field-by-field, and missing values fall back to defaults. Legacy top-level `checkpoint` is still accepted for compatibility, but new configs should use `ayu.checkpoint`.
+`ayu` is merged recursively across scopes: project settings override user settings field-by-field, and missing values fall back to defaults. Checkpoint settings must be nested under `ayu.checkpoint`; top-level `checkpoint` settings are ignored.
 
 ```json
 {

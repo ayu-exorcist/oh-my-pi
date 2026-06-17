@@ -86,8 +86,10 @@ describe("sync release tags", { retry: 2 }, () => {
     }
   });
 
-  test("returns normally when all release tags already exist on remote", () => {
+  test("returns normally when no local release tags point at HEAD", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockParseLocalTagList.mockReturnValueOnce([]);
     mockSelectReleaseTagsToPush.mockReturnValueOnce([]);
     mockExecFileSync.mockClear();
 
@@ -97,6 +99,25 @@ describe("sync release tags", { retry: 2 }, () => {
       (call) => call && call[0] === "git" && call[1]?.includes("push"),
     );
     expect(pushCalls).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith("No local release tags point at HEAD. Nothing to push.");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  test("returns normally when all release tags already exist on remote", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    mockSelectReleaseTagsToPush.mockReturnValueOnce([]);
+    mockExecFileSync.mockClear();
+
+    syncReleaseTags();
+
+    const pushCalls = mockExecFileSync.mock.calls.filter(
+      (call) => call && call[0] === "git" && call[1]?.includes("push"),
+    );
+    expect(pushCalls).toHaveLength(0);
+    expect(logSpy).toHaveBeenCalledWith(
+      "All local release tags already exist on remote. Nothing to push.",
+    );
     expect(exitSpy).not.toHaveBeenCalled();
   });
 });

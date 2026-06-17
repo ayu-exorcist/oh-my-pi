@@ -57,8 +57,7 @@ export const defaultConfig: CheckpointConfig = {
  */
 export function loadConfig(settings: Record<string, unknown>): CheckpointConfig {
   const ayu = getRecordField(settings, "ayu") ?? {};
-  const checkpoint =
-    getRecordField(ayu, "checkpoint") ?? getRecordField(settings, "checkpoint") ?? {};
+  const checkpoint = getRecordField(ayu, "checkpoint") ?? {};
   const rewind = getRecordField(ayu, "rewind") ?? {};
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,

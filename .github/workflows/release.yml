@@ -41,5 +41,10 @@ jobs:
             exit 1
           fi
 
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Release
         run: pnpm run release
