@@ -1,5 +1,15 @@
 # @ayulab/oh-my-pi
 
+## 0.4.3
+
+### Patch Changes
+
+- b21b4b7: - fix: remove `run` prefix from `pnpm changeset` commands in publish scripts (`pnpm changeset status` / `pnpm changeset publish` instead of `pnpm run changeset ...`)
+  - ci: add `paths` filter to `prepare-release-pr.yml` workflow to trigger only on `.changeset/*.md` changes
+- Updated dependencies [b21b4b7]
+- Updated dependencies [b21b4b7]
+  - @ayulab/pi-rewind@0.3.3
+
 ## 0.4.2
 
 ### Patch Changes
