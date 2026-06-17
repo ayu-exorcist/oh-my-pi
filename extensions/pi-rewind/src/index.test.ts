@@ -1664,6 +1664,42 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).toHaveBeenCalledWith("before-hash", undefined);
   });
 
+  test("session_tree ask mode does not prompt when user chooses to summarise", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    // User chose "Summarize" — userWantsSummary is true
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: true } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    // Should NOT show sync prompt when user chose to summarise
+    expect(ctx.ui.select).not.toHaveBeenCalled();
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
   test("session_tree ask mode finalizes pending checkpoint before prompting", async () => {
     const branch = [createUserEntry("entry-1", "write file")];
     const { api, events, appendEntry } = createMockApi();

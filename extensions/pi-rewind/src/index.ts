@@ -520,7 +520,12 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
     pendingTreeRestores.set(sessionId, { targetId, mode: "Restore conversation" });
 
-    if (treeEvent.userWantsSummary !== false) return;
+    // Summarise or Summarize with custom prompt → behave like native /tree
+    // (conversation-only navigation, no file restore).
+    // When userWantsSummary is undefined (e.g. legacy pi-coding-agent),
+    // treat it as "not explicitly requesting summary" so that restoreOnTree
+    // settings can still apply.
+    if (treeEvent.userWantsSummary === true) return;
 
     await finalizeCheckpointForSession(sessionId);
     const hasKnownFileChanges =
@@ -549,6 +554,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       return;
     }
 
+    // never — do nothing, keep mode as "Restore conversation"
     pendingTreeRestores.delete(sessionId);
   });
 
