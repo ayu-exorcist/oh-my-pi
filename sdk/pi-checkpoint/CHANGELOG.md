@@ -1,5 +1,11 @@
 # @ayulab/pi-checkpoint
 
+## 0.5.1
+
+### Patch Changes
+
+- 8c7fe78: Remove legacy top-level `checkpoint` settings compatibility. Checkpoint configuration must now be nested under `ayu.checkpoint`.
+
 ## 0.5.0
 
 ### Minor Changes

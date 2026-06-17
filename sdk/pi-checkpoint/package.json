@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/pi-checkpoint",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "File-level checkpoint engine using git bare repos",
   "keywords": [
     "checkpoint",

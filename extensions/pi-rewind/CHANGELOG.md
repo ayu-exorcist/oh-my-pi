@@ -1,5 +1,12 @@
 # @ayulab/pi-rewind
 
+## 0.3.5
+
+### Patch Changes
+
+- Updated dependencies [8c7fe78]
+  - @ayulab/pi-checkpoint@0.5.1
+
 ## 0.3.4
 
 ### Patch Changes
