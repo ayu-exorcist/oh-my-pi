@@ -48,11 +48,7 @@ function collectWorkspaceRelated(
   pkg: PackageInfo,
   nameMap: ReadonlyMap<string, PackageInfo>,
 ): PackageInfo[] {
-  const names = collectDependencies(
-    pkg.name,
-    nameMap as Map<string, PackageInfo>,
-    new Set<string>(),
-  );
+  const names = collectDependencies(pkg.name, nameMap, new Set<string>());
   return [...names]
     .map((name) => nameMap.get(name))
     .filter((value): value is PackageInfo => Boolean(value));

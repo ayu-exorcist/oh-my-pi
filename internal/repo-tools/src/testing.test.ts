@@ -17,16 +17,9 @@ interface Tool {
 type Command = () => string;
 type EventHandler = (value: string) => string;
 
-interface Api {
-  readonly registerTool: (tool: Tool) => void;
-  readonly registerCommand: (name: string, command: Command) => void;
-  readonly appendEntry: (entry: unknown) => void;
-  readonly on: (event: string, handler: EventHandler) => void;
-}
-
 describe("repo test helpers", () => {
   test("records extension tools, commands, event handlers, and appended entries", () => {
-    const mock = createMockExtensionApi<Api, Tool, Command, EventHandler>();
+    const mock = createMockExtensionApi<Tool, Command, EventHandler>();
     const tool = { name: "tool", execute: () => "tool-result" };
     const command = () => "command-result";
     const handler = (value: string) => `handled ${value}`;
@@ -45,7 +38,7 @@ describe("repo test helpers", () => {
   });
 
   test("throws for missing registrations", () => {
-    const mock = createMockExtensionApi<Api, Tool, Command, EventHandler>();
+    const mock = createMockExtensionApi<Tool, Command, EventHandler>();
     mock.events.set("empty", []);
 
     expect(() => getRegisteredTool(mock.tools, "missing")).toThrow("missing tool missing");

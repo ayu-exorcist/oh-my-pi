@@ -21,21 +21,21 @@ export interface PkgJson {
 }
 
 export interface PackageInfo {
-  name: string;
-  version: string;
-  path: string;
-  pkg: PkgJson;
-  isRoot: boolean;
+  readonly name: string;
+  readonly version: string;
+  readonly path: string;
+  readonly pkg: PkgJson;
+  readonly isRoot: boolean;
 }
 
 export interface ValidationError {
-  pkg: string;
-  field: string;
-  message: string;
+  readonly pkg: string;
+  readonly field: string;
+  readonly message: string;
 }
 
 export interface DepGraph {
-  graph: Map<string, string[]>;
-  inDegree: Map<string, number>;
-  nameMap: Map<string, PackageInfo>;
+  readonly graph: ReadonlyMap<string, readonly string[]>;
+  readonly inDegree: ReadonlyMap<string, number>;
+  readonly nameMap: ReadonlyMap<string, PackageInfo>;
 }

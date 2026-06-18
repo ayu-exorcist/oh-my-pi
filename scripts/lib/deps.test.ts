@@ -109,6 +109,36 @@ describe("dependency graph helpers", () => {
     expect(topoSort(["a", "b", "a"], graph, inDegree)).toEqual(["a", "b"]);
   });
 
+  test("topoSort does not requeue a child that has already been visited", () => {
+    const graph = new Map<string, string[]>([
+      ["visited", []],
+      ["parent", ["visited"]],
+    ]);
+    const inDegree = new Map<string, number>([
+      ["visited", 0],
+      ["parent", 0],
+    ]);
+    const originalGet = Map.prototype.get;
+    let visitedInDegreeLookups = 0;
+    const getSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+    ) {
+      const value = originalGet.call(this, key);
+      if (key === "visited" && typeof value === "number") {
+        visitedInDegreeLookups += 1;
+        return visitedInDegreeLookups === 1 ? 0 : 1;
+      }
+      return value;
+    });
+
+    try {
+      expect(topoSort(["visited", "parent"], graph, inDegree)).toEqual(["visited", "parent"]);
+    } finally {
+      getSpy.mockRestore();
+    }
+  });
+
   test("sorts dependencies before dependents", () => {
     const packages = [pkg("app", { sdk: "workspace:*" }), pkg("sdk")];
     const graph = buildDepGraph(packages);

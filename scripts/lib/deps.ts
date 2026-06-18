@@ -6,7 +6,7 @@ import type { PackageInfo, DepGraph } from "./types";
  * Edges point from a dependency → the package that depends on it so that
  * topological sorting yields dependents *after* their dependencies.
  */
-export function buildDepGraph(packages: PackageInfo[]): DepGraph {
+export function buildDepGraph(packages: readonly PackageInfo[]): DepGraph {
   const nameMap = new Map(packages.map((p) => [p.name, p]));
   const graph = new Map<string, string[]>();
   const inDegree = new Map<string, number>();
@@ -36,9 +36,9 @@ export function buildDepGraph(packages: PackageInfo[]): DepGraph {
  * Kahn's algorithm — return `names` ordered so that dependencies come first.
  */
 export function topoSort(
-  names: string[],
-  graph: Map<string, string[]>,
-  baseInDegree: Map<string, number>,
+  names: readonly string[],
+  graph: ReadonlyMap<string, readonly string[]>,
+  baseInDegree: ReadonlyMap<string, number>,
 ): string[] {
   const inDegree = new Map(baseInDegree);
   const queue = [...names].filter((n) => inDegree.get(n) === 0);
@@ -54,7 +54,8 @@ export function topoSort(
     const children = graph.get(name);
     if (!children) continue;
     for (const child of children) {
-      const degree = inDegree.get(child)!;
+      const degree = inDegree.get(child);
+      if (degree === undefined) continue;
       const newDegree = degree - 1;
       inDegree.set(child, newDegree);
       if (newDegree === 0 && !visited.has(child)) {
@@ -71,7 +72,7 @@ export function topoSort(
  */
 export function collectDependencies(
   target: string,
-  nameMap: Map<string, PackageInfo>,
+  nameMap: ReadonlyMap<string, PackageInfo>,
   visited = new Set<string>(),
 ): Set<string> {
   if (visited.has(target)) return visited;

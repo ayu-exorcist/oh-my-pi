@@ -4,25 +4,31 @@ export interface NamedRegistration {
   readonly name: string;
 }
 
-export interface MockExtensionApi<TApi, TTool extends NamedRegistration, TCommand, TEventHandler> {
-  readonly api: TApi;
+export interface MockExtensionApiShape<TTool extends NamedRegistration, TCommand, TEventHandler> {
+  readonly registerTool: (tool: TTool) => void;
+  readonly registerCommand: (name: string, command: TCommand) => void;
+  readonly appendEntry: (entry: unknown) => void;
+  readonly on: (event: string, handler: TEventHandler) => void;
+}
+
+export interface MockExtensionApi<TTool extends NamedRegistration, TCommand, TEventHandler> {
+  readonly api: MockExtensionApiShape<TTool, TCommand, TEventHandler>;
   readonly tools: Map<string, TTool>;
   readonly commands: Map<string, TCommand>;
   readonly events: Map<string, TEventHandler[]>;
-  readonly appendEntry: ReturnType<typeof vi.fn>;
-  readonly registerCommand: ReturnType<typeof vi.fn>;
+  readonly appendEntry: Mock<(entry: unknown) => void>;
+  readonly registerCommand: Mock<(name: string, command: TCommand) => void>;
 }
 
 export function createMockExtensionApi<
-  TApi,
   TTool extends NamedRegistration,
   TCommand,
   TEventHandler = (...args: readonly unknown[]) => unknown,
->(): MockExtensionApi<TApi, TTool, TCommand, TEventHandler> {
+>(): MockExtensionApi<TTool, TCommand, TEventHandler> {
   const tools = new Map<string, TTool>();
   const commands = new Map<string, TCommand>();
   const events = new Map<string, TEventHandler[]>();
-  const appendEntry = vi.fn();
+  const appendEntry = vi.fn<(entry: unknown) => void>();
   const registerCommand = vi.fn((name: string, command: TCommand) => {
     commands.set(name, command);
   });
@@ -38,7 +44,7 @@ export function createMockExtensionApi<
       handlers.push(handler);
       events.set(event, handlers);
     },
-  } as TApi;
+  } satisfies MockExtensionApiShape<TTool, TCommand, TEventHandler>;
 
   return { api, tools, commands, events, appendEntry, registerCommand };
 }

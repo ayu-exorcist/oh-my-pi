@@ -16,6 +16,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function rewritePaths(value: string): string;
+function rewritePaths(value: readonly unknown[]): unknown[];
+function rewritePaths(value: Record<string, unknown>): Record<string, unknown>;
+function rewritePaths(value: unknown): unknown;
 function rewritePaths(value: unknown): unknown {
   if (typeof value === "string") {
     const normalized = value.replace(/^\.\/src\//, "./").replace(/^src\//, "");
@@ -62,7 +66,7 @@ function listDistFiles(distDir: string): string[] {
 
 export function buildDistManifest(cwd: string): void {
   const pkgJsonPath = join(cwd, "package.json");
-  const pkgJson = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+  const pkgJson: unknown = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
 
   if (!isRecord(pkgJson)) {
     throw new Error("package.json must be an object");
@@ -76,7 +80,7 @@ export function buildDistManifest(cwd: string): void {
 
   const pi = manifest.pi;
   if (isRecord(pi) && Array.isArray(pi.extensions)) {
-    pi.extensions = rewritePaths(pi.extensions) as unknown[];
+    pi.extensions = rewritePaths(pi.extensions);
   }
 
   delete manifest.scripts;
@@ -85,7 +89,7 @@ export function buildDistManifest(cwd: string): void {
   delete manifest.files;
 
   if (isRecord(manifest.dependencies)) {
-    manifest.dependencies = filterWorkspaceDeps(manifest.dependencies) as Record<string, string>;
+    manifest.dependencies = filterWorkspaceDeps(manifest.dependencies);
   }
 
   const distDir = join(cwd, "dist");
