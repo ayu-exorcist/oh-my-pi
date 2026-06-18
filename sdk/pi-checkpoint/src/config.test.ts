@@ -8,6 +8,7 @@ describe("loadConfig", () => {
     expect(config.autoCheckpoint).toBe(true);
     expect(config.restoreOnTree).toBe("never");
     expect(config.exclude).toContain("node_modules/**");
+    expect(config.exclude).toContain("**/node_modules/**");
   });
 
   test("user overrides merge with defaults", () => {

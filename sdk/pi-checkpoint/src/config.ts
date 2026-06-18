@@ -39,6 +39,7 @@ export const defaultConfig: CheckpointConfig = {
   defaultSummaryInstructions: "",
   exclude: [
     "node_modules/**",
+    "**/node_modules/**",
     ".git",
     ".pi/**",
     "dist/**",

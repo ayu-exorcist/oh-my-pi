@@ -116,6 +116,7 @@ const storage = await safeCloneSessionCheckpointStorage({
   previousSessionFile,
   sessionFile: ctx.sessionManager.getSessionFile(),
   cwd: ctx.cwd,
+  exclude: config.exclude,
 });
 
 if (storage.ok) {
@@ -174,6 +175,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
       "defaultSummaryInstructions": "",
       "exclude": [
         "node_modules/**",
+        "**/node_modules/**",
         ".git",
         ".pi/**",
         "dist/**",
@@ -193,6 +195,20 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
 The SDK config type accepts `"always"`, `"ask"`, and `"never"` for fork, clone, and resume restore settings. `pi-rewind` currently performs those automatic restores only for `"always"`; use `"never"` to disable them.
+
+### Exclude behavior
+
+Checkpoint staging respects Git ignore rules from the work tree, including root and nested `.gitignore` files. Checkpoint Storage also writes its own internal excludes to the bare repo's `info/exclude` before staging; these rules are not written to the user's project `.git`.
+
+The internal excludes cover high-cost or unsafe paths such as `node_modules`, generated build output, and auto-detected nested Git repository roots. For example, if a session is opened at `Desktop` and `Desktop/project-a/.git` exists, the `project-a/` directory is excluded from the `Desktop` Checkpoint. `/rewind` still works for non-excluded files in `Desktop`, but it will not restore files inside `project-a/` from that outer session. If the session is opened directly at `Desktop/project-a`, that repository is the work tree root and is protected normally except for configured excludes.
+
+This avoids Git indexing embedded repositories as gitlinks and keeps restore behavior scoped to one work tree. Cloned Checkpoint Storage should receive the same exclude list before any checkout or restore so `git clean` keeps excluded work tree content protected. To protect a nested repository's files, open a Pi session in that repository root.
+
+### Design note: changed-path capture
+
+A possible future architecture is a changed-path log with before/after content capture. Instead of staging the whole work tree, the engine would record paths touched during a Turn and persist the pre-Turn and post-Turn content or deletion state only for those paths. That could reduce scanning cost for broad workspaces and may support richer multi-root behavior.
+
+This is not the current default because arbitrary shell commands can modify files outside the agent's direct edit tools. A correct implementation would need reliable write detection, likely through a filesystem watcher, platform journal, or command sandbox, plus restore semantics for deletes, renames, binary files, permissions, dirty guards, and rollback. Until those pieces exist, git-backed Checkpoint Storage remains the source of truth, with internal excludes used to avoid known unsafe or ambiguous paths.
 
 ## Development
 

@@ -74,6 +74,7 @@ describe("loadConfig integration", () => {
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
     expect(config.exclude).toContain("node_modules/**");
+    expect(config.exclude).toContain("**/node_modules/**");
   });
 
   test("loadConfigFromFile returns defaults when JSON is invalid", async () => {

@@ -83,6 +83,163 @@ describe("RepoManager", () => {
     expect(files.trim()).toBe("hello.txt");
   });
 
+  test("checkpoint excludes nested git repositories", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "nested", "repo");
+    await fs.mkdir(nestedRepo, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await exec("git", ["init"], undefined, nestedRepo);
+
+    await fs.writeFile(path.join(workTree, "root.txt"), "tracked", "utf8");
+    await fs.writeFile(path.join(nestedRepo, "ignored.txt"), "ignored", "utf8");
+
+    await repo.ensureReady(["node_modules/**"]);
+    const hash = await repo.checkpoint("entry-1");
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude).toContain("nested/repo/");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout.trim()).toBe("root.txt");
+  });
+
+  test("checkpoint refreshes nested git repository excludes before staging", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "nested", "repo");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await fs.writeFile(path.join(workTree, "root.txt"), "tracked", "utf8");
+
+    await repo.ensureReady([]);
+    await repo.checkpoint("entry-1");
+
+    await fs.mkdir(nestedRepo, { recursive: true });
+    await exec("git", ["init"], undefined, nestedRepo);
+    await exec("git", ["config", "user.email", "nested@example.test"], undefined, nestedRepo);
+    await exec("git", ["config", "user.name", "Nested Repo"], undefined, nestedRepo);
+    await fs.writeFile(path.join(nestedRepo, "nested.txt"), "nested", "utf8");
+    await exec("git", ["add", "nested.txt"], undefined, nestedRepo);
+    await exec("git", ["commit", "-m", "nested"], undefined, nestedRepo);
+
+    const hash = await repo.checkpoint("entry-2");
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude).toContain("nested/repo/");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout.trim()).toBe("root.txt");
+  });
+
+  test("setExclude excludes nested git repositories with git file markers", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "nested", "repo");
+    await fs.mkdir(nestedRepo, { recursive: true });
+    await fs.writeFile(path.join(nestedRepo, ".git"), "gitdir: ../repo.git\n", "utf8");
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude([]);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude).toContain("nested/repo/");
+  });
+
+  test("setExclude does not exclude the work tree root git repository", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+    await exec("git", ["init"], undefined, workTree);
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude([]);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude.trim()).toBe("");
+  });
+
+  test("setExclude scans node_modules when node_modules is not excluded", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "node_modules", "pkg");
+    await fs.mkdir(nestedRepo, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await exec("git", ["init"], undefined, nestedRepo);
+
+    await repo.setExclude([]);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude).toContain("node_modules/pkg/");
+  });
+
+  test("setExclude prunes node_modules when node_modules is excluded", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "node_modules", "pkg");
+    await fs.mkdir(nestedRepo, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await exec("git", ["init"], undefined, nestedRepo);
+
+    await repo.setExclude(["**/node_modules/**"]);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const exclude = await fs.readFile(excludePath, "utf8");
+    expect(exclude).toContain("**/node_modules/**");
+    expect(exclude).not.toContain("node_modules/pkg/");
+  });
+
+  test("checkpoint removes previously indexed nested git repositories", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const nestedRepo = path.join(workTree, "nested", "repo");
+    await fs.mkdir(nestedRepo, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await exec("git", ["init"], undefined, nestedRepo);
+    await exec("git", ["config", "user.email", "nested@example.test"], undefined, nestedRepo);
+    await exec("git", ["config", "user.name", "Nested Repo"], undefined, nestedRepo);
+    await fs.writeFile(path.join(nestedRepo, "nested.txt"), "nested", "utf8");
+    await exec("git", ["add", "nested.txt"], undefined, nestedRepo);
+    await exec("git", ["commit", "-m", "nested"], undefined, nestedRepo);
+
+    await fs.writeFile(path.join(workTree, "root.txt"), "tracked", "utf8");
+    await repo.checkpoint("entry-1");
+
+    await repo.ensureReady([]);
+    const hash = await repo.checkpoint("entry-2");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout.trim()).toBe("root.txt");
+    await expect(fs.access(path.join(nestedRepo, ".git"))).resolves.toBeUndefined();
+  });
+
   test("user can restore files to a previous checkpoint", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");
@@ -264,6 +421,21 @@ describe("RepoManager", () => {
     expect(content).toContain("*.log");
   });
 
+  test("setExclude skips directories that cannot be read", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "missing-project");
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    await expect(repo.setExclude(["*.log"])).resolves.toBeUndefined();
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const content = await fs.readFile(excludePath, "utf8");
+    expect(content).toContain("*.log");
+  });
+
   test("ensureReady does nothing when repo is intact", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");
@@ -278,6 +450,23 @@ describe("RepoManager", () => {
     await repo.ensureReady();
 
     expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test("ensureReady refreshes exclude when repo is intact", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    const spy = vi.spyOn(repo, "setExclude");
+
+    await repo.ensureReady(["**/node_modules/**"]);
+
+    expect(spy).toHaveBeenCalledWith(["**/node_modules/**"]);
     spy.mockRestore();
   });
 
@@ -304,7 +493,7 @@ describe("RepoManager", () => {
     expect(content).toContain("node_modules/**");
   });
 
-  test("ensureReady skips setExclude when patterns are empty", async () => {
+  test("ensureReady writes empty exclude when patterns are empty", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");
     const workTree = path.join(tmpDir, "project");
@@ -319,7 +508,7 @@ describe("RepoManager", () => {
 
     await repo.ensureReady([]);
 
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith([]);
     spy.mockRestore();
   });
 

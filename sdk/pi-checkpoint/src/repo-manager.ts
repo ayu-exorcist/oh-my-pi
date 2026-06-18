@@ -1,7 +1,43 @@
+import type { Dirent } from "node:fs";
 import path from "node:path";
-import { writeFile, mkdir } from "node:fs/promises";
+import { readdir, writeFile, mkdir } from "node:fs/promises";
 import { exec, type ExecEnv } from "./exec";
 import { withRepoLock } from "./lock";
+
+const AUTO_EXCLUDE_SCAN_ALWAYS_PRUNE_DIRS = new Set([".git", ".pi"]);
+const AUTO_EXCLUDE_SCAN_CONFIGURED_PRUNE_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  "target",
+]);
+
+function getDirectoryExcludePatterns(dirName: string): Set<string> {
+  return new Set([
+    dirName,
+    `${dirName}/`,
+    `${dirName}/**`,
+    `**/${dirName}`,
+    `**/${dirName}/`,
+    `**/${dirName}/**`,
+  ]);
+}
+
+function hasDirectoryExclude(patterns: readonly string[], dirName: string): boolean {
+  const directoryExcludePatterns = getDirectoryExcludePatterns(dirName);
+  return patterns.some((pattern) => directoryExcludePatterns.has(pattern));
+}
+
+function shouldPruneAutoExcludeScanDir(dirName: string, patterns: readonly string[]): boolean {
+  if (AUTO_EXCLUDE_SCAN_ALWAYS_PRUNE_DIRS.has(dirName)) return true;
+  return (
+    AUTO_EXCLUDE_SCAN_CONFIGURED_PRUNE_DIRS.has(dirName) && hasDirectoryExclude(patterns, dirName)
+  );
+}
+
+function toGitPath(workTree: string, absolutePath: string): string {
+  return path.relative(workTree, absolutePath).replace(/[\\/]+/g, "/");
+}
 
 /**
  * Outcome of {@link RepoManager.safeCheckout}.
@@ -29,6 +65,8 @@ export class RepoManager {
   private env: ExecEnv;
 
   private repoDir: string;
+
+  private excludePatterns: readonly string[] | undefined;
 
   constructor(
     /** Absolute path to the bare `.git` directory. */
@@ -100,9 +138,10 @@ export class RepoManager {
       await exec("git", [...this.gitArgs(), "rev-parse", "--git-dir"], this.env, this.workTree);
     } catch {
       await this.init();
-      if (excludePatterns && excludePatterns.length > 0) {
-        await this.setExclude(excludePatterns);
-      }
+    }
+
+    if (excludePatterns) {
+      await this.setExclude(excludePatterns);
     }
   }
 
@@ -113,11 +152,59 @@ export class RepoManager {
     });
   }
 
+  private async findNestedGitRepoExcludes(patterns: readonly string[]): Promise<string[]> {
+    const workTree = path.resolve(this.workTree);
+    const roots: string[] = [];
+    const stack = [workTree];
+
+    while (true) {
+      const current = stack.pop();
+      if (current === undefined) break;
+
+      let entries: Dirent[];
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      const hasGitMarker = entries.some(
+        (entry) => entry.name === ".git" && (entry.isDirectory() || entry.isFile()),
+      );
+      if (current !== workTree && hasGitMarker) {
+        const relative = toGitPath(workTree, current);
+        roots.push(`${relative}/`);
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        if (shouldPruneAutoExcludeScanDir(entry.name, patterns)) continue;
+        stack.push(path.join(current, entry.name));
+      }
+    }
+
+    return roots.sort();
+  }
+
+  private async writeExclude(patterns: readonly string[]): Promise<void> {
+    const excludePath = path.join(this.gitDir, "info", "exclude");
+    const autoExcludes = await this.findNestedGitRepoExcludes(patterns);
+    const allPatterns = [...new Set([...patterns, ...autoExcludes])];
+    await mkdir(path.dirname(excludePath), { recursive: true });
+    await writeFile(excludePath, allPatterns.join("\n") + "\n", "utf8");
+  }
+
+  private async refreshExclude(): Promise<void> {
+    if (!this.excludePatterns) return;
+    await this.writeExclude(this.excludePatterns);
+  }
+
   /** Write exclude patterns to `info/exclude` inside the bare repo. */
   async setExclude(patterns: readonly string[]): Promise<void> {
-    const excludePath = path.join(this.gitDir, "info", "exclude");
-    await mkdir(path.dirname(excludePath), { recursive: true });
-    await writeFile(excludePath, patterns.join("\n") + "\n", "utf8");
+    const explicitPatterns = [...patterns];
+    this.excludePatterns = explicitPatterns;
+    await this.writeExclude(explicitPatterns);
   }
 
   /** Write exclude patterns while holding the repo lock. */
@@ -134,7 +221,7 @@ export class RepoManager {
    * @returns The 40-character commit hash.
    */
   async checkpoint(entryId: string): Promise<string> {
-    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+    await this.stageAll();
     await exec(
       "git",
       [...this.gitArgs(), "commit", "-m", `[pi] entry:${entryId}`, "--allow-empty"],
@@ -175,7 +262,7 @@ export class RepoManager {
    * @returns The safety commit hash.
    */
   async createSafetyCommit(): Promise<string> {
-    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+    await this.stageAll();
     await exec("git", [...this.gitArgs(), "commit", "-m", "[pi] safety"], this.env, this.workTree);
     const { stdout } = await exec(
       "git",
@@ -245,8 +332,32 @@ export class RepoManager {
     return stdout;
   }
 
+  private async removeIgnoredFromIndex(): Promise<void> {
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "ls-files", "-z", "-i", "-c", "--exclude-standard"],
+      this.env,
+      this.workTree,
+    );
+    const paths = stdout.split("\0").filter((entry) => entry.length > 0);
+    if (paths.length === 0) return;
+
+    const chunkSize = 100;
+    for (let index = 0; index < paths.length; index += chunkSize) {
+      const chunk = paths.slice(index, index + chunkSize);
+      await exec(
+        "git",
+        [...this.gitArgs(), "rm", "--cached", "-r", "--ignore-unmatch", "--", ...chunk],
+        this.env,
+        this.workTree,
+      );
+    }
+  }
+
   /** Stage all changes in the working tree. */
   async stageAll(): Promise<void> {
+    await this.refreshExclude();
+    await this.removeIgnoredFromIndex();
     await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
   }
 

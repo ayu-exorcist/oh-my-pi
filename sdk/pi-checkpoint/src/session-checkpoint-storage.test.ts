@@ -95,6 +95,27 @@ describe("Session Checkpoint Storage", () => {
     );
   });
 
+  test("clones Checkpoint Storage and refreshes exclude when provided", async () => {
+    const sourceSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "source.jsonl");
+    const forkSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "fork.jsonl");
+    const sourceRepoDir = getRepoDir(sourceSessionFile);
+    await fs.mkdir(getGitDir(sourceRepoDir), { recursive: true });
+    vi.spyOn(RepoManager, "cloneFrom").mockResolvedValue(undefined);
+    const setExclude = vi.spyOn(RepoManager.prototype, "setExclude").mockResolvedValue(undefined);
+
+    const result = await cloneSessionCheckpointStorage({
+      previousSessionFile: sourceSessionFile,
+      sessionFile: forkSessionFile,
+      cwd: tmpDir,
+      exclude: ["node_modules/**"],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, repoDir: getRepoDir(forkSessionFile) }),
+    );
+    expect(setExclude).toHaveBeenCalledWith(["node_modules/**"]);
+  });
+
   test("reports missing source Checkpoint Storage for a fork", async () => {
     const result = await cloneSessionCheckpointStorage({
       previousSessionFile: path.join(tmpDir, ".pi", "agent", "sessions", "missing-source.jsonl"),
@@ -167,7 +188,38 @@ describe("Session Checkpoint Storage", () => {
     );
   });
 
-  test("Producer reuses existing Checkpoint Storage", async () => {
+  test("safeCloneSessionCheckpointStorage writes exclude before checkout", async () => {
+    const sourceSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "source.jsonl");
+    const forkSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "fork.jsonl");
+    const workTree = path.join(tmpDir, "project");
+    const excludedFile = path.join(workTree, "node_modules", "pkg", "index.js");
+    await fs.mkdir(path.dirname(excludedFile), { recursive: true });
+
+    const source = await ensureSessionCheckpointStorage({
+      sessionFile: sourceSessionFile,
+      cwd: workTree,
+      exclude: ["node_modules/**", "**/node_modules/**"],
+    });
+    await fs.writeFile(path.join(workTree, "root.txt"), "tracked", "utf8");
+    await fs.writeFile(excludedFile, "ignored", "utf8");
+    const hash = await source.repo.checkpoint("entry-1");
+
+    const result = await safeCloneSessionCheckpointStorage({
+      previousSessionFile: sourceSessionFile,
+      sessionFile: forkSessionFile,
+      cwd: workTree,
+      exclude: ["node_modules/**", "**/node_modules/**"],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+
+    await result.repo.checkoutCommit(hash);
+
+    await expect(fs.access(excludedFile)).resolves.toBeUndefined();
+  });
+
+  test("Producer reuses existing Checkpoint Storage and refreshes exclude", async () => {
     const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "existing-producer.jsonl");
     const repoDir = getRepoDir(sessionFile);
     await fs.mkdir(getGitDir(repoDir), { recursive: true });
@@ -182,6 +234,6 @@ describe("Session Checkpoint Storage", () => {
 
     expect(result.repoDir).toBe(repoDir);
     expect(init).not.toHaveBeenCalled();
-    expect(setExclude).not.toHaveBeenCalled();
+    expect(setExclude).toHaveBeenCalledWith(["node_modules/**"]);
   });
 });

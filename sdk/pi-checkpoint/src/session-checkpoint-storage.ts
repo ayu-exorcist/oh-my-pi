@@ -14,6 +14,7 @@ export interface EnsureSessionCheckpointStorageOptions extends SessionCheckpoint
 
 export interface CloneSessionCheckpointStorageOptions extends SessionCheckpointStorageOptions {
   readonly previousSessionFile: string;
+  readonly exclude?: readonly string[];
 }
 
 export type CloneSessionCheckpointStorageResult =
@@ -84,6 +85,9 @@ export async function cloneSessionCheckpointStorage(
 
   await fs.mkdir(storage.repoDir, { recursive: true });
   await RepoManager.cloneFrom(sourceGitDir, storage.gitDir);
+  if (options.exclude) {
+    await storage.repo.setExclude(options.exclude);
+  }
   return storage;
 }
 
@@ -110,6 +114,9 @@ export async function safeCloneSessionCheckpointStorage(
 
     await fs.mkdir(storage.repoDir, { recursive: true });
     await RepoManager.cloneFrom(sourceGitDir, storage.gitDir);
+    if (options.exclude) {
+      await storage.repo.setExclude(options.exclude);
+    }
     return storage;
   });
 }
@@ -125,8 +132,9 @@ export async function ensureSessionCheckpointStorage(
 
   if (!exists) {
     await storage.repo.init();
-    await storage.repo.setExclude(options.exclude);
   }
+
+  await storage.repo.setExclude(options.exclude);
 
   return storage;
 }
@@ -144,8 +152,9 @@ export async function safeEnsureSessionCheckpointStorage(
 
     if (!exists) {
       await storage.repo.init();
-      await storage.repo.setExclude(options.exclude);
     }
+
+    await storage.repo.setExclude(options.exclude);
 
     return storage;
   });

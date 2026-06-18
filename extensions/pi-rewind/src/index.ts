@@ -380,6 +380,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
         previousSessionFile: event.previousSessionFile,
         sessionFile,
         cwd: ctx.cwd,
+        exclude: config.exclude,
       });
 
       if (!storage.ok) return;
