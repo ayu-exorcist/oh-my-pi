@@ -1,6 +1,6 @@
 # @ayulab/oh-my-pi
 
-> Personal [Pi](https://pi.dev) toolkit with rewind, brief, clarify, checkpoint, skills, prompts, and themes.
+> Personal [Pi](https://pi.dev) reliability toolkit with rewind, checkpoints, and themes.
 >
 > Published as a [Pi Package](https://pi.dev/docs/latest/packages). Install with `pi install`.
 
@@ -14,7 +14,7 @@ Install `@ayulab/oh-my-pi` to get all curated extensions. Enable or disable indi
 pi install npm:@ayulab/oh-my-pi
 ```
 
-The curated package enables `pi-rewind` by default. `pi-brief` and `pi-clarify` are still in development and are not bundled or published yet. Use `pi config` to toggle bundled extensions interactively:
+The curated package enables `pi-rewind` by default. Use `pi config` to toggle bundled extensions interactively:
 
 ```bash
 pi config
@@ -41,8 +41,6 @@ Published extensions can also be installed independently:
 pi install npm:@ayulab/pi-rewind
 ```
 
-`@ayulab/pi-brief` and `@ayulab/pi-clarify` are private while they are still in development.
-
 ### Local Development
 
 For a checkout that you want to install or uninstall by path, prepare the workspace first:
@@ -68,9 +66,9 @@ pnpm run setup
 pnpm run teardown
 ```
 
-`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again. These scripts are useful for active development when you want local extensions, skills, prompts, and themes to be visible to Pi without repeated package installs.
+`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again. These scripts are useful for active development when you want local extensions and package resources to be visible to Pi without repeated package installs.
 
-After installation, Pi loads bundled extension packages from the package manifest, and automatically loads resources from these convention directories when present:
+After installation, Pi loads bundled extension packages from the package manifest, and automatically loads resources from declared convention directories when present. The current repository ships one theme; the root manifest also reserves the standard `skills/` and `prompts/` paths for future packaged resources.
 
 | Directory  | Content                  |
 | ---------- | ------------------------ |
@@ -85,25 +83,23 @@ Pi runs `npm install` automatically during installation to resolve `package.json
 ```
 @ayulab/oh-my-pi/
 ├── extensions/           # Pi extensions
-│   ├── pi-clarify/       # @ayulab/pi-clarify — private, in development
-│   ├── pi-brief/         # @ayulab/pi-brief — private, in development
 │   └── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
 ├── sdk/                  # Publishable SDK packages
 │   └── pi-checkpoint/    # @ayulab/pi-checkpoint — git checkpoint engine
 ├── internal/             # Private workspace packages, not published
 │   ├── runtime-core/     # @ayulab/runtime-core — bundled runtime helpers
 │   └── repo-tools/       # @ayulab/repo-tools — build/test/release helpers
-├── skills/               # Skills
-├── prompts/              # Prompt templates
 ├── themes/               # Themes
 │   └── purple-dream.json # Purple Dream dark theme
 ├── scripts/
-│   ├── dist-manifest.ts  # Compatibility wrapper for pi-dist-manifest
-│   ├── release.ts        # Release orchestration entry point
+│   ├── dist-manifest.ts      # Compatibility wrapper for pi-dist-manifest
+│   ├── pre-commit.ts         # Local hook orchestration
 │   ├── publish-packages.ts   # Publish packages via Changesets
+│   ├── release.ts            # Release orchestration entry point
 │   ├── sync-release-tags.ts  # Push newly created release tags
-│   ├── setup.ts          # Register repo in Pi settings
-│   └── teardown.ts       # Unregister repo from Pi settings
+│   ├── setup.ts              # Register repo in Pi settings
+│   ├── teardown.ts           # Unregister repo from Pi settings
+│   └── vitest.config.ts      # Script test config
 ├── package.json          # Pi Package manifest (curated meta package)
 ├── .npmrc                # npm provenance config
 ├── LICENSE               # GPL-3.0

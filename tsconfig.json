@@ -14,8 +14,6 @@
     "checkJs": true,
     "types": ["node"],
     "paths": {
-      "@ayulab/pi-brief": ["./extensions/pi-brief/src/index.ts"],
-      "@ayulab/pi-brief/*": ["./extensions/pi-brief/src/*"],
       "@ayulab/pi-checkpoint": ["./sdk/pi-checkpoint/src/index.ts"],
       "@ayulab/pi-checkpoint/*": ["./sdk/pi-checkpoint/src/*"],
       "@ayulab/pi-checkpoint/testing": ["./sdk/pi-checkpoint/src/testing/index.ts"],

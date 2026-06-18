@@ -191,7 +191,7 @@ describe("release entry point", () => {
   });
 
   test("includes private internal workspace dependencies in release input paths", () => {
-    const extension = pkg("@ayulab/pi-clarify", `${repoRoot}/extensions/pi-clarify`);
+    const extension = pkg("@ayulab/example-extension", `${repoRoot}/extensions/example-extension`);
     const runtimeCore = pkg("@ayulab/runtime-core", `${repoRoot}/internal/runtime-core`);
     const nameMap = new Map([
       [extension.name, extension],
@@ -199,11 +199,13 @@ describe("release entry point", () => {
     ]);
 
     mockCollectDependencies.mockReturnValueOnce(
-      new Set(["@ayulab/pi-clarify", "@ayulab/runtime-core"]),
+      new Set(["@ayulab/example-extension", "@ayulab/runtime-core"]),
     );
     mockHasPathChangesSinceRef.mockReturnValueOnce(true);
 
-    expect(findUncommittedReleasePackages([extension], nameMap)).toEqual(["@ayulab/pi-clarify"]);
+    expect(findUncommittedReleasePackages([extension], nameMap)).toEqual([
+      "@ayulab/example-extension",
+    ]);
     const call = mockHasPathChangesSinceRef.mock.calls[0];
     expect(call?.[0]).toBe(repoRoot);
     expect(call?.[1]).toBe("HEAD");

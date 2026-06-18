@@ -2,13 +2,14 @@
 
 ## Repository Overview
 
-This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@ayulab/oh-my-pi`, containing extensions, skills, prompts, and themes.
+This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@ayulab/oh-my-pi`, centered on reliability extensions and checkpoint tooling.
 
-- `extensions/` — Publishable Pi extensions (`src/index.ts` entry point)
-- `sdk/` — Publishable SDK packages consumed by extensions
+- `extensions/` — Publishable Pi extensions (`src/index.ts` entry point); currently `pi-rewind`
+- `sdk/` — Publishable SDK packages consumed by extensions; currently `pi-checkpoint`
 - `internal/` — Private workspace packages that are built/tested but not published
 - `scripts/` — Development and release automation
-- `skills/` / `prompts/` / `themes/` — Content-only directories
+- `themes/` — Packaged themes; currently `purple-dream.json`
+- `skills/` / `prompts/` — Optional Pi resource directories declared by the root manifest when resources are added
 
 ## Environment Setup
 
@@ -71,25 +72,24 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 
 ## Scripts
 
-| Script                       | Description                                         |
-| ---------------------------- | --------------------------------------------------- |
-| `pnpm run dev`               | vitest watch mode                                   |
-| `pnpm test`                  | Run all tests once                                  |
-| `pnpm run coverage`          | Coverage report only                                |
-| `pnpm run coverage:strict`   | Maintainer audit: 100% coverage enforcement         |
-| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`  |
-| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                           |
-| `pnpm run lint` / `lint:fix` | oxlint                                              |
-| `pnpm run fmt` / `fmt:check` | oxfmt                                               |
-| `pnpm run check`             | Local full check (type + lint + fmt + test)         |
-| `pnpm run verify`            | CI gate (type + lint + fmt + test)                  |
-| `pnpm run build`             | Turborepo build all workspace packages into `dist/` |
-| `pnpm run setup`             | Register repo in user-level Pi settings             |
-| `pnpm run teardown`          | Unregister repo from user-level Pi settings         |
-
-| `pnpm run release` | Build, validate, and run Changesets publish |
-| `pnpm run release:dry` | Dry-run preview of publish |
-| `pnpm run clean` | Remove coverage, caches, and tsbuildinfo |
+| Script                       | Description                                             |
+| ---------------------------- | ------------------------------------------------------- |
+| `pnpm run dev`               | vitest watch mode                                       |
+| `pnpm test`                  | Run all tests once                                      |
+| `pnpm run coverage`          | Coverage report only                                    |
+| `pnpm run coverage:strict`   | Maintainer audit: 100% coverage enforcement             |
+| `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`      |
+| `pnpm run typecheck`         | TypeScript `tsc --noEmit`                               |
+| `pnpm run lint` / `lint:fix` | oxlint                                                  |
+| `pnpm run fmt` / `fmt:check` | oxfmt                                                   |
+| `pnpm run check`             | Local full check (type + lint + fmt + test)             |
+| `pnpm run verify`            | CI gate (type + lint + fmt + test)                      |
+| `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo                |
+| `pnpm run build`             | Turborepo build all non-root workspace packages         |
+| `pnpm run setup`             | Register repo in user-level Pi settings                 |
+| `pnpm run teardown`          | Unregister repo from user-level Pi settings             |
+| `pnpm run release`           | Build, validate, publish with Changesets, and sync tags |
+| `pnpm run release:dry`       | Build, validate, and preview unpublished packages       |
 
 Git hooks are intentionally lightweight: `simple-git-hooks` only runs `pnpm run pre-commit` locally. Coverage stays in CI and in the explicit maintainer commands above.
 
@@ -113,18 +113,6 @@ All contributors and maintainers use the same protected-branch workflow. Work on
 
 User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
 
-## Pull Request Workflow
-
-All contributors and maintainers use the same protected-branch workflow. Work on a feature or bugfix branch, open a pull request into `main`, keep it up to date with `main`, wait for required CI checks, and merge only after review approval. Direct pushes, force pushes, branch deletion, stale pull requests, and missing required checks are blocked by the `main` ruleset.
-
-User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
-
-## Pull Request Workflow
-
-All contributors and maintainers use the same protected-branch workflow. Work on a feature or bugfix branch, open a pull request into `main`, keep it up to date with `main`, wait for required CI checks, and merge only after review approval. Direct pushes, force pushes, branch deletion, stale pull requests, and missing required checks are blocked by the `main` ruleset.
-
-User-facing changes to published packages must include a changeset in the same pull request. If one is missed after merge, add a follow-up changeset-only pull request before merging the generated release PR.
-
 ## Directory Conventions
 
 ### Adding an Extension
@@ -141,11 +129,18 @@ extensions/
         └── ...           # Source + tests
 ```
 
-Entry `src/index.ts` should export the Pi extension factory as the default export:
+Entry `src/index.ts` should export the Pi extension factory as the default export. Pi passes the public `ExtensionAPI` object to that factory:
 
 ```typescript
-export default function activate(ctx: ExtensionContext): void {
-  // Register tools, commands, or event hooks here.
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function activate(pi: ExtensionAPI): void {
+  pi.registerCommand("example", {
+    description: "Example command",
+    async handler(_args, ctx) {
+      ctx.ui.notify("Example command ran", "info");
+    },
+  });
 }
 ```
 
@@ -272,6 +267,8 @@ themes/
 Pi auto-loads all `.json` files from `pi.themes` directories declared in `package.json`.
 
 ### Adding a Skill / Prompt
+
+Create these directories only when the package needs to ship skills or prompt templates. The root manifest already declares the conventional resource paths.
 
 ```
 skills/

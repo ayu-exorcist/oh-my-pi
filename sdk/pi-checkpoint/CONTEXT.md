@@ -9,15 +9,15 @@ A snapshot of the workspace captured around a single Turn. Represented in the se
 _Avoid_: snapshot, savepoint, revision
 
 **Turn**:
-A complete user request-response cycle in a Pi session, bounded by `turn_start` and `turn_end` events. Each Turn may produce one Checkpoint if checkpointing is enabled.
+A complete user request-response cycle in a Pi session. In `pi-rewind`, capture starts when the assistant message begins for the latest user entry, records turn-end prompt metadata at `turn_end`, and finalizes after `agent_end`. Each Turn may produce one Checkpoint if checkpointing is enabled.
 _Avoid_: step, round, iteration
 
 **beforeCommit**:
-The git commit hash captured at `turn_start`, reflecting the workspace state before the agent begins modifying files.
+The git commit hash captured when a Turn starts, reflecting the workspace state before the agent begins modifying files.
 _Avoid_: start commit, pre-turn commit, initial commit
 
 **afterCommit**:
-The git commit hash captured at `turn_end`, reflecting the workspace state after the agent finishes all modifications. When no files changed during the Turn, `afterCommit` is the same as `beforeCommit` — no empty commit is created.
+The git commit hash captured when the Turn is finalized, reflecting the workspace state after the agent finishes all modifications. When no files changed during the Turn, `afterCommit` is the same as `beforeCommit` — no empty commit is created.
 _Avoid_: end commit, post-turn commit, final commit
 
 **Checkpoint Lock**:

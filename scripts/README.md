@@ -2,24 +2,29 @@
 
 Development and release automation for the `@ayulab/oh-my-pi` monorepo.
 
-All top-level scripts are TypeScript files executed via [`oxnode`](https://github.com/oxc-project/oxc-node) (zero-config TypeScript runner) and are registered as `package.json` scripts.
+Top-level automation scripts are TypeScript files executed via [`oxnode`](https://github.com/oxc-project/oxc-node) when exposed through `package.json` scripts or direct maintainer commands.
 
 ```
 scripts/
-├── dist-manifest.ts    # Compatibility wrapper for @ayulab/repo-tools/dist-manifest
-├── release.ts          # Release entry point
-├── setup.ts            # Register repo in Pi settings
-├── teardown.ts         # Unregister repo from Pi settings
-├── vitest.config.ts    # Script test config
-├── lib/                # Shared modules (imported by scripts above)
-│   ├── cli.ts          # CLI flag parser
-│   ├── deps.ts         # Dependency graph helpers
-│   ├── git.ts          # Dirty release input detection
-│   ├── package-json.ts # package.json shape guard
-│   ├── packages.ts     # Discover root + publishable workspace packages
-│   ├── pi-settings.ts  # Pi settings.json helpers (setup / teardown)
-│   ├── types.ts        # Shared interfaces (PkgJson, PackageInfo, DepGraph, ...)
-│   └── validate.ts     # Pre-publish manifest validation
+├── dist-manifest.ts        # Compatibility wrapper for @ayulab/repo-tools/dist-manifest
+├── pre-commit.ts           # Local hook: format, lint-fix, restage, then check
+├── publish-packages.ts     # Build, validate, and publish with Changesets
+├── release.ts              # Release orchestration entry point
+├── setup.ts                # Register repo in Pi settings
+├── sync-release-tags.ts    # Push newly created Changesets tags to origin
+├── teardown.ts             # Unregister repo from Pi settings
+├── vitest.config.ts        # Script test config
+├── lib/                    # Shared modules (imported by scripts above)
+│   ├── cli.ts              # CLI flag parser
+│   ├── deps.ts             # Dependency graph helpers
+│   ├── git.ts              # Dirty release input detection
+│   ├── package-json.ts     # package.json shape guard
+│   ├── packages.ts         # Discover root + workspace packages
+│   ├── pi-settings.ts      # Pi settings.json helpers (setup / teardown)
+│   ├── release-args.ts     # Supported release flag parsing and rejection
+│   ├── select-release-tags.ts # Local/remote tag selection helpers
+│   ├── types.ts            # Shared interfaces and workspace directory constants
+│   └── validate.ts         # Pre-publish manifest validation
 ```
 
 ## Build
@@ -31,7 +36,6 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 1. **Topology** — turbo resolves the dependency graph from `package.json` and builds packages so dependencies compile before dependents.
 2. **Bundle** — each package runs `tsdown` to bundle `src/` into `dist/`.
 3. **Generate `dist/package.json`** — `pi-dist-manifest` from `@ayulab/repo-tools` rewrites `main`/`exports`/`pi.extensions` paths (`.ts` → `.js`), strips `scripts`/`devDependencies`/`engines`, removes workspace dependencies, copies `README.md` when present, and writes `files` from actual `dist/` artifacts.
-4. **Copy README** — copies `README.md` into `dist/`.
 
 `pnpm run release` runs this automatically before publishing. Run it directly for local build validation.
 
@@ -41,12 +45,14 @@ Uses [Turborepo](https://turbo.build) to build all workspace packages in depende
 
 This is the single release entry point used by GitHub Actions and local maintainer recovery.
 
-What it does:
+What `pnpm run release` does:
 
 1. validates the release scope and package manifests
 2. runs the workspace build
 3. publishes unpublished packages with Changesets
 4. syncs the newly created git tags to `origin`
+
+`pnpm run release:dry` runs the same validation and build, then prints `pnpm changeset status --verbose` without publishing packages or creating tags.
 
 Flags:
 
@@ -69,7 +75,7 @@ pnpm run release --otp 123456
 
 `pnpm run setup`
 
-Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions, skills, prompts, and themes without repeated `pi install` / `pi uninstall` cycles.
+Adds the repository root path to `~/.pi/agent/settings.json` under the `packages` array. This makes Pi aware of local extensions and package resources without repeated `pi install` / `pi uninstall` cycles.
 
 Use this during active development when you want the checkout to stay visible to Pi.
 

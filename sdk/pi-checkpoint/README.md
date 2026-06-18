@@ -28,20 +28,49 @@ As a dependency of a Pi Package:
 
 ```typescript
 import {
-  loadConfig,
-  loadConfigFromFile,
-  defaultConfig,
-  resolveSessionCheckpointStorage,
-  ensureSessionCheckpointStorage,
+  bindSessionRepo,
   cloneSessionCheckpointStorage,
-  safeEnsureSessionCheckpointStorage,
-  safeCloneSessionCheckpointStorage,
-  RepoManager,
-  parseDiffStats,
+  createDefaultRepoProvider,
+  defaultConfig,
+  ensureSessionCheckpointStorage,
+  exec,
+  execSafe,
   extractCheckpointData,
   filterCheckpointEntries,
   getCheckpointEntries,
+  getGitDir,
+  getIndexPath,
+  getRepoDir,
   isCheckpointEntry,
+  loadConfig,
+  loadConfigFromFile,
+  parseDiffStats,
+  RepoManager,
+  resolveSessionCheckpointStorage,
+  safeCloneSessionCheckpointStorage,
+  safeEnsureSessionCheckpointStorage,
+  safeRestore,
+  SessionStateMap,
+  withRepoLock,
+} from "@ayulab/pi-checkpoint";
+
+import type {
+  CheckpointConfig,
+  CheckpointEntry,
+  CheckpointMeta,
+  CloneSessionCheckpointStorageOptions,
+  CloneSessionCheckpointStorageResult,
+  EnsureSessionCheckpointStorageOptions,
+  ExecEnv,
+  FileChange,
+  NavigateTreeOptions,
+  NavigateTreeResult,
+  RepoProvider,
+  RestoreResult,
+  Result,
+  SafeCheckoutResult,
+  SessionCheckpointStorageOptions,
+  SessionCheckpointStorageResult,
 } from "@ayulab/pi-checkpoint";
 ```
 
@@ -143,7 +172,16 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
       "restoreOnClone": "always",
       "restoreOnResume": "always",
       "defaultSummaryInstructions": "",
-      "exclude": ["node_modules/", ".git/", "*.log"]
+      "exclude": [
+        "node_modules/**",
+        ".git",
+        ".pi/**",
+        "dist/**",
+        "build/**",
+        "target/**",
+        "*.log",
+        "*.tmp"
+      ]
     },
     "rewind": {
       "restoreOnTree": "never"
@@ -153,6 +191,8 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 ```
 
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
+
+The SDK config type accepts `"always"`, `"ask"`, and `"never"` for fork, clone, and resume restore settings. `pi-rewind` currently performs those automatic restores only for `"always"`; use `"never"` to disable them.
 
 ## Development
 

@@ -179,10 +179,10 @@ describe("publish entrypoint", () => {
   test("skips root consistency checks when no root package is present", async () => {
     mockGetPackages.mockReturnValueOnce([
       {
-        name: "@ayulab/pi-clarify",
+        name: "@ayulab/example-extension",
         version: "0.4.1",
-        path: `${fixtureRoot}/extensions/pi-clarify`,
-        pkg: { name: "@ayulab/pi-clarify", version: "0.4.1" },
+        path: `${fixtureRoot}/extensions/example-extension`,
+        pkg: { name: "@ayulab/example-extension", version: "0.4.1" },
         isRoot: false,
       },
     ] as never);
