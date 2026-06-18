@@ -1,7 +1,7 @@
 {
   "ayu": {
     "rewind": {
-      "restoreOnTree": "always"
+      "restoreOnTree": "ask"
     }
   },
   "theme": "purple-dream",
