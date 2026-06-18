@@ -1,5 +1,14 @@
 # @ayulab/pi-rewind
 
+## 0.3.6
+
+### Patch Changes
+
+- e374280: Updated workspace dependency versions to their latest releases.
+- Updated dependencies [e374280]
+- Updated dependencies [62257b5]
+  - @ayulab/pi-checkpoint@0.5.2
+
 ## 0.3.5
 
 ### Patch Changes
@@ -18,6 +27,7 @@
   flushed before the dialog appears. However the guard
   `userWantsSummary !== false` still skipped the ask-mode dialog whenever
   the value was true (Summarize) or undefined (legacy / missing field).
+
   - Change the guard to `userWantsSummary === true` so that only an
     explicit "Summarize" choice skips the file-restore path; undefined or
     false values now let restoreOnTree settings apply.

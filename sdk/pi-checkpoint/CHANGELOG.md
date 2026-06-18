@@ -1,5 +1,12 @@
 # @ayulab/pi-checkpoint
 
+## 0.5.2
+
+### Patch Changes
+
+- e374280: Updated workspace dependency versions to their latest releases.
+- 62257b5: Remove retired private extension references from the published package docs and refresh the pi-checkpoint README with the current export surface and restore configuration guidance.
+
 ## 0.5.1
 
 ### Patch Changes
