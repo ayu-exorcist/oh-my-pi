@@ -8,5 +8,5 @@
   "sessionDir": ".pi/sessions",
   "skills": ["skills"],
   "prompts": ["prompts"],
-  "extensions": ["extensions"]
+  "extensions": ["npm:pi-web-access", "npm:pi-mcp-adapter"]
 }
