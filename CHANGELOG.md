@@ -1,5 +1,14 @@
 # @ayulab/oh-my-pi
 
+## 0.4.6
+
+### Patch Changes
+
+- e374280: Updated workspace dependency versions to their latest releases.
+- 62257b5: Remove retired private extension references from the published package docs and refresh the pi-checkpoint README with the current export surface and restore configuration guidance.
+- Updated dependencies [e374280]
+  - @ayulab/pi-rewind@0.3.6
+
 ## 0.4.5
 
 ### Patch Changes
