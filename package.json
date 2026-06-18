@@ -63,7 +63,7 @@
     "@ayulab/repo-tools": "workspace:*",
     "@ayulab/runtime-core": "workspace:*",
     "@changesets/cli": "^2.31.0",
-    "@earendil-works/pi-coding-agent": "^0.79.4",
+    "@earendil-works/pi-coding-agent": "^0.79.6",
     "@oxc-node/cli": "^0.1.0",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
