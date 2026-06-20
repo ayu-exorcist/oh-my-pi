@@ -2,6 +2,12 @@ import { describe, test, expect, vi } from "vitest";
 import { createMockRepo } from "./index";
 
 describe("createMockRepo", () => {
+  test("default getSkippedLargeFiles returns empty list", () => {
+    const repo = createMockRepo();
+
+    expect(repo.getSkippedLargeFiles()).toEqual([]);
+  });
+
   test("uses provided safeCheckout when given", async () => {
     const customSafeCheckout = vi.fn().mockResolvedValue({ ok: true as const, safetyHash: "abc" });
     const repo = createMockRepo({ safeCheckout: customSafeCheckout });
@@ -129,6 +135,28 @@ describe("createMockRepo", () => {
     expect(result).toEqual({ ok: true, safetyHash: undefined });
   });
 
+  test("default safeCheckout reports dirty-check failure from Error", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockRejectedValue(new Error("dirty boom")),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await repo.safeCheckout("target", "base");
+
+    expect(result).toEqual({ ok: false, reason: "dirty-check-failed", error: "dirty boom" });
+  });
+
+  test("default safeCheckout reports dirty-check failure from non-Error", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockRejectedValue("dirty boom"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await repo.safeCheckout("target", "base");
+
+    expect(result).toEqual({ ok: false, reason: "dirty-check-failed", error: "dirty boom" });
+  });
+
   test("default safeCheckout proceeds when createSafetyCommit returns non-string", async () => {
     const repo = createMockRepo({
       stageAll: vi.fn().mockResolvedValue(undefined),
@@ -138,6 +166,46 @@ describe("createMockRepo", () => {
     });
     const result = await repo.safeCheckout("target", "base");
     expect(result).toEqual({ ok: true, safetyHash: undefined });
+  });
+
+  test("default safeCheckout returns safety hash on successful safety commit", async () => {
+    const repo = createMockRepo({
+      createSafetyCommit: vi.fn().mockResolvedValue("safety"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await repo.safeCheckout("target");
+
+    expect(result).toEqual({ ok: true, safetyHash: "safety" });
+  });
+
+  test("default safeCheckout reports Error checkout failure", async () => {
+    const repo = createMockRepo({
+      checkoutCommit: vi.fn().mockRejectedValue(new Error("checkout boom")),
+    });
+
+    const result = await repo.safeCheckout("target");
+
+    expect(result).toEqual({ ok: false, reason: "checkout-failed", error: "checkout boom" });
+  });
+
+  test("default safeCheckout reports Error checkout and rollback failure", async () => {
+    const repo = createMockRepo({
+      createSafetyCommit: vi.fn().mockResolvedValue("safety"),
+      checkoutCommit: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("checkout boom"))
+        .mockRejectedValueOnce(new Error("rollback boom")),
+    });
+
+    const result = await repo.safeCheckout("target");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "checkout-failed",
+      error: "checkout boom",
+      rollbackError: "rollback boom",
+    });
   });
 
   test("default safeCheckout reports non-Error checkout and rollback failure", async () => {

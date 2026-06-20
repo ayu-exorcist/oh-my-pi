@@ -18,14 +18,14 @@ function createAssistantEntry(id: string): unknown {
   };
 }
 
-function createCheckpoint(userEntryId: string, afterCommit: string): unknown {
+function createCheckpoint(userEntryId: string, afterState: string): unknown {
   return {
     v: 2,
     kind: "checkpoint",
     turnId: `${userEntryId}-turn`,
     userEntryId,
-    beforeCommit: `${afterCommit}-before`,
-    afterCommit,
+    beforeState: `${afterState}-before`,
+    afterState,
     prompt: userEntryId,
     fileCount: 0,
     fileChanges: [],
@@ -54,6 +54,32 @@ describe("getBranchCheckpointEntries", () => {
     ]);
   });
 
+  it("deduplicates checkpoint entries by user entry and keeps the latest checkpoint data", () => {
+    const entries = [
+      wrapCheckpoint(createCheckpoint("user-1", "old-commit")),
+      wrapCheckpoint(createCheckpoint("user-1", "new-commit")),
+    ];
+    const branch = [createUserEntry("user-1")];
+
+    const checkpoints = getBranchCheckpointEntries(entries, branch);
+
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]?.afterState).toBe("new-commit");
+  });
+
+  it("returns checkpoints in branch user-entry order", () => {
+    const entries = [
+      wrapCheckpoint(createCheckpoint("user-2", "commit-2")),
+      wrapCheckpoint(createCheckpoint("user-1", "commit-1")),
+    ];
+    const branch = [createUserEntry("user-1"), createUserEntry("user-2")];
+
+    expect(getBranchCheckpointEntries(entries, branch).map((entry) => entry.userEntryId)).toEqual([
+      "user-1",
+      "user-2",
+    ]);
+  });
+
   it("returns an empty array when no user entries are on the branch", () => {
     const entries = [wrapCheckpoint(createCheckpoint("user-1", "commit-1"))];
     expect(getBranchCheckpointEntries(entries, [createAssistantEntry("assistant-1")])).toEqual([]);
@@ -78,7 +104,7 @@ describe("findLatestBranchCheckpoint", () => {
     ];
     const branch = [createUserEntry("user-1"), createUserEntry("user-2")];
 
-    expect(findLatestBranchCheckpoint(entries, branch)?.afterCommit).toBe("commit-2");
+    expect(findLatestBranchCheckpoint(entries, branch)?.afterState).toBe("commit-2");
   });
 
   it("returns undefined when branch has no matching checkpoints", () => {

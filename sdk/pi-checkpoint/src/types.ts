@@ -12,6 +12,15 @@ export interface CheckpointConfig {
   readonly restoreOnClone: "always" | "ask" | "never";
   /** Behavior when resuming a session. */
   readonly restoreOnResume: "always" | "ask" | "never";
+  /** File-restore state retention policy. */
+  readonly retention: {
+    readonly enabled: boolean;
+    readonly maxAge: string;
+    readonly minRetention: string;
+    readonly maxCount?: number;
+  };
+  /** Maximum managed file size in bytes. Files above this are skipped when set. */
+  readonly maxFileBytes?: number;
   /** Behavior when navigating Pi's session tree. Configured via `ayu.rewind.restoreOnTree`. */
   readonly restoreOnTree: "always" | "ask" | "never";
   /** Default instructions for summarization during rewind. */
@@ -38,7 +47,7 @@ export interface FileChange {
 export interface CheckpointMeta {
   /** Session entry id that triggered this checkpoint. */
   readonly entryId: string;
-  /** Git commit hash of the checkpoint. */
+  /** Git commit hash of the checkpoint state. */
   readonly commitHash: string;
   /** Unix timestamp when the checkpoint was created. */
   readonly timestamp: number;

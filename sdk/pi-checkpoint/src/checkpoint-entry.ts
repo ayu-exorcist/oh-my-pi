@@ -30,10 +30,10 @@ export interface CheckpointEntry {
   readonly turnId: string;
   /** Session entry id of the user message that triggered this turn. */
   readonly userEntryId: string;
-  /** Git commit hash captured at turn_start. */
-  readonly beforeCommit: string;
-  /** Git commit hash captured at turn_end (may equal beforeCommit). */
-  readonly afterCommit: string;
+  /** Checkpoint State commit captured at turn_start. */
+  readonly beforeState: string;
+  /** Checkpoint State commit captured at turn_end (may equal beforeState). */
+  readonly afterState: string;
   /** Truncated user prompt that created this checkpoint. */
   readonly prompt: string;
   /** Number of unique files touched in this turn. */
@@ -42,6 +42,82 @@ export interface CheckpointEntry {
   readonly fileChanges: readonly FileChange[];
   /** ISO timestamp when the checkpoint was finalized. */
   readonly createdAt: string;
+}
+
+interface LegacyCheckpointEntry extends CheckpointEntry {
+  readonly legacyFileState: true;
+}
+
+function markLegacyFileState(entry: CheckpointEntry): LegacyCheckpointEntry {
+  return { ...entry, legacyFileState: true };
+}
+
+/** Return whether this entry refers to incompatible legacy file storage. */
+export function hasLegacyFileState(entry: CheckpointEntry): boolean {
+  return isRecord(entry) && entry.legacyFileState === true;
+}
+
+function normalizeAliasCheckpointEntry(value: unknown): CheckpointEntry | undefined {
+  if (!isRecord(value) || value.v !== 2 || value.kind !== "checkpoint") return undefined;
+  const beforeCommit = getStringField(value, "beforeCommit");
+  const afterCommit = getStringField(value, "afterCommit");
+  const turnId = getStringField(value, "turnId");
+  const userEntryId = getStringField(value, "userEntryId");
+  const prompt = getStringField(value, "prompt");
+  const fileCount = getNumberField(value, "fileCount");
+  const createdAt = getStringField(value, "createdAt");
+  const fileChanges = Array.isArray(value.fileChanges)
+    ? value.fileChanges.filter(isFileChange)
+    : undefined;
+  if (
+    !beforeCommit ||
+    !afterCommit ||
+    !turnId ||
+    !userEntryId ||
+    !prompt ||
+    fileCount === undefined ||
+    !fileChanges ||
+    !createdAt
+  ) {
+    return undefined;
+  }
+  return markLegacyFileState({
+    v: 2,
+    kind: "checkpoint",
+    turnId,
+    userEntryId,
+    beforeState: beforeCommit,
+    afterState: afterCommit,
+    prompt,
+    fileCount,
+    fileChanges,
+    createdAt,
+  });
+}
+
+function normalizeLegacyCheckpointEntry(value: unknown): CheckpointEntry | undefined {
+  if (!isRecord(value)) return undefined;
+  const entryId = getStringField(value, "entryId");
+  const commitHash = getStringField(value, "commitHash");
+  const prompt = getStringField(value, "prompt") ?? "(legacy checkpoint)";
+  const fileCount = getNumberField(value, "fileCount") ?? 0;
+  const timestamp = getNumberField(value, "timestamp");
+  const fileChanges = Array.isArray(value.fileChanges)
+    ? value.fileChanges.filter(isFileChange)
+    : [];
+  if (!entryId || !commitHash) return undefined;
+  return markLegacyFileState({
+    v: 2,
+    kind: "checkpoint",
+    turnId: `legacy:${entryId}`,
+    userEntryId: entryId,
+    beforeState: commitHash,
+    afterState: commitHash,
+    prompt,
+    fileCount,
+    fileChanges,
+    createdAt: timestamp ? new Date(timestamp).toISOString() : new Date(0).toISOString(),
+  });
 }
 
 function isFileChange(value: unknown): value is FileChange {
@@ -61,8 +137,8 @@ export function isCheckpointEntry(value: unknown): value is CheckpointEntry {
     value.kind === "checkpoint" &&
     getStringField(value, "turnId") !== undefined &&
     getStringField(value, "userEntryId") !== undefined &&
-    getStringField(value, "beforeCommit") !== undefined &&
-    getStringField(value, "afterCommit") !== undefined &&
+    getStringField(value, "beforeState") !== undefined &&
+    getStringField(value, "afterState") !== undefined &&
     getStringField(value, "prompt") !== undefined &&
     getNumberField(value, "fileCount") !== undefined &&
     Array.isArray(value.fileChanges) &&
@@ -78,7 +154,13 @@ export function isCheckpointEntry(value: unknown): value is CheckpointEntry {
  * @returns Only the valid {@link CheckpointEntry} objects, in order.
  */
 export function filterCheckpointEntries(dataList: readonly unknown[]): readonly CheckpointEntry[] {
-  return dataList.filter(isCheckpointEntry);
+  return dataList.flatMap((entry) => {
+    if (isCheckpointEntry(entry)) return [entry];
+    const alias = normalizeAliasCheckpointEntry(entry);
+    if (alias) return [alias];
+    const legacy = normalizeLegacyCheckpointEntry(entry);
+    return legacy ? [legacy] : [];
+  });
 }
 
 /**

@@ -7,11 +7,13 @@ interface MockRepoOptions {
   readonly checkpoint?: (...args: unknown[]) => unknown;
   readonly stageAll?: (...args: unknown[]) => unknown;
   readonly diffAgainst?: (...args: unknown[]) => unknown;
+  readonly updateRef?: (...args: unknown[]) => unknown;
 }
 
 function createProducer(options: MockRepoOptions) {
   return new AutoCheckpointProducer({
-    repo: createMockRepo(options),
+    repo: createMockRepo({ updateRef: vi.fn().mockResolvedValue(undefined), ...options }),
+    sessionId: "session-1",
     exclude: ["node_modules/**"],
     createTurnId: () => "turn-1",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
@@ -19,7 +21,7 @@ function createProducer(options: MockRepoOptions) {
 }
 
 describe("AutoCheckpointProducer", () => {
-  test("returns a warning message when beforeCommit capture fails", async () => {
+  test("returns a warning message when beforeState capture fails", async () => {
     const producer = createProducer({
       ensureReady: vi.fn().mockRejectedValue(new Error("git missing")),
     });
@@ -33,7 +35,7 @@ describe("AutoCheckpointProducer", () => {
     expect(final).toEqual({ ok: false });
   });
 
-  test("reuses beforeCommit when the agent run has no file changes", async () => {
+  test("reuses beforeState when the agent run has no file changes", async () => {
     const checkpoint = vi.fn().mockResolvedValue("before-hash");
     const producer = createProducer({
       ensureReady: vi.fn().mockResolvedValue(undefined),
@@ -51,11 +53,12 @@ describe("AutoCheckpointProducer", () => {
     expect(final).toEqual({
       ok: true,
       entry: expect.objectContaining({
-        beforeCommit: "before-hash",
-        afterCommit: "before-hash",
+        beforeState: "before-hash",
+        afterState: "before-hash",
         fileCount: 0,
         fileChanges: [],
       }),
+      skippedLargeFiles: [],
     });
   });
 
@@ -92,13 +95,14 @@ describe("AutoCheckpointProducer", () => {
         kind: "checkpoint",
         turnId: "turn-1",
         userEntryId: "entry-1",
-        beforeCommit: "before-hash",
-        afterCommit: "after-hash",
+        beforeState: "before-hash",
+        afterState: "after-hash",
         prompt: "refactor checkpoint handling",
         fileCount: 1,
         fileChanges: [{ path: "src/app.ts", added: 2, removed: 1 }],
         createdAt: "2026-01-02T03:04:05.000Z",
       },
+      skippedLargeFiles: [],
     });
   });
 
@@ -123,6 +127,7 @@ describe("AutoCheckpointProducer", () => {
     expect(final).toEqual({
       ok: true,
       entry: expect.objectContaining({ userEntryId: "entry-1", prompt: "initial" }),
+      skippedLargeFiles: [],
     });
   });
 
@@ -148,11 +153,17 @@ describe("AutoCheckpointProducer", () => {
     expect(first).toEqual({ ok: true, entries: [] });
     expect(second).toEqual({
       ok: true,
-      entries: [expect.objectContaining({ userEntryId: "entry-1", prompt: "initial" })],
+      entries: [
+        {
+          entry: expect.objectContaining({ userEntryId: "entry-1", prompt: "initial" }),
+          skippedLargeFiles: [],
+        },
+      ],
     });
     expect(final).toEqual({
       ok: true,
       entry: expect.objectContaining({ userEntryId: "entry-2", prompt: "follow-up" }),
+      skippedLargeFiles: [],
     });
     expect(checkpoint).toHaveBeenCalledTimes(4);
     expect(checkpoint).toHaveBeenNthCalledWith(1, "entry-1");

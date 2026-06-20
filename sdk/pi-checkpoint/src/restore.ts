@@ -51,6 +51,10 @@ export async function safeRestore(options: RestoreOptions): Promise<RestoreResul
       options.ui.notify(options.dirtyMessage, "warning");
       return { ok: false };
     }
+    if (result.reason === "dirty-check-failed") {
+      options.ui.notify(`Workspace cleanliness could not be verified: ${result.error}`, "error");
+      return { ok: false };
+    }
     if (result.rollbackError) {
       options.ui.notify(`${options.rollbackFailedPrefix}: ${result.rollbackError}`, "error");
       return { ok: false };

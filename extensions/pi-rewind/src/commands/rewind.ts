@@ -7,12 +7,39 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
+import { getCheckpointEntries, hasLegacyFileState } from "@ayulab/pi-checkpoint";
 import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkpoint";
 import { hasItems } from "@ayulab/runtime-core";
 import { getBranchCheckpointEntries } from "../utils/branch-checkpoints";
 import { runRestoreMode } from "./restore-mode";
 import { isCheckpointCustomEntry, isEntryWithId, isUserMessageEntry } from "../utils/tree-entry";
+
+const GLOBAL_REWIND_COMMAND_API_STATE_KEY = "__ayulabPiRewindCommandRegisteredApis";
+type RewindCommandApiState = WeakSet<ExtensionAPI>;
+
+function getRewindCommandApiState(): RewindCommandApiState {
+  const globalState = globalThis as typeof globalThis & {
+    [GLOBAL_REWIND_COMMAND_API_STATE_KEY]?: RewindCommandApiState;
+  };
+  globalState[GLOBAL_REWIND_COMMAND_API_STATE_KEY] ??= new WeakSet();
+  return globalState[GLOBAL_REWIND_COMMAND_API_STATE_KEY];
+}
+
+async function checkpointFileStateAvailable(
+  repo: RepoManager,
+  checkpoint: CheckpointEntry,
+): Promise<boolean> {
+  if (hasLegacyFileState(checkpoint)) return false;
+  return repo.hasCommit(checkpoint.beforeState);
+}
+
+function checkpointBeforeState(checkpoint: CheckpointEntry): string {
+  return checkpoint.beforeState;
+}
+
+function checkpointAfterState(checkpoint: CheckpointEntry): string {
+  return checkpoint.afterState;
+}
 
 async function findCleanDirtyBaseCommit(
   repo: RepoManager,
@@ -21,8 +48,8 @@ async function findCleanDirtyBaseCommit(
 ): Promise<string> {
   const commits = new Set<string>();
   for (const cp of [...checkpoints].reverse()) {
-    commits.add(cp.afterCommit);
-    commits.add(cp.beforeCommit);
+    commits.add(checkpointAfterState(cp));
+    commits.add(checkpointBeforeState(cp));
   }
 
   try {
@@ -379,6 +406,10 @@ export function registerRewind(
   suppressTreeRestore: (sessionId: string) => void = () => undefined,
   clearTreeRestoreSuppression: (sessionId: string) => void = () => undefined,
 ) {
+  const registeredApis = getRewindCommandApiState();
+  if (registeredApis.has(pi)) return;
+  registeredApis.add(pi);
+
   pi.registerCommand("rewind", {
     description: "Rewind files to a previous checkpoint",
     handler: async (_args, ctx) => {
@@ -412,9 +443,18 @@ export function registerRewind(
         if (!targetCp) return;
 
         const hasFileChanges = cps.some((cp) => cp.fileCount > 0);
-        const modes = hasFileChanges
-          ? ["Restore code and conversation", "Restore conversation", "Restore code"]
-          : ["Restore conversation"];
+        const fileStateAvailable = await checkpointFileStateAvailable(repo, targetCp);
+        const modes =
+          hasFileChanges && fileStateAvailable
+            ? ["Restore code and conversation", "Restore conversation", "Restore code"]
+            : ["Restore conversation"];
+
+        if (hasFileChanges && !fileStateAvailable) {
+          ctx.ui.notify(
+            "File restore is unavailable for this checkpoint because its file state is legacy, expired, or cleaned up. Conversation restore is still available.",
+            "warning",
+          );
+        }
 
         mode = await ctx.ui.select("Restore mode:", modes);
       }
@@ -427,9 +467,10 @@ export function registerRewind(
       if (!latest) return;
 
       const restoresCode = mode === "Restore code" || mode === "Restore code and conversation";
+      const latestAfterState = checkpointAfterState(latest);
       const dirtyBaseCommit = restoresCode
-        ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latest.afterCommit)
-        : latest.afterCommit;
+        ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latestAfterState)
+        : latestAfterState;
 
       const sessionId = ctx.sessionManager.getSessionId();
       await runRestoreMode({
@@ -440,8 +481,9 @@ export function registerRewind(
           suppressTreeRestore(sessionId);
           try {
             return await ctx.navigateTree(entryId, options);
-          } finally {
+          } catch (error) {
             clearTreeRestoreSuppression(sessionId);
+            throw error;
           }
         },
         targetCp,

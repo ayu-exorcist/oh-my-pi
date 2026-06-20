@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { withRepoLock } from "./lock";
+import { tryWithRepoLock, withRepoLock } from "./lock";
 
 async function createTmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "pi-lock-test-"));
@@ -29,7 +29,7 @@ describe("withRepoLock", () => {
   });
 
   test("creates and removes lock directory", async () => {
-    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    const lockPath = path.join(tmpDir, "lock");
 
     await withRepoLock(tmpDir, async () => {
       const exists = await fs
@@ -97,7 +97,7 @@ describe("withRepoLock", () => {
   });
 
   test("removes lock even when fn throws", async () => {
-    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    const lockPath = path.join(tmpDir, "lock");
 
     await expect(
       withRepoLock(tmpDir, async () => {
@@ -113,7 +113,7 @@ describe("withRepoLock", () => {
   });
 
   test("breaks stale locks older than 30s", async () => {
-    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    const lockPath = path.join(tmpDir, "lock");
     await fs.mkdir(lockPath);
 
     // Backdate the lock directory by touching it into the past.
@@ -155,7 +155,7 @@ describe("withRepoLock", () => {
   });
 
   test("retries immediately when lock vanishes between mkdir and stat", async () => {
-    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    const lockPath = path.join(tmpDir, "lock");
     await fs.mkdir(lockPath);
 
     const statSpy = vi.spyOn(fs, "stat").mockImplementation(async () => {
@@ -183,12 +183,78 @@ describe("withRepoLock", () => {
     mkdirSpy.mockRestore();
   });
 
-  test("ignores rmdir failure in finally block", async () => {
+  test("withRepoLock ignores rmdir failure in finally block", async () => {
     const rmdirSpy = vi.spyOn(fs, "rmdir").mockRejectedValue(new Error("busy"));
 
     const result = await withRepoLock(tmpDir, async () => "ok");
     expect(result).toBe("ok");
 
+    rmdirSpy.mockRestore();
+  });
+
+  test("tryWithRepoLock returns locked false for active locks", async () => {
+    const lockPath = path.join(tmpDir, "lock");
+    await fs.mkdir(lockPath);
+
+    const result = await tryWithRepoLock(tmpDir, async () => "ok");
+
+    expect(result).toEqual({ locked: false });
+  });
+
+  test("tryWithRepoLock breaks stale locks", async () => {
+    const lockPath = path.join(tmpDir, "lock");
+    await fs.mkdir(lockPath);
+    const past = new Date(Date.now() - 40_000);
+    await fs.utimes(lockPath, past, past);
+
+    const result = await tryWithRepoLock(tmpDir, async () => "recovered");
+
+    expect(result).toEqual({ locked: true, value: "recovered" });
+    await expect(fs.access(lockPath)).rejects.toBeDefined();
+  });
+
+  test("tryWithRepoLock retries when lock vanishes before stat", async () => {
+    const lockPath = path.join(tmpDir, "lock");
+    await fs.mkdir(lockPath);
+    const statSpy = vi.spyOn(fs, "stat").mockImplementation(async () => {
+      await fs.rmdir(lockPath).catch(() => {});
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+
+    const result = await tryWithRepoLock(tmpDir, async () => "recovered");
+
+    expect(result).toEqual({ locked: true, value: "recovered" });
+    statSpy.mockRestore();
+  });
+
+  test("tryWithRepoLock throws when mkdir fails with an unexpected coded error", async () => {
+    const mkdirSpy = vi.spyOn(fs, "mkdir").mockImplementation(async () => {
+      const err = new Error("EINVAL") as NodeJS.ErrnoException;
+      err.code = "EINVAL";
+      throw err;
+    });
+
+    await expect(tryWithRepoLock(tmpDir, async () => "ok")).rejects.toThrow("EINVAL");
+
+    mkdirSpy.mockRestore();
+  });
+
+  test("tryWithRepoLock throws when mkdir fails with a non-Node error", async () => {
+    const mkdirSpy = vi.spyOn(fs, "mkdir").mockRejectedValue(new Error("plain"));
+
+    await expect(tryWithRepoLock(tmpDir, async () => "ok")).rejects.toThrow("plain");
+
+    mkdirSpy.mockRestore();
+  });
+
+  test("tryWithRepoLock ignores rmdir failure in finally block", async () => {
+    const rmdirSpy = vi.spyOn(fs, "rmdir").mockRejectedValue(new Error("busy"));
+
+    const result = await tryWithRepoLock(tmpDir, async () => "ok");
+
+    expect(result).toEqual({ locked: true, value: "ok" });
     rmdirSpy.mockRestore();
   });
 });

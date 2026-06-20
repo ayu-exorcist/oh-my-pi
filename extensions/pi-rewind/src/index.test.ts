@@ -2,13 +2,14 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ExtensionCommandContext,
-  SessionEntry,
+import {
+  SessionManager,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type ExtensionCommandContext,
+  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { RepoManager } from "@ayulab/pi-checkpoint";
+import { RepoManager, resolveWorktreeCheckpointStoragePaths } from "@ayulab/pi-checkpoint";
 import type { CheckpointEntry, SafeCheckoutResult } from "@ayulab/pi-checkpoint";
 import {
   getForkIntentPath,
@@ -133,14 +134,19 @@ function createUserEntry(id: string, text: string): SessionEntry {
   };
 }
 
-function createCheckpointEntry(partial: Partial<CheckpointEntry> = {}): CheckpointEntry {
+interface TestCheckpointPartial extends Partial<CheckpointEntry> {
+  readonly beforeCommit?: string;
+  readonly afterCommit?: string;
+}
+
+function createCheckpointEntry(partial: TestCheckpointPartial = {}): CheckpointEntry {
   return {
     v: 2,
     kind: "checkpoint",
     turnId: "turn-1",
     userEntryId: "entry-1",
-    beforeCommit: "before-hash",
-    afterCommit: "after-hash",
+    beforeState: partial.beforeState ?? partial.beforeCommit ?? "before-hash",
+    afterState: partial.afterState ?? partial.afterCommit ?? "after-hash",
     prompt: "test",
     fileCount: 0,
     fileChanges: [],
@@ -204,6 +210,14 @@ async function createTmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "pi-rewind-test-"));
 }
 
+async function worktreeGitExists(cwd: string): Promise<boolean> {
+  const paths = await resolveWorktreeCheckpointStoragePaths(cwd);
+  return fs
+    .access(paths.gitDir)
+    .then(() => true)
+    .catch(() => false);
+}
+
 async function setTreeRestoreMode(
   cwd: string,
   restoreOnTree: "always" | "ask" | "never",
@@ -218,6 +232,30 @@ async function setTreeRestoreMode(
 
 async function enableTreeRestore(cwd: string): Promise<void> {
   await setTreeRestoreMode(cwd, "always");
+}
+
+function getRegisteredCommand(
+  registerCommand: ReturnType<typeof vi.fn>,
+  name: string,
+): { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> } {
+  const call = registerCommand.mock.calls.find((entry) => entry[0] === name);
+  if (!call) throw new Error(`expected ${name} command`);
+  return call[1] as { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> };
+}
+
+function getCheckpointCommand(registerCommand: ReturnType<typeof vi.fn>): {
+  handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+} {
+  return getRegisteredCommand(registerCommand, "checkpoint");
+}
+
+async function createCheckpointCommandContext(
+  sessionFile: string,
+  cwd: string,
+  branch: readonly unknown[] = [],
+): Promise<MockContext> {
+  await fs.mkdir(path.join(cwd, ".pi"), { recursive: true });
+  return createMockContext(sessionFile, branch, cwd) as unknown as MockContext;
 }
 
 describe("checkpoint extension", () => {
@@ -251,6 +289,139 @@ describe("checkpoint extension", () => {
     }
   });
 
+  test("checkpoint command shows usage for unknown subcommand", async () => {
+    const { api, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = await createCheckpointCommandContext(sessionFile, tmpDir);
+    const command = getCheckpointCommand(registerCommand);
+
+    await command.handler("status", ctx as unknown as ExtensionCommandContext);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Usage: /checkpoint cleanup [--apply]", "info");
+  });
+
+  test("checkpoint cleanup dry-runs by default", async () => {
+    const { api, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+
+    const ctx = await createCheckpointCommandContext(sessionFile, tmpDir);
+    const command = getCheckpointCommand(registerCommand);
+
+    await command.handler("cleanup", ctx as unknown as ExtensionCommandContext);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Checkpoint cleanup dry run"),
+      "info",
+    );
+  });
+
+  test("checkpoint cleanup apply removes legacy storage", async () => {
+    const { api, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+
+    const legacyDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions");
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(path.join(legacyDir, "old"), "data", "utf8");
+    const ctx = await createCheckpointCommandContext(sessionFile, tmpDir);
+    const command = getCheckpointCommand(registerCommand);
+
+    await command.handler("cleanup --apply", ctx as unknown as ExtensionCommandContext);
+
+    await expect(fs.access(legacyDir)).rejects.toThrow();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Checkpoint cleanup complete"),
+      "info",
+    );
+  });
+
+  test("checkpoint cleanup fails closed when SDK cleanup fails", async () => {
+    const { api, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+
+    const badWorktree = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "worktrees", "bad");
+    await fs.mkdir(badWorktree, { recursive: true });
+    const ctx = await createCheckpointCommandContext(sessionFile, tmpDir);
+    const command = getCheckpointCommand(registerCommand);
+
+    await command.handler("cleanup --apply", ctx as unknown as ExtensionCommandContext);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Checkpoint cleanup failed safely before deleting legacy storage"),
+      "error",
+    );
+  });
+
+  test("checkpoint cleanup fails closed when live sessions cannot be scanned", async () => {
+    const { api, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    vi.spyOn(SessionManager, "listAll").mockRejectedValue(new Error("scan failed"));
+
+    const ctx = await createCheckpointCommandContext(sessionFile, tmpDir);
+    const command = getCheckpointCommand(registerCommand);
+
+    await command.handler("cleanup", ctx as unknown as ExtensionCommandContext);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint cleanup could not verify live sessions: scan failed",
+      "error",
+    );
+  });
+
+  test("extension registration is idempotent for the same Pi API instance", async () => {
+    const { api, events, registerCommand } = createMockApi();
+    const ext = await import("./index");
+
+    ext.default(api);
+    ext.default(api);
+
+    expect(registerCommand.mock.calls.filter((call) => call[0] === "rewind")).toHaveLength(1);
+    expect(events["session_before_tree"]).toHaveLength(1);
+    expect(events["session_tree"]).toHaveLength(1);
+  });
+
+  test("session_start schedules legacy and retention cleanup timers", async () => {
+    vi.useFakeTimers();
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+
+    const legacyDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions");
+    const tmpArtifacts = path.join(
+      tmpDir,
+      ".pi",
+      "agent",
+      "ayu",
+      "checkpoints",
+      "tmp",
+      "fork-intents",
+    );
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.mkdir(tmpArtifacts, { recursive: true });
+    await fs.writeFile(path.join(legacyDir, "old"), "x", "utf8");
+    await fs.writeFile(path.join(tmpArtifacts, "intent"), "x", "utf8");
+
+    const ctx = createMockContext(sessionFile, [createUserEntry("entry-1", "test")], tmpDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await vi.runAllTimersAsync();
+
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   test("session_start skips init when git already exists", async () => {
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events } = createMockApi();
@@ -268,12 +439,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "resume" }, ctx);
     }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
-    const gitExists = await fs
-      .access(path.join(repoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(gitExists).toBe(true);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(true);
   }, 15000);
 
   test("session_start ignores non-object settings JSON", async () => {
@@ -367,6 +533,130 @@ describe("checkpoint extension", () => {
     );
   }, 15000);
 
+  test("notifies skipped large files once per file during a simple turn", async () => {
+    const branch = [createUserEntry("entry-1", "hello")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, "codegraph", "src", "extraction", "wasm"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "codegraph", "src", "extraction", "wasm", "tree-sitter-scala.wasm"),
+      Buffer.alloc(2 * 1024 * 1024 + 1),
+    );
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { maxFileBytes: 2 * 1024 * 1024 } } }),
+      "utf8",
+    );
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint skipped large file(s): codegraph/src/extraction/wasm/tree-sitter-scala.wasm",
+      "warning",
+    );
+  }, 15000);
+
+  test("deduplicates repeated skipped large file warnings in one session", async () => {
+    const branch = [createUserEntry("entry-1", "hello")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, "codegraph", "src", "extraction", "wasm"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "codegraph", "src", "extraction", "wasm", "tree-sitter-scala.wasm"),
+      Buffer.alloc(2 * 1024 * 1024 + 1),
+    );
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { maxFileBytes: 2 * 1024 * 1024 } } }),
+      "utf8",
+    );
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    branch.push(createUserEntry("entry-2", "second hello"));
+    await emitAssistantStart(events, ctx);
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 1, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint skipped large file(s): codegraph/src/extraction/wasm/tree-sitter-scala.wasm",
+      "warning",
+    );
+  }, 15000);
+
+  test("deduplicates skipped large file warnings across duplicate extension registrations", async () => {
+    const branch = [createUserEntry("entry-1", "hello")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, "codegraph", "src", "extraction", "wasm"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "codegraph", "src", "extraction", "wasm", "tree-sitter-scala.wasm"),
+      Buffer.alloc(2 * 1024 * 1024 + 1),
+    );
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { maxFileBytes: 2 * 1024 * 1024 } } }),
+      "utf8",
+    );
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint skipped large file(s): codegraph/src/extraction/wasm/tree-sitter-scala.wasm",
+      "warning",
+    );
+  }, 15000);
+
   test("fork without selected checkpoint restores latest branch completed state", async () => {
     const root = createUserEntry("root-entry", "create file");
     const pending = { ...createUserEntry("pending-entry", "next prompt"), parentId: "root-entry" };
@@ -410,6 +700,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", targetSessionFile: forkSessionFile }, srcCtx);
     }
 
+    const diffAgainst = vi.spyOn(RepoManager.prototype, "diffAgainst").mockResolvedValue("");
     const checkoutCommit = vi.spyOn(RepoManager.prototype, "checkoutCommit").mockResolvedValue();
     const forkCtx = createMockContext(forkSessionFile, branch, tmpDir);
     for (const h of sessionStartHandlers) {
@@ -417,6 +708,8 @@ describe("checkpoint extension", () => {
     }
 
     expect(checkoutCommit).toHaveBeenCalledWith("root-after");
+    diffAgainst.mockRestore();
+    checkoutCommit.mockRestore();
   }, 15000);
 
   test("fork copies repo and restores code to fork point", async () => {
@@ -481,20 +774,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
 
-    const forkRepoDir = path.join(
-      tmpDir,
-      ".pi",
-      "agent",
-      "ayu",
-      "checkpoints",
-      "sessions",
-      "fork-session",
-    );
-    const forkGitExists = await fs
-      .access(path.join(forkRepoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(forkGitExists).toBe(true);
+    await expect(worktreeGitExists(projectDir)).resolves.toBe(true);
 
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(1)");
@@ -530,21 +810,39 @@ describe("checkpoint extension", () => {
       await h({ messages: [] }, srcCtx);
     }
 
-    const checkpointEntry = appendEntry.mock.calls
+    const firstCheckpointEntry = appendEntry.mock.calls
       .filter(isMockCall)
       .filter((call) => call[0] === "pi-checkpoint")
       .map((call) => call[1])
       .pop();
 
+    srcBranch.push(createUserEntry("entry-2", "update file"));
+    await emitAssistantStart(events, srcCtx);
     await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
+    for (const h of turnEndHandlers) {
+      await h({ turnIndex: 1, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+    for (const h of agentEndHandlers) {
+      await h({ messages: [] }, srcCtx);
+    }
+
+    const checkpoints = appendEntry.mock.calls
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1]);
 
     const cloneSessionFile = path.join(tmpDir, "clone-session.jsonl");
     await fs.writeFile(cloneSessionFile, "", "utf8");
 
     const cloneBranch = [
       createUserEntry("entry-1", "create file"),
-      ...(checkpointEntry
-        ? [{ type: "custom", customType: "pi-checkpoint", data: checkpointEntry }]
+      createUserEntry("entry-2", "update file"),
+      ...(firstCheckpointEntry
+        ? checkpoints.map((checkpoint) => ({
+            type: "custom",
+            customType: "pi-checkpoint",
+            data: checkpoint,
+          }))
         : []),
     ];
     const cloneCtx = createMockContext(cloneSessionFile, cloneBranch, projectDir);
@@ -608,8 +906,6 @@ describe("checkpoint extension", () => {
       .map((call) => call[1])
       .pop();
 
-    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
-
     const cloneSessionFile = path.join(tmpDir, "clone-fallback-session.jsonl");
     await fs.writeFile(cloneSessionFile, "", "utf8");
 
@@ -637,6 +933,131 @@ describe("checkpoint extension", () => {
 
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(2)");
+  }, 15000);
+
+  test("clone restore blocks dirty managed files", async () => {
+    const srcBranch = [createUserEntry("entry-1", "create file")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const projectDir = path.join(tmpDir, "project");
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
+    await emitAssistantStart(events, srcCtx);
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, srcCtx);
+    }
+
+    const checkpointEntry = appendEntry.mock.calls
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
+      .pop();
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "dirty", "utf8");
+
+    const cloneSessionFile = path.join(tmpDir, "clone-dirty-session.jsonl");
+    await fs.writeFile(cloneSessionFile, "", "utf8");
+    const cloneCtx = createMockContext(
+      cloneSessionFile,
+      [
+        createUserEntry("entry-1", "create file"),
+        ...(checkpointEntry
+          ? [{ type: "custom", customType: "pi-checkpoint", data: checkpointEntry }]
+          : []),
+      ],
+      projectDir,
+    );
+
+    for (const h of events["session_before_fork"] || []) {
+      await h({ entryId: "entry-1", position: "at" }, srcCtx);
+    }
+    for (const h of events["session_shutdown"] || []) {
+      await h({ reason: "fork", targetSessionFile: cloneSessionFile }, srcCtx);
+    }
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, cloneCtx);
+    }
+
+    await expect(fs.readFile(path.join(projectDir, "app.ts"), "utf8")).resolves.toBe("dirty");
+    expect(cloneCtx.ui.notify).toHaveBeenCalledWith(
+      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before cloning checkpoint state.",
+      "warning",
+    );
+  }, 15000);
+
+  test("fork restore blocks dirty managed files", async () => {
+    const srcBranch = [createUserEntry("entry-1", "create file")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const projectDir = path.join(tmpDir, "project");
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
+    await emitAssistantStart(events, srcCtx);
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: getAgentMessage(srcBranch), toolResults: [] }, srcCtx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, srcCtx);
+    }
+
+    const checkpointEntry = appendEntry.mock.calls
+      .filter(isMockCall)
+      .filter((call) => call[0] === "pi-checkpoint")
+      .map((call) => call[1])
+      .pop();
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "dirty", "utf8");
+
+    const forkSessionFile = path.join(tmpDir, "fork-dirty-session.jsonl");
+    await fs.writeFile(forkSessionFile, "", "utf8");
+    const forkCtx = createMockContext(
+      forkSessionFile,
+      [
+        createUserEntry("entry-1", "create file"),
+        ...(checkpointEntry
+          ? [{ type: "custom", customType: "pi-checkpoint", data: checkpointEntry }]
+          : []),
+      ],
+      projectDir,
+    );
+
+    for (const h of events["session_before_fork"] || []) {
+      await h({ entryId: "entry-1", position: "before" }, srcCtx);
+    }
+    for (const h of events["session_shutdown"] || []) {
+      await h({ reason: "fork", targetSessionFile: forkSessionFile }, srcCtx);
+    }
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
+    }
+
+    await expect(fs.readFile(path.join(projectDir, "app.ts"), "utf8")).resolves.toBe("dirty");
+    expect(forkCtx.ui.notify).toHaveBeenCalledWith(
+      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before forking checkpoint state.",
+      "warning",
+    );
   }, 15000);
 
   test("clone skips code restore when no checkpoints exist", async () => {
@@ -714,20 +1135,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork" }, forkCtx);
     }
 
-    const forkRepoDir = path.join(
-      tmpDir,
-      ".pi",
-      "agent",
-      "ayu",
-      "checkpoints",
-      "sessions",
-      "fork-session",
-    );
-    const forkGitExists = await fs
-      .access(path.join(forkRepoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(forkGitExists).toBe(false);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(false);
   });
 
   test("fork skips restore when no user entry found", async () => {
@@ -754,20 +1162,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
 
-    const forkRepoDir = path.join(
-      tmpDir,
-      ".pi",
-      "agent",
-      "ayu",
-      "checkpoints",
-      "sessions",
-      "fork-session",
-    );
-    const forkGitExists = await fs
-      .access(path.join(forkRepoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(forkGitExists).toBe(true);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(true);
   }, 15000);
 
   test("fork skips restore when checkpoint entry id not in session", async () => {
@@ -818,20 +1213,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
 
-    const forkRepoDir = path.join(
-      tmpDir,
-      ".pi",
-      "agent",
-      "ayu",
-      "checkpoints",
-      "sessions",
-      "fork-session",
-    );
-    const forkGitExists = await fs
-      .access(path.join(forkRepoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(forkGitExists).toBe(true);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(true);
   }, 15000);
 
   test("fork copies repo without restoring code when restoreOnFork is never", async () => {
@@ -875,6 +1257,52 @@ describe("checkpoint extension", () => {
     expect(content).toBe("console.log(2)");
   }, 15000);
 
+  test("fork asks before restoring when restoreOnFork is ask", async () => {
+    const srcBranch = [createUserEntry("entry-1", "init")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const projectDir = path.join(tmpDir, "project");
+    await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "ask" } } }),
+      "utf8",
+    );
+
+    const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, srcCtx);
+    }
+
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(1)", "utf8");
+    await emitAssistantStart(events, srcCtx);
+    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(2)", "utf8");
+
+    const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
+    await fs.writeFile(forkSessionFile, "", "utf8");
+    const forkCtx = createMockContext(
+      forkSessionFile,
+      [createUserEntry("entry-1", "init")],
+      projectDir,
+    );
+    forkCtx.ui.select.mockResolvedValueOnce("No");
+
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
+    }
+
+    expect(forkCtx.ui.select).toHaveBeenCalledWith("Restore files for this session branch?", [
+      "Yes",
+      "No",
+    ]);
+    await expect(fs.readFile(path.join(projectDir, "app.ts"), "utf8")).resolves.toBe(
+      "console.log(2)",
+    );
+  }, 15000);
+
   test("fork returns early when src repo does not exist", async () => {
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
     await fs.writeFile(forkSessionFile, "", "utf8");
@@ -896,20 +1324,7 @@ describe("checkpoint extension", () => {
       );
     }
 
-    const forkRepoDir = path.join(
-      tmpDir,
-      ".pi",
-      "agent",
-      "ayu",
-      "checkpoints",
-      "sessions",
-      "fork-session",
-    );
-    const forkGitExists = await fs
-      .access(path.join(forkRepoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(forkGitExists).toBe(false);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(true);
   });
 
   test("fork returns early when dst repo already exists", async () => {
@@ -1472,7 +1887,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
 
@@ -1490,12 +1905,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "resume" }, ctx);
     }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
-    const gitExists = await fs
-      .access(path.join(repoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(gitExists).toBe(true);
+    await expect(worktreeGitExists(tmpDir)).resolves.toBe(true);
     expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
   });
 
@@ -1512,7 +1922,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
 
@@ -1627,6 +2037,58 @@ describe("checkpoint extension", () => {
     expect(cmdCtx.navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
     expect(ctx.ui.select).not.toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("rewind conversation restore suppresses later tree sync prompt", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events, registerCommand } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    const rewindCall = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "rewind");
+    expect(rewindCall).toBeDefined();
+    if (!rewindCall) throw new Error("rewind command not registered");
+
+    const cmdCtx = {
+      ui: {
+        notify: vi.fn(),
+        select: vi
+          .fn()
+          .mockImplementationOnce((_title: string, options: string[]) => options[0])
+          .mockResolvedValueOnce("Restore conversation"),
+        input: vi.fn(),
+      },
+      navigateTree: vi.fn().mockResolvedValue(undefined),
+      sessionManager: {
+        getEntries: () => branch,
+        getBranch: () => branch,
+        getSessionId: () => "test-session",
+      },
+    } as unknown as ExtensionCommandContext;
+
+    await rewindCall[1].handler("", cmdCtx);
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(cmdCtx.navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ctx.ui.confirm).not.toHaveBeenCalled();
   });
 
   test("session_tree ask mode restores files only when user confirms sync", async () => {
@@ -1932,7 +2394,7 @@ describe("checkpoint extension", () => {
         getEntries: () => entries,
       },
     } as unknown as ExtensionContext;
-    vi.mocked(ctx.ui.select).mockResolvedValueOnce("No");
+    vi.mocked(ctx.ui.confirm).mockResolvedValueOnce(false);
 
     await runTreeAskScenario(events, ctx, { reason: "new" });
 
@@ -2386,6 +2848,10 @@ describe("checkpoint extension", () => {
     const cases: Array<{ readonly result: SafeCheckoutResult; readonly message: string }> = [
       { result: { ok: false, reason: "dirty" }, message: "unsnapshotted changes" },
       {
+        result: { ok: false, reason: "dirty-check-failed", error: "verify failed" },
+        message: "Workspace cleanliness could not be verified: verify failed",
+      },
+      {
         result: {
           ok: false,
           reason: "checkout-failed",
@@ -2685,10 +3151,10 @@ describe("checkpoint extension", () => {
     const entry = createCheckpointEntry({ turnId: "same-turn" });
     const turnStart = vi
       .spyOn(AutoCheckpointProducer.prototype, "turnStart")
-      .mockResolvedValue({ ok: true, entries: [entry] });
+      .mockResolvedValue({ ok: true, entries: [{ entry, skippedLargeFiles: [] }] });
     const finalizeRun = vi
       .spyOn(AutoCheckpointProducer.prototype, "finalizeRun")
-      .mockResolvedValue({ ok: true, entry });
+      .mockResolvedValue({ ok: true, entry, skippedLargeFiles: [] });
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events, appendEntry } = createMockApi();
     const ext = await import("./index");

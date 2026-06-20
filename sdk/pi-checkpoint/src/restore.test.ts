@@ -15,6 +15,11 @@ describe("safeRestore", () => {
         }
       | {
           ok: false;
+          reason: "dirty-check-failed";
+          error: string;
+        }
+      | {
+          ok: false;
           reason: "checkout-failed";
           error: string;
           rollbackError?: string;
@@ -77,6 +82,36 @@ describe("safeRestore", () => {
 
     expect(result).toEqual({ ok: false });
     expect(ui.notify).toHaveBeenCalledWith("workspace is dirty", "warning");
+    expect(navigateTree).not.toHaveBeenCalled();
+  });
+
+  test("returns failure when workspace cleanliness cannot be verified", async () => {
+    const repo = createMockRepo({
+      ok: false,
+      reason: "dirty-check-failed",
+      error: "verify failed",
+    });
+    const ui = createMockUi();
+    const navigateTree = createMockNavigateTree();
+
+    const result = await safeRestore({
+      repo,
+      ui,
+      navigateTree,
+      targetCommit: "abc123",
+      dirtyBaseCommit: "def456",
+      targetLeafId: "leaf-1",
+      dirtyMessage: "workspace is dirty",
+      failedPrefix: "failed",
+      rollbackFailedPrefix: "rollback failed",
+      successMessage: "success",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Workspace cleanliness could not be verified: verify failed",
+      "error",
+    );
     expect(navigateTree).not.toHaveBeenCalled();
   });
 

@@ -1,15 +1,45 @@
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import { readdir, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { exec, type ExecEnv } from "./exec";
 import { withRepoLock } from "./lock";
 
 const AUTO_EXCLUDE_SCAN_ALWAYS_PRUNE_DIRS = new Set([".git", ".pi"]);
 const AUTO_EXCLUDE_SCAN_CONFIGURED_PRUNE_DIRS = new Set([
   "node_modules",
+  ".gradle",
+  ".ark",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  ".angular",
+  ".vite",
+  ".parcel-cache",
+  ".turbo",
   "dist",
   "build",
   "target",
+  "coverage",
+  ".cache",
+  ".venv",
+  "venv",
+  ".tox",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  "htmlcov",
+  "Pods",
+  ".expo",
+  ".cxx",
+  ".externalNativeBuild",
+  ".build",
+  "DerivedData",
+  ".terraform",
+  ".serverless",
+  ".aws-sam",
+  ".idea",
+  ".vscode",
 ]);
 
 function getDirectoryExcludePatterns(dirName: string): Set<string> {
@@ -47,6 +77,7 @@ function toGitPath(workTree: string, absolutePath: string): string {
 export type SafeCheckoutResult =
   | { readonly ok: true; readonly safetyHash?: string }
   | { readonly ok: false; readonly reason: "dirty" }
+  | { readonly ok: false; readonly reason: "dirty-check-failed"; readonly error: string }
   | {
       readonly ok: false;
       readonly reason: "checkout-failed";
@@ -57,7 +88,8 @@ export type SafeCheckoutResult =
 /**
  * Manages a git bare repository used for file-level checkpoints.
  *
- * Each session gets its own bare repo under `~/.pi/agent/ayu/checkpoints/sessions/`.
+ * The repo is stored in Worktree Checkpoint Storage under
+ * `~/.pi/agent/ayu/checkpoints/worktrees/<worktree-id>/repo.git`.
  * The work tree points to the user's project directory so that `git add/checkout`
  * operate directly on the project files.
  */
@@ -67,6 +99,10 @@ export class RepoManager {
   private repoDir: string;
 
   private excludePatterns: readonly string[] | undefined;
+
+  private maxFileBytes: number | undefined;
+
+  private skippedLargeFiles: readonly string[] = [];
 
   constructor(
     /** Absolute path to the bare `.git` directory. */
@@ -187,17 +223,70 @@ export class RepoManager {
     return roots.sort();
   }
 
+  private async findLargeFileExcludes(patterns: readonly string[]): Promise<string[]> {
+    if (this.maxFileBytes === undefined) return [];
+
+    const workTree = path.resolve(this.workTree);
+    const largeFiles: string[] = [];
+    const stack = [workTree];
+
+    while (true) {
+      const current = stack.pop();
+      if (current === undefined) break;
+
+      let entries: Dirent[];
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        /* c8 ignore next -- defensive against directories disappearing during large-file scan. */
+        continue;
+      }
+
+      for (const entry of entries) {
+        const absolutePath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          /* c8 ignore next -- Node Dirent symlinks are not reported as directories on supported platforms. */
+          if (entry.isSymbolicLink()) continue;
+          if (shouldPruneAutoExcludeScanDir(entry.name, patterns)) continue;
+          stack.push(absolutePath);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        try {
+          const info = await stat(absolutePath);
+          if (info.size > this.maxFileBytes) largeFiles.push(toGitPath(workTree, absolutePath));
+        } catch {
+          /* c8 ignore next -- defensive against files disappearing during large-file scan. */
+          continue;
+        }
+      }
+    }
+
+    return largeFiles.sort();
+  }
+
+  /** Return files skipped by the most recent large-file scan. */
+  getSkippedLargeFiles(): readonly string[] {
+    return this.skippedLargeFiles;
+  }
+
   private async writeExclude(patterns: readonly string[]): Promise<void> {
     const excludePath = path.join(this.gitDir, "info", "exclude");
     const autoExcludes = await this.findNestedGitRepoExcludes(patterns);
-    const allPatterns = [...new Set([...patterns, ...autoExcludes])];
+    const largeFileExcludes = await this.findLargeFileExcludes(patterns);
+    this.skippedLargeFiles = largeFileExcludes;
+    const allPatterns = [...new Set([...patterns, ...autoExcludes, ...largeFileExcludes])];
     await mkdir(path.dirname(excludePath), { recursive: true });
     await writeFile(excludePath, allPatterns.join("\n") + "\n", "utf8");
   }
 
   private async refreshExclude(): Promise<void> {
-    if (!this.excludePatterns) return;
-    await this.writeExclude(this.excludePatterns);
+    await this.writeExclude(this.excludePatterns ?? []);
+  }
+
+  /** Set the maximum file size captured by future checkpoints. */
+  setLargeFileLimit(maxFileBytes: number | undefined): void {
+    this.maxFileBytes = maxFileBytes;
   }
 
   /** Write exclude patterns to `info/exclude` inside the bare repo. */
@@ -214,27 +303,80 @@ export class RepoManager {
     });
   }
 
+  private async getHeadCommit(): Promise<string | undefined> {
+    try {
+      const { stdout } = await exec(
+        "git",
+        [...this.gitArgs(), "rev-parse", "--verify", "HEAD"],
+        this.env,
+        this.workTree,
+      );
+      return stdout.trim();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async updateHead(commitHash: string): Promise<void> {
+    await exec(
+      "git",
+      [...this.gitArgs(), "update-ref", "HEAD", commitHash],
+      this.env,
+      this.workTree,
+    );
+  }
+
+  private async createRootCommitFromIndex(
+    subject: string,
+    previousCommit: string | undefined,
+  ): Promise<string> {
+    const { stdout: treeStdout } = await exec(
+      "git",
+      [...this.gitArgs(), "write-tree"],
+      this.env,
+      this.workTree,
+    );
+    const treeHash = treeStdout.trim();
+    const { stdout } = await exec(
+      "git",
+      [
+        ...this.gitArgs(),
+        "commit-tree",
+        treeHash,
+        "-m",
+        subject,
+        ...(previousCommit ? ["-m", `pi-checkpoint-previous: ${previousCommit}`] : []),
+      ],
+      this.env,
+      this.workTree,
+    );
+    const commitHash = stdout.trim();
+    /* c8 ignore next -- git commit-tree either returns a hash or rejects; empty stdout is a defensive guard. */
+    if (!commitHash) throw new Error("Checkpoint commit did not create a commit hash");
+    await this.updateHead(commitHash);
+    return commitHash;
+  }
+
   /**
    * Stage all files and create a checkpoint commit.
+   *
+   * Equal staged states reuse the current HEAD commit instead of creating an
+   * empty commit. New states are stored as parentless commits so only explicit
+   * checkpoint refs protect historical states; deleting those refs lets git GC
+   * reclaim expired file-restore objects.
    *
    * @param entryId - Session entry id to embed in the commit message.
    * @returns The 40-character commit hash.
    */
   async checkpoint(entryId: string): Promise<string> {
     await this.stageAll();
-    await exec(
-      "git",
-      [...this.gitArgs(), "commit", "-m", `[pi] entry:${entryId}`, "--allow-empty"],
-      this.env,
-      this.workTree,
-    );
-    const { stdout } = await exec(
-      "git",
-      [...this.gitArgs(), "rev-parse", "HEAD"],
-      this.env,
-      this.workTree,
-    );
-    return stdout.trim();
+    const headCommit = await this.getHeadCommit();
+    if (headCommit) {
+      const diff = await this.diffAgainst(headCommit);
+      if (diff.trim().length === 0) return headCommit;
+    }
+
+    return this.createRootCommitFromIndex(`[pi] entry:${entryId}`, headCommit);
   }
 
   /** Create a checkpoint while holding the repo lock. */
@@ -242,10 +384,88 @@ export class RepoManager {
     return this.withLock(async () => this.checkpoint(entryId));
   }
 
+  private resolveGitPath(gitPath: string): string | undefined {
+    const absolutePath = path.resolve(this.workTree, gitPath);
+    const relative = path.relative(this.workTree, absolutePath);
+    /* c8 ignore next -- git tree paths come from git and are scoped under workTree. */
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+    return absolutePath;
+  }
+
+  private async isIgnoredPath(gitPath: string): Promise<boolean> {
+    try {
+      await exec(
+        "git",
+        [...this.gitArgs(), "check-ignore", "-q", "--", gitPath],
+        this.env,
+        this.workTree,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async listIgnoredTargetFiles(commitHash: string): Promise<readonly string[]> {
+    await this.refreshExclude();
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "ls-tree", "-r", "--name-only", "-z", commitHash],
+      this.env,
+      this.workTree,
+    );
+    const paths = stdout.split("\0").filter((entry) => entry.length > 0);
+    const ignoredPaths: string[] = [];
+    for (const gitPath of paths) {
+      if (await this.isIgnoredPath(gitPath)) ignoredPaths.push(gitPath);
+    }
+    return ignoredPaths.sort();
+  }
+
+  private async captureIgnoredTargetFiles(commitHash: string): Promise<
+    readonly {
+      readonly gitPath: string;
+      readonly content: Buffer | undefined;
+    }[]
+  > {
+    const ignoredPaths = await this.listIgnoredTargetFiles(commitHash);
+    const backups: Array<{ readonly gitPath: string; readonly content: Buffer | undefined }> = [];
+    for (const gitPath of ignoredPaths) {
+      const absolutePath = this.resolveGitPath(gitPath);
+      /* c8 ignore next -- git tree paths come from git and are scoped under workTree. */
+      if (!absolutePath) continue;
+      try {
+        backups.push({ gitPath, content: await readFile(absolutePath) });
+      } catch {
+        /* c8 ignore next -- defensive against ignored files disappearing between backup scan and read. */
+        backups.push({ gitPath, content: undefined });
+      }
+    }
+    return backups;
+  }
+
+  private async restoreIgnoredTargetFiles(
+    backups: readonly { readonly gitPath: string; readonly content: Buffer | undefined }[],
+  ): Promise<void> {
+    for (const backup of backups) {
+      const absolutePath = this.resolveGitPath(backup.gitPath);
+      /* c8 ignore next -- git tree paths come from git and are scoped under workTree. */
+      if (!absolutePath) continue;
+      if (backup.content === undefined) {
+        await rm(absolutePath, { force: true, recursive: true });
+        continue;
+      }
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, backup.content);
+    }
+  }
+
   /** Hard-reset the work tree to `commitHash` and remove untracked files. */
   async checkoutCommit(commitHash: string): Promise<void> {
+    const ignoredBackups = await this.captureIgnoredTargetFiles(commitHash);
     await exec("git", [...this.gitArgs(), "reset", "--hard", commitHash], this.env, this.workTree);
     await exec("git", [...this.gitArgs(), "clean", "-fd"], this.env, this.workTree);
+    await this.restoreIgnoredTargetFiles(ignoredBackups);
   }
 
   /** Check out a commit while holding the repo lock. */
@@ -263,14 +483,7 @@ export class RepoManager {
    */
   async createSafetyCommit(): Promise<string> {
     await this.stageAll();
-    await exec("git", [...this.gitArgs(), "commit", "-m", "[pi] safety"], this.env, this.workTree);
-    const { stdout } = await exec(
-      "git",
-      [...this.gitArgs(), "rev-parse", "HEAD"],
-      this.env,
-      this.workTree,
-    );
-    return stdout.trim();
+    return this.createRootCommitFromIndex("[pi] safety", await this.getHeadCommit());
   }
 
   /** Create a safety commit while holding the repo lock. */
@@ -302,22 +515,54 @@ export class RepoManager {
    * Falls back to `git show --numstat` for the first commit (no parent).
    */
   async diffStats(commitHash: string): Promise<string> {
+    const previousCommit = await this.getPreviousCheckpointCommit(commitHash);
+    if (previousCommit) {
+      const { stdout } = await exec(
+        "git",
+        [...this.gitArgs(), "diff", "--numstat", previousCommit, commitHash],
+        this.env,
+        this.workTree,
+      );
+      return stdout;
+    }
+
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "show", "--numstat", "--format=", commitHash],
+      this.env,
+      this.workTree,
+    );
+    return stdout;
+  }
+
+  private async getPreviousCheckpointCommit(commitHash: string): Promise<string | undefined> {
     try {
       const { stdout } = await exec(
         "git",
-        [...this.gitArgs(), "diff", "--numstat", `${commitHash}~1`, commitHash],
+        [...this.gitArgs(), "show", "-s", "--format=%B", commitHash],
         this.env,
         this.workTree,
       );
-      return stdout;
+      const match = /^pi-checkpoint-previous: ([a-f0-9]{40})$/mu.exec(stdout);
+      return match?.[1];
     } catch {
-      const { stdout } = await exec(
+      /* c8 ignore next -- defensive fallback when commit-message lookup fails; first-commit diffStats fallback is covered. */
+      return undefined;
+    }
+  }
+
+  /** Return whether a checkpoint state commit exists in storage. */
+  async hasCommit(commitHash: string): Promise<boolean> {
+    try {
+      await exec(
         "git",
-        [...this.gitArgs(), "show", "--numstat", "--format=", commitHash],
+        [...this.gitArgs(), "cat-file", "-e", `${commitHash}^{commit}`],
         this.env,
         this.workTree,
       );
-      return stdout;
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -379,6 +624,22 @@ export class RepoManager {
     return stdout;
   }
 
+  /** Return changed paths between the staged index and `commitHash` that are currently managed. */
+  private async managedDiffPathsAgainst(commitHash: string): Promise<readonly string[]> {
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "diff", "--cached", "--name-only", "-z", commitHash],
+      this.env,
+      this.workTree,
+    );
+    const paths = stdout.split("\0").filter((entry) => entry.length > 0);
+    const managedPaths: string[] = [];
+    for (const gitPath of paths) {
+      if (!(await this.isIgnoredPath(gitPath))) managedPaths.push(gitPath);
+    }
+    return managedPaths;
+  }
+
   /**
    * Safely check out `targetCommit` with dirty-guard, safety-commit, and
    * automatic rollback on failure.
@@ -399,10 +660,17 @@ export class RepoManager {
           await this.stageAll();
           const dirtyStdout = await this.diffAgainst(dirtyBaseCommit);
           if (dirtyStdout.trim().length > 0) {
-            return { ok: false, reason: "dirty" };
+            const dirtyPaths = await this.managedDiffPathsAgainst(dirtyBaseCommit);
+            if (dirtyPaths.length > 0) {
+              return { ok: false, reason: "dirty" };
+            }
           }
-        } catch {
-          // Skip dirty check if diff fails
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "dirty-check-failed",
+            error: err instanceof Error ? err.message : String(err),
+          };
         }
       }
 
