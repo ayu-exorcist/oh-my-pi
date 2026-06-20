@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { RepoManager } from "./repo-manager";
 import { withRepoLock } from "./lock";
-import { getGitDir, getIndexPath, getRepoDir } from "./resolver";
+import { resolveWorktreeCheckpointStoragePaths } from "./resolver";
 
 export interface SessionCheckpointStorageOptions {
   readonly sessionFile: string | undefined;
@@ -10,11 +10,13 @@ export interface SessionCheckpointStorageOptions {
 
 export interface EnsureSessionCheckpointStorageOptions extends SessionCheckpointStorageOptions {
   readonly exclude: readonly string[];
+  readonly maxFileBytes?: number;
 }
 
 export interface CloneSessionCheckpointStorageOptions extends SessionCheckpointStorageOptions {
   readonly previousSessionFile: string;
   readonly exclude?: readonly string[];
+  readonly maxFileBytes?: number;
 }
 
 export type CloneSessionCheckpointStorageResult =
@@ -28,29 +30,29 @@ export type SessionCheckpointStorageResult =
       readonly repoDir: string;
       readonly gitDir: string;
       readonly indexFile: string;
+      readonly worktreeId: string;
     }
   | { readonly ok: false; readonly reason: "not-found" };
 
-function createStorage(
+async function createStorage(
   options: SessionCheckpointStorageOptions,
-): Exclude<SessionCheckpointStorageResult, { readonly ok: false }> {
-  const repoDir = getRepoDir(options.sessionFile);
-  const gitDir = getGitDir(repoDir);
-  const indexFile = getIndexPath(repoDir);
+): Promise<Exclude<SessionCheckpointStorageResult, { readonly ok: false }>> {
+  const paths = await resolveWorktreeCheckpointStoragePaths(options.cwd);
 
   return {
     ok: true,
-    repo: new RepoManager(gitDir, indexFile, options.cwd),
-    repoDir,
-    gitDir,
-    indexFile,
+    repo: new RepoManager(paths.gitDir, paths.indexFile, options.cwd),
+    repoDir: paths.repoDir,
+    gitDir: paths.gitDir,
+    indexFile: paths.indexFile,
+    worktreeId: paths.worktreeId,
   };
 }
 
 export async function resolveSessionCheckpointStorage(
   options: SessionCheckpointStorageOptions,
 ): Promise<SessionCheckpointStorageResult> {
-  const storage = createStorage(options);
+  const storage = await createStorage(options);
 
   const exists = await fs
     .access(storage.gitDir)
@@ -67,24 +69,22 @@ export async function resolveSessionCheckpointStorage(
 export async function cloneSessionCheckpointStorage(
   options: CloneSessionCheckpointStorageOptions,
 ): Promise<CloneSessionCheckpointStorageResult> {
-  const sourceRepoDir = getRepoDir(options.previousSessionFile);
-  const sourceGitDir = getGitDir(sourceRepoDir);
-  const storage = createStorage(options);
-
-  const sourceExists = await fs
-    .access(sourceRepoDir)
-    .then(() => true)
-    .catch(() => false);
-  if (!sourceExists) return { ok: false, reason: "source-not-found" };
+  const storage = await createStorage(options);
+  storage.repo.setLargeFileLimit(options.maxFileBytes);
 
   const destinationExists = await fs
     .access(storage.gitDir)
     .then(() => true)
     .catch(() => false);
-  if (destinationExists) return { ok: false, reason: "destination-exists" };
+  if (destinationExists) {
+    if (options.exclude) {
+      await storage.repo.setExclude(options.exclude);
+    }
+    return storage;
+  }
 
   await fs.mkdir(storage.repoDir, { recursive: true });
-  await RepoManager.cloneFrom(sourceGitDir, storage.gitDir);
+  await storage.repo.init();
   if (options.exclude) {
     await storage.repo.setExclude(options.exclude);
   }
@@ -94,26 +94,24 @@ export async function cloneSessionCheckpointStorage(
 export async function safeCloneSessionCheckpointStorage(
   options: CloneSessionCheckpointStorageOptions,
 ): Promise<CloneSessionCheckpointStorageResult> {
-  const sourceRepoDir = getRepoDir(options.previousSessionFile);
-  const sourceGitDir = getGitDir(sourceRepoDir);
-  const storage = createStorage(options);
+  const storage = await createStorage(options);
+  storage.repo.setLargeFileLimit(options.maxFileBytes);
 
   await fs.mkdir(storage.repoDir, { recursive: true });
   return withRepoLock(storage.repoDir, async () => {
-    const sourceExists = await fs
-      .access(sourceRepoDir)
-      .then(() => true)
-      .catch(() => false);
-    if (!sourceExists) return { ok: false, reason: "source-not-found" };
-
     const destinationExists = await fs
       .access(storage.gitDir)
       .then(() => true)
       .catch(() => false);
-    if (destinationExists) return { ok: false, reason: "destination-exists" };
+    if (destinationExists) {
+      if (options.exclude) {
+        await storage.repo.setExclude(options.exclude);
+      }
+      return storage;
+    }
 
     await fs.mkdir(storage.repoDir, { recursive: true });
-    await RepoManager.cloneFrom(sourceGitDir, storage.gitDir);
+    await storage.repo.init();
     if (options.exclude) {
       await storage.repo.setExclude(options.exclude);
     }
@@ -124,7 +122,8 @@ export async function safeCloneSessionCheckpointStorage(
 export async function ensureSessionCheckpointStorage(
   options: EnsureSessionCheckpointStorageOptions,
 ): Promise<Exclude<SessionCheckpointStorageResult, { readonly ok: false }>> {
-  const storage = createStorage(options);
+  const storage = await createStorage(options);
+  storage.repo.setLargeFileLimit(options.maxFileBytes);
   const exists = await fs
     .access(storage.gitDir)
     .then(() => true)
@@ -142,7 +141,8 @@ export async function ensureSessionCheckpointStorage(
 export async function safeEnsureSessionCheckpointStorage(
   options: EnsureSessionCheckpointStorageOptions,
 ): Promise<Exclude<SessionCheckpointStorageResult, { readonly ok: false }>> {
-  const storage = createStorage(options);
+  const storage = await createStorage(options);
+  storage.repo.setLargeFileLimit(options.maxFileBytes);
   await fs.mkdir(storage.repoDir, { recursive: true });
   return withRepoLock(storage.repoDir, async () => {
     const exists = await fs

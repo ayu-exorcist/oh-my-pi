@@ -5,14 +5,14 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
 ## Features
 
 - Interactive checkpoint list with file-change statistics
-- Rewind can restore a selected prompt to its pre-run code state (`beforeCommit`) so the turn can be run again
+- Rewind can restore a selected prompt to its pre-run code state (`beforeState`) so the turn can be run again
 - Restore options for checkpoints with file changes:
   1. Restore code and conversation
   2. Restore conversation
   3. Restore code
 - Conversation-only restore option when the checkpoint list has no file changes
 - Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree`) with `never`, `ask`, and `always` modes
-- Auto-copy checkpoint storage on fork; clone can restore code to the selected checkpoint's `afterCommit` when `restoreOnClone` is enabled
+- Shared Worktree Checkpoint Storage across sessions, forks, clones, and resumes in the same work tree
 - File-change stats shown for each checkpoint in the selection list
 - Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
 
@@ -37,7 +37,7 @@ pi install npm:@ayulab/pi-rewind
 
 ## Usage
 
-The extension registers automatically after Pi starts, and captures checkpoints around each turn.
+The extension registers automatically after Pi starts, schedules non-blocking cleanup of legacy per-session checkpoint storage, and captures checkpoints around each turn.
 
 Use `/rewind` to jump back to any earlier turn and choose the exact restore scope you want:
 
@@ -110,7 +110,7 @@ Supported values:
 | `"ask"`    | When `/tree` is used with **No summary**, ask `Sync files?` if the session has ever produced checkpointed file changes; once any checkpoint changes files, later `/tree` prompts stay on during the session. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore). |
 | `"always"` | When `/tree` is used with **No summary**, restore files automatically without prompting. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore).                                                                                                                     |
 
-`/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
+`/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`. Resume is conversation-first by default: `ayu.checkpoint.restoreOnResume` defaults to `"never"`. Set it to `"always"` only if you want resuming a session to synchronize files automatically. Fork and clone remain `"always"` by default because they are explicit branch-entry actions.
 
 `restoreOnTree: "ask"` is session-scoped: the extension caches whether any checkpoint in the current session has ever changed files, and `/reload` rebuilds that cache from the current session history.
 
@@ -134,11 +134,19 @@ flowchart TD
     note1[Note: Esc in the Sync files? dialog<br/>is equivalent to selecting No.] -.-> F
 ```
 
-## Session deletion
+## Storage, cleanup, and restore boundaries
 
-Pi currently exposes session switch, resume, tree, fork, and clone hooks to extensions, but not a dedicated session deletion hook for `pi -r` / `/resume` `Ctrl+D` deletion. Because checkpoint storage deletion is irreversible, `pi-rewind` does not infer deleted sessions or automatically garbage-collect orphan checkpoint repositories.
+New checkpoints are stored once per resolved work tree under `~/.pi/agent/ayu/checkpoints/worktrees/<worktree-id>/`, with refs protecting each session/user-entry state. Sessions, forks, and clones opened in the same work tree share object storage instead of creating standalone per-session repos. Checkpoint commits are protected by explicit checkpoint refs rather than permanent branch history, so retention cleanup can delete expired refs and let Git GC reclaim unreferenced file-state objects.
 
-If Pi adds a deletion lifecycle event such as `session_before_delete` or `session_deleted`, `pi-rewind` should use that exact hook to remove only the deleted session's matching checkpoint storage and clear related in-memory state. Until then, deleting a session may leave orphan checkpoint storage on disk, while `/rewind` metadata disappears with the deleted session JSONL.
+The legacy per-session path `~/.pi/agent/ayu/checkpoints/sessions/` is removed asynchronously on startup. Old Pi sessions may still show conversation history, but legacy file snapshots from that path are not migrated or cloned into the new Worktree Checkpoint Storage.
+
+Use `/checkpoint cleanup` to review cleanup before deleting anything. Dry-run is the default and shows counts plus sample orphan and retention-expired refs. `/checkpoint cleanup --apply` deletes legacy per-session checkpoint storage, removes orphan checkpoint refs, applies retention-expired ref cleanup, and runs git GC for affected Worktree Checkpoint Storage. It does not delete Pi conversation history or durable worktree directories. If live session scanning, ref validation, path validation, or cleanup preflight fails, cleanup fails closed and deletes nothing for that pass.
+
+File restore covers checkpoint-managed files only: files under the session cwd that are not excluded by built-in defaults, `ayu.checkpoint.exclude`, `.gitignore`, nested `.gitignore`, or an optional `ayu.checkpoint.maxFileBytes` cap. Ignored, excluded, and configured-over-limit files are outside the restore commitment.
+
+`ayu.checkpoint.exclude` appends to built-in defaults instead of replacing them. Defaults include dependency folders, generated build outputs, common caches, mobile/native build directories, IDE folders, logs, temp files, `.DS_Store`, and `Thumbs.db`. `vendor/` and `*.d.ts` are intentionally not default-excluded because they may contain source.
+
+Dirty restore checks fail closed. If checkpoint-managed files contain unsnapshotted changes, restore is refused. If the dirty check itself fails, restore is also refused with a distinct verification-failed message instead of proceeding.
 
 ## Development
 

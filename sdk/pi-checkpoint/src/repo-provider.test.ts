@@ -1,13 +1,27 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getGitDir, getRepoDir } from "./resolver";
+import { resolveWorktreeCheckpointStoragePaths } from "./resolver";
 import { createMockRepo } from "./testing";
+import { RepoManager } from "./repo-manager";
 import { bindSessionRepo } from "./session-repo-binder";
 import { createDefaultRepoProvider } from "./repo-provider";
 
 describe("repo provider", () => {
+  let homeDir: string;
+
+  beforeEach(async () => {
+    homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "repo-provider-home-"));
+    vi.stubEnv("HOME", homeDir);
+    vi.stubEnv("USERPROFILE", homeDir);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  });
   test("default provider stores and deletes repos", () => {
     const provider = createDefaultRepoProvider();
     const repo = createMockRepo();
@@ -47,7 +61,8 @@ describe("repo provider", () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "repo-provider-test-"));
     try {
       const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "existing.jsonl");
-      await fs.mkdir(getGitDir(getRepoDir(sessionFile)), { recursive: true });
+      const paths = await resolveWorktreeCheckpointStoragePaths(tmpDir);
+      await new RepoManager(paths.gitDir, paths.indexFile, tmpDir).init();
       const provider = createDefaultRepoProvider();
 
       const repo = await bindSessionRepo("session-1", sessionFile, tmpDir, provider);

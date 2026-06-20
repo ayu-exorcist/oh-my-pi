@@ -76,7 +76,7 @@ describe("RepoManager", () => {
     expect(hash.length).toBe(40);
 
     const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
-    const { stdout } = await exec("git", ["log", "--format=%s", "-1"], env);
+    const { stdout } = await exec("git", ["show", "-s", "--format=%s", hash], env);
     expect(stdout.trim()).toBe("[pi] entry:entry-1");
 
     const { stdout: files } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
@@ -212,6 +212,27 @@ describe("RepoManager", () => {
     expect(exclude).not.toContain("node_modules/pkg/");
   });
 
+  test("checkpoint skips files above configured large-file limit", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    repo.setLargeFileLimit(4);
+    await repo.setExclude([]);
+
+    await fs.writeFile(path.join(workTree, "small.txt"), "ok", "utf8");
+    await fs.writeFile(path.join(workTree, "large.bin"), "too-large", "utf8");
+    const hash = await repo.checkpoint("entry-1");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout).toContain("small.txt");
+    expect(stdout).not.toContain("large.bin");
+  });
+
   test("checkpoint removes previously indexed nested git repositories", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");
@@ -260,6 +281,51 @@ describe("RepoManager", () => {
 
     const restored = await fs.readFile(filePath, "utf8");
     expect(restored).toBe("version-1");
+  });
+
+  test("restore does not recreate currently excluded files tracked by old checkpoints", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    const generatedPath = path.join(workTree, "generated.log");
+    await fs.writeFile(generatedPath, "old generated", "utf8");
+    const oldCheckpoint = await repo.checkpoint("entry-1");
+
+    await fs.rm(generatedPath, { force: true });
+    await repo.setExclude(["*.log"]);
+    await repo.checkpoint("entry-2");
+
+    await repo.checkoutCommit(oldCheckpoint);
+
+    await expect(fs.access(generatedPath)).rejects.toBeDefined();
+  });
+
+  test("restore preserves currently excluded dirty files tracked by old checkpoints", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    const generatedPath = path.join(workTree, "generated.log");
+    await fs.writeFile(generatedPath, "old generated", "utf8");
+    const oldCheckpoint = await repo.checkpoint("entry-1");
+
+    await fs.rm(generatedPath, { force: true });
+    await repo.setExclude(["*.log"]);
+    await repo.checkpoint("entry-2");
+    await fs.writeFile(generatedPath, "dirty generated", "utf8");
+
+    await repo.checkoutCommit(oldCheckpoint);
+
+    await expect(fs.readFile(generatedPath, "utf8")).resolves.toBe("dirty generated");
   });
 
   test("user can see file change statistics for a checkpoint", async () => {
@@ -322,8 +388,8 @@ describe("RepoManager", () => {
 
     // Verify src does NOT have dst's commit
     const env = { GIT_DIR: srcGitDir, GIT_WORK_TREE: srcWork, GIT_INDEX_FILE: srcIndex };
-    const { stdout } = await exec("git", ["log", "--format=%s"], env);
-    expect(stdout).not.toContain("entry-2");
+    await expect(srcRepo.hasCommit(dstHash)).resolves.toBe(false);
+    const { stdout } = await exec("git", ["show", "-s", "--format=%s", "HEAD"], env);
     expect(stdout).toContain("entry-1");
   }, 15000);
 
@@ -343,7 +409,7 @@ describe("RepoManager", () => {
     expect(hash.length).toBe(40);
 
     const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
-    const { stdout } = await exec("git", ["log", "--format=%s", "-1"], env);
+    const { stdout } = await exec("git", ["show", "-s", "--format=%s", hash], env);
     expect(stdout.trim()).toBe("[pi] safety");
   });
 
@@ -364,6 +430,25 @@ describe("RepoManager", () => {
     const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
     const { stdout } = await exec("git", ["rev-parse", "refs/heads/test-branch"], env);
     expect(stdout.trim()).toBe(cp1);
+  });
+
+  test("checkpoint states are parentless so unreferenced states can be garbage-collected", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+
+    await fs.writeFile(path.join(workTree, "a.txt"), "a", "utf8");
+    const cp1 = await repo.checkpoint("entry-1");
+    await fs.writeFile(path.join(workTree, "a.txt"), "b", "utf8");
+    const cp2 = await repo.checkpoint("entry-2");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    await expect(exec("git", ["cat-file", "-e", `${cp1}^`], env)).rejects.toBeDefined();
+    await expect(exec("git", ["cat-file", "-e", `${cp2}^`], env)).rejects.toBeDefined();
   });
 
   test("diffStats falls back to git show for first commit", async () => {
@@ -711,6 +796,25 @@ describe("RepoManager", () => {
     expect(order).toEqual([1, 2, 3]);
   });
 
+  test("large-file scan skips symlinked directories and configured prune directories", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(path.join(workTree, "node_modules", "pkg"), { recursive: true });
+    await fs.mkdir(path.join(workTree, "linked-target"), { recursive: true });
+    await fs.writeFile(path.join(workTree, "big.txt"), "12345", "utf8");
+    await fs.writeFile(path.join(workTree, "node_modules", "pkg", "big.txt"), "12345", "utf8");
+    await fs.writeFile(path.join(workTree, "linked-target", "big.txt"), "12345", "utf8");
+    await fs.symlink(path.join(workTree, "linked-target"), path.join(workTree, "linked-dir"));
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    repo.setLargeFileLimit(1);
+    await repo.setExclude(["node_modules/", "**/node_modules/"]);
+
+    expect(repo.getSkippedLargeFiles()).toEqual(["big.txt", "linked-target/big.txt"]);
+  });
+
   describe("safeCheckout", () => {
     test("blocks when workspace has unsnapshotted changes (dirty guard)", async () => {
       const gitDir = path.join(tmpDir, ".git");
@@ -735,7 +839,93 @@ describe("RepoManager", () => {
       expect(content).toBe("v2");
     });
 
-    test("proceeds when dirty guard diff fails", async () => {
+    test("does not block when a previously managed file becomes excluded", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(path.join(workTree, "generated"), { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      const generatedPath = path.join(workTree, "generated", "large.bin");
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      await fs.writeFile(generatedPath, "managed-v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      await repo.setExclude(["generated/", "**/generated/"]);
+      await fs.writeFile(generatedPath, "excluded-dirty", "utf8");
+
+      const result = await repo.safeCheckout(cp1, cp1);
+
+      expect(result.ok).toBe(true);
+      await expect(fs.readFile(generatedPath, "utf8")).resolves.toBe("excluded-dirty");
+    });
+
+    test("does not block or delete excluded dirty files", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(path.join(workTree, "node_modules", "pkg"), { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+      await repo.setExclude(["node_modules/", "**/node_modules/"]);
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+      const excludedPath = path.join(workTree, "node_modules", "pkg", "index.js");
+      await fs.writeFile(excludedPath, "dirty", "utf8");
+
+      const result = await repo.safeCheckout(cp1, cp1);
+
+      expect(result.ok).toBe(true);
+      await expect(fs.readFile(excludedPath, "utf8")).resolves.toBe("dirty");
+    });
+
+    test("does not block or delete gitignored dirty files", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+      await fs.writeFile(path.join(workTree, ".gitignore"), "ignored.txt\n", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+      const ignoredPath = path.join(workTree, "ignored.txt");
+      await fs.writeFile(ignoredPath, "dirty", "utf8");
+
+      const result = await repo.safeCheckout(cp1, cp1);
+
+      expect(result.ok).toBe(true);
+      await expect(fs.readFile(ignoredPath, "utf8")).resolves.toBe("dirty");
+    });
+
+    test("does not block or delete nested git repository dirty files", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      const nestedRepo = path.join(workTree, "oh-my-pi");
+      await fs.mkdir(nestedRepo, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      await exec("git", ["init"], undefined, nestedRepo);
+      const nestedFile = path.join(nestedRepo, "generated.txt");
+      await fs.writeFile(nestedFile, "dirty", "utf8");
+
+      const result = await repo.safeCheckout(cp1, cp1);
+
+      expect(result.ok).toBe(true);
+      await expect(fs.readFile(nestedFile, "utf8")).resolves.toBe("dirty");
+    });
+
+    test("fails closed when dirty guard diff fails", async () => {
       const gitDir = path.join(tmpDir, ".git");
       const indexFile = path.join(tmpDir, "index");
       const workTree = path.join(tmpDir, "project");
@@ -747,9 +937,27 @@ describe("RepoManager", () => {
       await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
       const cp1 = await repo.checkpoint("entry-1");
 
-      // Pass an invalid commit hash so diffAgainst throws
+      // Pass an invalid commit hash so diffAgainst throws.
       const result = await repo.safeCheckout(cp1, "deadbeef");
-      expect(result.ok).toBe(true);
+      expect(result).toEqual(expect.objectContaining({ ok: false, reason: "dirty-check-failed" }));
+    });
+
+    test("fails closed when dirty guard throws a non-Error", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+      const stageAll = vi.spyOn(repo, "stageAll").mockRejectedValue("string failure");
+
+      const result = await repo.safeCheckout(cp1, cp1);
+
+      expect(result).toEqual({ ok: false, reason: "dirty-check-failed", error: "string failure" });
+      stageAll.mockRestore();
     });
 
     test("checks out target commit and returns safety hash", async () => {

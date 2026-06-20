@@ -2,11 +2,13 @@ import { getCheckpointEntries } from "@ayulab/pi-checkpoint";
 import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { isUserMessageEntry } from "./tree-entry";
 
-function getBranchUserEntryIds(branch: readonly unknown[]): Set<string> {
-  const ids = new Set<string>();
+function getBranchUserEntryIds(branch: readonly unknown[]): readonly string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
   for (const entry of branch) {
-    if (isUserMessageEntry(entry)) {
-      ids.add(entry.id);
+    if (isUserMessageEntry(entry) && !seen.has(entry.id)) {
+      ids.push(entry.id);
+      seen.add(entry.id);
     }
   }
   return ids;
@@ -24,8 +26,14 @@ export function getBranchCheckpointEntries(
   entries: readonly unknown[],
   branch: readonly unknown[],
 ): readonly CheckpointEntry[] {
-  const branchUserIds = getBranchUserEntryIds(branch);
-  return getCheckpointEntries(entries).filter((cp) => branchUserIds.has(cp.userEntryId));
+  const checkpointsByUser = new Map<string, CheckpointEntry>();
+  for (const cp of getCheckpointEntries(entries)) {
+    checkpointsByUser.set(cp.userEntryId, cp);
+  }
+  return getBranchUserEntryIds(branch).flatMap((userEntryId) => {
+    const checkpoint = checkpointsByUser.get(userEntryId);
+    return checkpoint ? [checkpoint] : [];
+  });
 }
 
 export function findLatestBranchCheckpoint(

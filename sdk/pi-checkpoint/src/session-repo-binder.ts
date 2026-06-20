@@ -17,21 +17,21 @@ export function bindSessionRepo(
   sessionFile: string | undefined,
   cwd: string,
   repos: RepoProvider,
-  options: { readonly exclude: readonly string[] },
+  options: { readonly exclude: readonly string[]; readonly maxFileBytes?: number },
 ): Promise<RepoManager>;
 export function bindSessionRepo(
   sessionId: string,
   sessionFile: string | undefined,
   cwd: string,
   repos: RepoProvider,
-  options?: { readonly exclude?: readonly string[] },
+  options?: { readonly exclude?: readonly string[]; readonly maxFileBytes?: number },
 ): Promise<RepoManager | undefined>;
 export async function bindSessionRepo(
   sessionId: string,
   sessionFile: string | undefined,
   cwd: string,
   repos: RepoProvider,
-  options?: { readonly exclude?: readonly string[] },
+  options?: { readonly exclude?: readonly string[]; readonly maxFileBytes?: number },
 ): Promise<RepoManager | undefined> {
   const existing = repos.getRepo(sessionId);
   if (existing) return existing;
@@ -41,6 +41,7 @@ export async function bindSessionRepo(
       sessionFile,
       cwd,
       exclude: options.exclude,
+      ...(options.maxFileBytes !== undefined ? { maxFileBytes: options.maxFileBytes } : {}),
     });
     repos.setRepo(sessionId, storage.repo);
     return storage.repo;

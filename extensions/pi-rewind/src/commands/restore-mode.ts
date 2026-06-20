@@ -26,19 +26,29 @@ interface RunRestoreModeOptions {
   readonly dirtyBaseCommit?: string;
 }
 
+function checkpointBeforeState(checkpoint: CheckpointEntry): string {
+  return checkpoint.beforeState;
+}
+
+function checkpointAfterState(checkpoint: CheckpointEntry): string {
+  return checkpoint.afterState;
+}
+
 export async function runRestoreMode(options: RunRestoreModeOptions): Promise<void> {
   const conversationEntryId = options.conversationEntryId ?? options.targetCp.userEntryId;
   const restoreCode = options.mode === "Restore code";
   const restoreCodeAndConversation = options.mode === "Restore code and conversation";
   const restoreConversation = options.mode === "Restore conversation";
+  const targetBeforeState = checkpointBeforeState(options.targetCp);
+  const latestAfterState = checkpointAfterState(options.latestCp);
 
   if (restoreCodeAndConversation) {
     await safeRestore({
       repo: options.repo,
       ui: options.ui,
       navigateTree: options.navigateTree,
-      targetCommit: options.targetCp.beforeCommit,
-      dirtyBaseCommit: options.dirtyBaseCommit ?? options.latestCp.afterCommit,
+      targetCommit: targetBeforeState,
+      dirtyBaseCommit: options.dirtyBaseCommit ?? latestAfterState,
       targetLeafId: conversationEntryId,
       dirtyMessage:
         "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
@@ -54,8 +64,8 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
       repo: options.repo,
       ui: options.ui,
       navigateTree: async (_entryId, _options) => ({ cancelled: false }),
-      targetCommit: options.targetCp.beforeCommit,
-      dirtyBaseCommit: options.dirtyBaseCommit ?? options.latestCp.afterCommit,
+      targetCommit: targetBeforeState,
+      dirtyBaseCommit: options.dirtyBaseCommit ?? latestAfterState,
       targetLeafId: conversationEntryId,
       dirtyMessage:
         "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",

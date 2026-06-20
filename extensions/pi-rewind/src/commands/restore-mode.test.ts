@@ -3,17 +3,22 @@ import type { CheckpointEntry, RepoManager } from "@ayulab/pi-checkpoint";
 import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
 import { runRestoreMode } from "./restore-mode";
 
-function entry(
-  partial: Partial<CheckpointEntry> & {
-    userEntryId: string;
-    beforeCommit: string;
-    afterCommit: string;
-  },
-): CheckpointEntry {
+interface TestCheckpointPartial extends Partial<CheckpointEntry> {
+  readonly userEntryId: string;
+  readonly beforeCommit?: string;
+  readonly afterCommit?: string;
+}
+
+function entry(partial: TestCheckpointPartial): CheckpointEntry {
+  const beforeState = partial.beforeState ?? partial.beforeCommit;
+  const afterState = partial.afterState ?? partial.afterCommit;
+  if (!beforeState || !afterState) throw new Error("test checkpoint needs before/after state");
   return {
     v: 2,
     kind: "checkpoint",
     turnId: "turn-1",
+    beforeState,
+    afterState,
     prompt: "test",
     fileCount: 0,
     fileChanges: [],

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getBooleanField,
+  getNumberField,
   getRecordField,
   getStringField,
   isRecord,
@@ -29,26 +30,118 @@ function isTreeRestoreOption(value: unknown): value is TreeRestoreOption {
   return isString(value) && TREE_RESTORE_OPTIONS.some((v) => v === value);
 }
 
+export const DEFAULT_EXCLUDES = [
+  ".git/",
+  ".pi/",
+  "node_modules/",
+  "**/node_modules/",
+  ".gradle/",
+  "**/.gradle/",
+  ".ark/",
+  "**/.ark/",
+  ".next/",
+  "**/.next/",
+  ".nuxt/",
+  "**/.nuxt/",
+  ".svelte-kit/",
+  "**/.svelte-kit/",
+  ".angular/",
+  "**/.angular/",
+  ".vite/",
+  "**/.vite/",
+  ".parcel-cache/",
+  "**/.parcel-cache/",
+  ".turbo/",
+  "**/.turbo/",
+  "dist/",
+  "**/dist/",
+  "build/",
+  "**/build/",
+  "target/",
+  "**/target/",
+  "coverage/",
+  "**/coverage/",
+  ".cache/",
+  "**/.cache/",
+  ".venv/",
+  "**/.venv/",
+  "venv/",
+  "**/venv/",
+  ".tox/",
+  "**/.tox/",
+  "__pycache__/",
+  "**/__pycache__/",
+  ".pytest_cache/",
+  "**/.pytest_cache/",
+  ".mypy_cache/",
+  "**/.mypy_cache/",
+  ".ruff_cache/",
+  "**/.ruff_cache/",
+  "htmlcov/",
+  "**/htmlcov/",
+  "*.pyc",
+  "Pods/",
+  "**/Pods/",
+  ".expo/",
+  "**/.expo/",
+  ".cxx/",
+  "**/.cxx/",
+  ".externalNativeBuild/",
+  "**/.externalNativeBuild/",
+  ".build/",
+  "**/.build/",
+  "DerivedData/",
+  "**/DerivedData/",
+  ".terraform/",
+  "**/.terraform/",
+  ".serverless/",
+  "**/.serverless/",
+  ".aws-sam/",
+  "**/.aws-sam/",
+  ".idea/",
+  "**/.idea/",
+  ".vscode/",
+  "**/.vscode/",
+  "*.log",
+  "*.tmp",
+  "*.temp",
+  ".DS_Store",
+  "Thumbs.db",
+] as const;
+
 export const defaultConfig: CheckpointConfig = {
   enabled: true,
   autoCheckpoint: true,
   restoreOnFork: "always",
   restoreOnClone: "always",
-  restoreOnResume: "always",
+  restoreOnResume: "never",
   restoreOnTree: "never",
   defaultSummaryInstructions: "",
-  exclude: [
-    "node_modules/**",
-    "**/node_modules/**",
-    ".git",
-    ".pi/**",
-    "dist/**",
-    "build/**",
-    "target/**",
-    "*.log",
-    "*.tmp",
-  ],
+  exclude: DEFAULT_EXCLUDES,
+  retention: {
+    enabled: true,
+    maxAge: "30d",
+    minRetention: "1d",
+  },
 };
+
+function mergeExcludes(userExclude: unknown): readonly string[] {
+  if (!isStringArray(userExclude)) return defaultConfig.exclude;
+  return [...new Set([...defaultConfig.exclude, ...userExclude])];
+}
+
+function loadRetention(checkpoint: Record<string, unknown>): CheckpointConfig["retention"] {
+  const retention = getRecordField(checkpoint, "retention");
+  if (!retention) return defaultConfig.retention;
+
+  const maxCount = getNumberField(retention, "maxCount");
+  return {
+    enabled: getBooleanField(retention, "enabled") ?? defaultConfig.retention.enabled,
+    maxAge: getStringField(retention, "maxAge") ?? defaultConfig.retention.maxAge,
+    minRetention: getStringField(retention, "minRetention") ?? defaultConfig.retention.minRetention,
+    ...(maxCount !== undefined ? { maxCount } : {}),
+  };
+}
 
 /**
  * Merge user-provided settings with hard-coded defaults.
@@ -60,6 +153,7 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
   const ayu = getRecordField(settings, "ayu") ?? {};
   const checkpoint = getRecordField(ayu, "checkpoint") ?? {};
   const rewind = getRecordField(ayu, "rewind") ?? {};
+  const maxFileBytes = getNumberField(checkpoint, "maxFileBytes");
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,
     autoCheckpoint: getBooleanField(checkpoint, "autoCheckpoint") ?? defaultConfig.autoCheckpoint,
@@ -78,7 +172,9 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
     defaultSummaryInstructions:
       getStringField(checkpoint, "defaultSummaryInstructions") ??
       defaultConfig.defaultSummaryInstructions,
-    exclude: isStringArray(checkpoint.exclude) ? checkpoint.exclude : defaultConfig.exclude,
+    exclude: mergeExcludes(checkpoint.exclude),
+    retention: loadRetention(checkpoint),
+    ...(maxFileBytes !== undefined ? { maxFileBytes } : {}),
   };
 }
 

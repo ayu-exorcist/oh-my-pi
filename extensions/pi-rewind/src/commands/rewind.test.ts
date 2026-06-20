@@ -65,14 +65,22 @@ function firstEntry(entries: readonly CheckpointEntry[]): CheckpointEntry {
   return entry;
 }
 
-function createEntry(
-  partial: Partial<CheckpointEntry> & { userEntryId: string; beforeCommit: string },
-): CheckpointEntry {
+interface TestCheckpointPartial extends Partial<CheckpointEntry> {
+  readonly userEntryId: string;
+  readonly beforeCommit?: string;
+  readonly afterCommit?: string;
+}
+
+function createEntry(partial: TestCheckpointPartial): CheckpointEntry {
+  const beforeState = partial.beforeState ?? partial.beforeCommit;
+  const afterState = partial.afterState ?? partial.afterCommit ?? beforeState;
+  if (!beforeState || !afterState) throw new Error("test checkpoint needs before/after state");
   return {
     v: 2,
     kind: "checkpoint",
     turnId: "turn-1",
-    afterCommit: partial.beforeCommit,
+    beforeState,
+    afterState,
     prompt: "test",
     fileCount: 0,
     fileChanges: [],
@@ -784,6 +792,15 @@ describe("registerRewind", () => {
     );
   });
 
+  test("registers /rewind command once for the same Pi API", () => {
+    const pi = createMockPi();
+
+    registerRewind(pi, () => undefined);
+    registerRewind(pi, () => undefined);
+
+    expect(pi.registerCommand).toHaveBeenCalledTimes(1);
+  });
+
   test("warns when repo is not ready", async () => {
     const pi = createMockPi();
     registerRewind(pi, () => undefined);
@@ -1147,6 +1164,64 @@ describe("registerRewind", () => {
     expect(ctx.navigateTree).not.toHaveBeenCalled();
   });
 
+  test("legacy checkpoint disables file restore modes", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const modernEntry = createEntry({
+      userEntryId: "e1",
+      beforeCommit: "abc",
+      afterCommit: "def",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const { beforeState: _beforeState, afterState: _afterState, ...legacyEntry } = modernEntry;
+    const legacyCheckpoint = legacyEntry as unknown as CheckpointEntry;
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, hasCommit: vi.fn().mockResolvedValue(false) }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx([legacyCheckpoint]);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(legacyCheckpoint))
+      .mockResolvedValueOnce("Restore conversation");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Restore mode:", ["Restore conversation"]);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "File restore is unavailable for this checkpoint because its file state is legacy, expired, or cleaned up. Conversation restore is still available.",
+      "warning",
+    );
+    expect(checkoutCommit).not.toHaveBeenCalled();
+    expect(ctx.navigateTree).toHaveBeenCalled();
+  });
+
+  test("missing checkpoint commit disables file restore modes", async () => {
+    const pi = createMockPi();
+    const checkoutCommit = vi.fn();
+    const entry = createEntry({
+      userEntryId: "e1",
+      beforeCommit: "abc",
+      afterCommit: "def",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    registerRewind(pi, () =>
+      createMockRepo({ checkoutCommit, hasCommit: vi.fn().mockResolvedValue(false) }),
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx([entry]);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(entry))
+      .mockResolvedValueOnce("Restore conversation");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenCalledWith("Restore mode:", ["Restore conversation"]);
+    expect(checkoutCommit).not.toHaveBeenCalled();
+    expect(ctx.navigateTree).toHaveBeenCalled();
+  });
+
   test("dirty guard blocks rewind when workspace has changes", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn();
@@ -1197,7 +1272,7 @@ describe("registerRewind", () => {
     expect(safeCheckout).toHaveBeenCalledWith("abc", "def");
   });
 
-  test("dirty guard skips when diff fails", async () => {
+  test("dirty guard fails closed when diff fails", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn();
     const stageAll = vi.fn().mockRejectedValue(new Error("stage fail"));
@@ -1210,7 +1285,11 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
-    expect(checkoutCommit).toHaveBeenCalledWith("abc");
+    expect(checkoutCommit).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Workspace cleanliness could not be verified: stage fail",
+      "error",
+    );
   });
 
   test("rollback safety restores on failure", async () => {

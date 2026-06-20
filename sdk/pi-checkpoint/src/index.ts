@@ -1,7 +1,34 @@
-export { loadConfig, loadConfigFromFile, defaultConfig } from "./config";
+export { loadConfig, loadConfigFromFile, defaultConfig, DEFAULT_EXCLUDES } from "./config";
 export { RepoManager } from "./repo-manager";
 export type { SafeCheckoutResult } from "./repo-manager";
-export { getRepoDir, getGitDir, getIndexPath } from "./resolver";
+export {
+  getCheckpointRootDir,
+  getLegacySessionsDir,
+  getRepoDir,
+  getGitDir,
+  getIndexPath,
+  getWorktreeId,
+  getWorktreeRegistryPath,
+  resolveWorktreeCheckpointStoragePaths,
+} from "./resolver";
+export {
+  cleanupCheckpointStorage,
+  cleanupLegacySessionCheckpointStorage,
+  cleanupTemporaryCheckpointArtifacts,
+} from "./cleanup";
+export type {
+  CheckpointCleanupOptions,
+  CheckpointCleanupResult,
+  CheckpointCleanupRetention,
+  CheckpointCleanupWorktreeResult,
+} from "./cleanup";
+export {
+  createCheckpointRef,
+  encodeStorageComponent,
+  isSafeCheckpointRef,
+  isSafeStorageComponent,
+  validateWorktreeId,
+} from "./path-safety";
 export { exec, execSafe, type ExecEnv, type Result } from "./exec";
 export { parseDiffStats } from "./diff-parser";
 export {
@@ -9,6 +36,7 @@ export {
   filterCheckpointEntries,
   extractCheckpointData,
   getCheckpointEntries,
+  hasLegacyFileState,
 } from "./checkpoint-entry";
 export { withRepoLock } from "./lock";
 export { SessionStateMap } from "./session-state-map";

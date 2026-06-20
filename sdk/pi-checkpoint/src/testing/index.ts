@@ -10,6 +10,7 @@ type RepoMockMethodName =
   | "lockedEnsureReady"
   | "setExclude"
   | "lockedSetExclude"
+  | "getSkippedLargeFiles"
   | "checkpoint"
   | "lockedCheckpoint"
   | "checkoutCommit"
@@ -19,6 +20,7 @@ type RepoMockMethodName =
   | "updateRef"
   | "lockedUpdateRef"
   | "diffStats"
+  | "hasCommit"
   | "diffWorkingTree"
   | "stageAll"
   | "lockedStageAll"
@@ -55,6 +57,8 @@ function asMock(fn: unknown): ((...args: readonly unknown[]) => unknown) | undef
 export function createMockRepo(partial: RepoMock = {}): RepoManager {
   const defaults = {
     withLock: vi.fn((fn: () => Promise<unknown>) => fn()),
+    hasCommit: vi.fn().mockResolvedValue(true),
+    getSkippedLargeFiles: vi.fn(() => []),
   };
   const repo = { ...defaults, ...partial } as unknown as RepoManager & Record<string, unknown>;
 
@@ -103,8 +107,12 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
             if (dirtyStdout.trim().length > 0) {
               return { ok: false, reason: "dirty" };
             }
-          } catch {
-            // skip dirty check if diff fails
+          } catch (err) {
+            return {
+              ok: false,
+              reason: "dirty-check-failed",
+              error: err instanceof Error ? err.message : String(err),
+            };
           }
         }
 
