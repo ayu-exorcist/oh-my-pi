@@ -7,8 +7,13 @@ describe("loadConfig", () => {
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
     expect(config.restoreOnTree).toBe("never");
-    expect(config.exclude).toContain("node_modules/**");
-    expect(config.exclude).toContain("**/node_modules/**");
+    expect(config.exclude).toContain("node_modules/");
+    expect(config.exclude).toContain("**/.idea/workspace.xml");
+    expect(config.exclude).not.toContain(".idea/workspace.xml");
+    expect(config.exclude).toContain("**/.DS_Store");
+    expect(config.exclude).toContain("**/Thumbs.db");
+    expect(config.exclude).toContain("**/Desktop.ini");
+    expect(config.exclude).not.toContain("*.iml");
   });
 
   test("user overrides merge with defaults", () => {
@@ -21,6 +26,8 @@ describe("loadConfig", () => {
           restoreOnResume: "never",
           defaultSummaryInstructions: "focus on API",
           exclude: ["custom/**"],
+          include: ["custom/keep.txt"],
+          maxFileMB: 25,
         },
         rewind: {
           restoreOnTree: "ask",
@@ -33,7 +40,10 @@ describe("loadConfig", () => {
     expect(config.restoreOnResume).toBe("never");
     expect(config.restoreOnTree).toBe("ask");
     expect(config.defaultSummaryInstructions).toBe("focus on API");
-    expect(config.exclude).toEqual(["custom/**"]);
+    expect(config.exclude).toContain("custom/**");
+    expect(config.exclude).toContain("!custom/keep.txt");
+    expect(config.exclude).toContain("node_modules/");
+    expect(config.maxFileMB).toBe(25);
   });
 
   test("invalid restore options and missing fields fall back to defaults", () => {
@@ -52,9 +62,20 @@ describe("loadConfig", () => {
     });
     expect(config.restoreOnFork).toBe("always");
     expect(config.restoreOnClone).toBe("always");
-    expect(config.restoreOnResume).toBe("always");
+    expect(config.restoreOnResume).toBe("never");
     expect(config.restoreOnTree).toBe("never");
     expect(config.defaultSummaryInstructions).toBe("");
+  });
+
+  test("preserves negated include patterns", () => {
+    const config = loadConfig({
+      ayu: {
+        checkpoint: {
+          include: ["!already-negated"],
+        },
+      },
+    });
+    expect(config.exclude).toContain("!already-negated");
   });
 
   test("invalid primitive types fall back to defaults", () => {

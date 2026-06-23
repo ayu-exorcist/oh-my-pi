@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getBooleanField,
+  getNumberField,
   getRecordField,
   getStringField,
   isRecord,
@@ -29,25 +30,87 @@ function isTreeRestoreOption(value: unknown): value is TreeRestoreOption {
   return isString(value) && TREE_RESTORE_OPTIONS.some((v) => v === value);
 }
 
+const DEFAULT_EXCLUDE_PATTERNS = [
+  ".git",
+  "node_modules/",
+  "dist/",
+  "build/",
+  "target/",
+  ".gradle/",
+  ".ark/",
+  ".next/",
+  ".nuxt/",
+  ".svelte-kit/",
+  ".angular/",
+  ".vite/",
+  ".parcel-cache/",
+  ".turbo/",
+  "coverage/",
+  ".cache/",
+  ".venv/",
+  "venv/",
+  ".tox/",
+  "__pycache__/",
+  ".pytest_cache/",
+  ".mypy_cache/",
+  ".ruff_cache/",
+  "htmlcov/",
+  "*.pyc",
+  "Pods/",
+  ".expo/",
+  ".cxx/",
+  ".externalNativeBuild/",
+  ".build/",
+  "DerivedData/",
+  ".terraform/",
+  ".serverless/",
+  ".aws-sam/",
+  "**/.idea/workspace.xml",
+  "**/.idea/tasks.xml",
+  "**/.idea/caches/",
+  "**/.idea/shelf/",
+  "**/.idea/localHistory/",
+  "**/.idea/compile-server/",
+  "*.iws",
+  "**/.DS_Store",
+  "**/Thumbs.db",
+  "**/Desktop.ini",
+  ".vscode-test/",
+  "*.swp",
+  "*.swo",
+  "*.log",
+  "*.tmp",
+] as const;
+
+function normalizeIncludePatterns(patterns: readonly string[]): readonly string[] {
+  return patterns.map((pattern) => (pattern.startsWith("!") ? pattern : `!${pattern}`));
+}
+
+function resolveExcludePatterns(
+  userExclude: readonly string[],
+  userInclude: readonly string[],
+): readonly string[] {
+  return [...DEFAULT_EXCLUDE_PATTERNS, ...userExclude, ...normalizeIncludePatterns(userInclude)];
+}
+
+function resolveMaxFileMB(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return value;
+}
+
 export const defaultConfig: CheckpointConfig = {
   enabled: true,
   autoCheckpoint: true,
   restoreOnFork: "always",
   restoreOnClone: "always",
-  restoreOnResume: "always",
+  restoreOnResume: "never",
   restoreOnTree: "never",
   defaultSummaryInstructions: "",
-  exclude: [
-    "node_modules/**",
-    "**/node_modules/**",
-    ".git",
-    ".pi/**",
-    "dist/**",
-    "build/**",
-    "target/**",
-    "*.log",
-    "*.tmp",
-  ],
+  exclude: [...DEFAULT_EXCLUDE_PATTERNS],
+  include: [],
+  maxFileMB: undefined,
 };
 
 /**
@@ -60,6 +123,9 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
   const ayu = getRecordField(settings, "ayu") ?? {};
   const checkpoint = getRecordField(ayu, "checkpoint") ?? {};
   const rewind = getRecordField(ayu, "rewind") ?? {};
+  const userExclude = isStringArray(checkpoint.exclude) ? checkpoint.exclude : [];
+  const userInclude = isStringArray(checkpoint.include) ? checkpoint.include : [];
+
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,
     autoCheckpoint: getBooleanField(checkpoint, "autoCheckpoint") ?? defaultConfig.autoCheckpoint,
@@ -78,7 +144,9 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
     defaultSummaryInstructions:
       getStringField(checkpoint, "defaultSummaryInstructions") ??
       defaultConfig.defaultSummaryInstructions,
-    exclude: isStringArray(checkpoint.exclude) ? checkpoint.exclude : defaultConfig.exclude,
+    exclude: resolveExcludePatterns(userExclude, userInclude),
+    include: userInclude,
+    maxFileMB: resolveMaxFileMB(getNumberField(checkpoint, "maxFileMB")),
   };
 }
 

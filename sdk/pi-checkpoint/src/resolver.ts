@@ -2,7 +2,7 @@ import path from "node:path";
 import os from "node:os";
 
 /** Root directory for all session checkpoint repos. */
-function baseDir(): string {
+export function getCheckpointSessionsRoot(): string {
   return path.join(os.homedir(), ".pi", "agent", "ayu", "checkpoints", "sessions");
 }
 
@@ -14,10 +14,10 @@ function baseDir(): string {
  */
 export function getRepoDir(sessionFile: string | undefined): string {
   if (!sessionFile) {
-    return path.join(baseDir(), "ephemeral");
+    return path.join(getCheckpointSessionsRoot(), "ephemeral");
   }
   const base = path.basename(sessionFile, ".jsonl");
-  return path.join(baseDir(), base);
+  return path.join(getCheckpointSessionsRoot(), base);
 }
 
 /** Resolve the bare `.git` directory inside a repo dir. */

@@ -12,7 +12,10 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
   3. Restore code
 - Conversation-only restore option when the checkpoint list has no file changes
 - Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree`) with `never`, `ask`, and `always` modes
-- Auto-copy checkpoint storage on fork; clone can restore code to the selected checkpoint's `afterCommit` when `restoreOnClone` is enabled
+- Auto-copy checkpoint storage on fork; fork restores the selected turn's `beforeCommit` and clone restores the cloned branch's latest `afterCommit` when enabled
+- `/checkpoint` storage manager with `Current Folder` and `All` views, status-aware rows, and `Ctrl+D` delete in the TUI list
+- Resume defaults to conversation-only; file restore on resume is opt-in via `ayu.checkpoint.restoreOnResume`
+- File restore failures do not block conversation navigation, tree navigation, fork, or clone
 - File-change stats shown for each checkpoint in the selection list
 - Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
 
@@ -52,6 +55,14 @@ It fits the moments when you want to:
 - restore files from a checkpoint while staying on the current conversation path
 - use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is `ask` or `always`
 
+Use `/checkpoint` to inspect checkpoint storage state.
+
+- `Current Folder` shows current-directory sessions that still have checkpoint storage, plus manifested `[no session]` orphan storage for that directory.
+- `All` adds live sessions from every directory; sessions without checkpoint storage show `[no checkpoints]`, while manifested orphan storage shows `[no session]`.
+- The right side shows status, cwd or path, message count, and relative time.
+- `Ctrl+P` toggles path display.
+- `Ctrl+D` deletes the selected non-current storage. Deleting storage keeps the Pi session record, but file restore for that session becomes unavailable. For `[no session]` orphan storage, `Ctrl+D` purges the residual storage directory even if the bare repo itself is already missing.
+
 ```
 > /rewind
 
@@ -76,7 +87,15 @@ Select mode: 1
 
 ## Configuration
 
-`pi-rewind` reads its settings from `ayu.rewind`, while checkpoint behavior comes from `ayu.checkpoint`. The `ayu` tree is merged recursively across scopes, so project settings override user settings field-by-field and missing values fall back to defaults. By default, `/tree` keeps Pi's native behavior and only changes the conversation position; it does not modify files.
+`pi-rewind` reads its settings from `ayu.rewind`, while checkpoint behavior comes from `ayu.checkpoint`. The `ayu` tree is merged recursively across scopes, so project settings override user settings field-by-field and missing values fall back to defaults.
+
+Default behavior in phase 1:
+
+- `/tree` keeps Pi's native conversation-only behavior unless `ayu.rewind.restoreOnTree` is `ask` or `always`
+- `ayu.checkpoint.restoreOnResume` defaults to `"never"`, so resume does not modify files unless you opt in
+- `ayu.checkpoint.restoreOnFork` and `ayu.checkpoint.restoreOnClone` default to `"always"`
+- `/rewind` restores the selected turn's `beforeCommit`
+- File restore failures are reported without silently proceeding; when conversation navigation is part of the action, it can still continue even if file restore fails, and rollback failure is surfaced explicitly
 
 Example: keep a shared `ayu.rewind` default in user settings, then override just one field in the project.
 
@@ -112,7 +131,32 @@ Supported values:
 
 `/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
 
-`restoreOnTree: "ask"` is session-scoped: the extension caches whether any checkpoint in the current session has ever changed files, and `/reload` rebuilds that cache from the current session history.
+### Checkpoint settings
+
+`ayu.checkpoint` controls checkpoint scope and restore defaults:
+
+```json
+{
+  "ayu": {
+    "checkpoint": {
+      "restoreOnResume": "never",
+      "exclude": ["tmp/generated/**"],
+      "include": ["tmp/generated/keep-me.txt"],
+      "maxFileMB": 25
+    }
+  }
+}
+```
+
+Rules:
+
+- Built-in high-confidence generated and cache excludes are always applied first
+- `ayu.checkpoint.exclude` appends more excludes
+- `ayu.checkpoint.include` re-includes paths after those excludes
+- `ayu.checkpoint.maxFileMB` is opt-in; when set, oversized changed files are skipped during checkpoint staging
+- `.pi/`, `.vscode/`, `vendor/`, `*.iml`, and `*.d.ts` are not excluded by default; only high-confidence personal IDE state such as `.idea/workspace.xml`, `.idea/tasks.xml`, `.idea/caches/`, `.idea/shelf/`, `.idea/localHistory/`, `.idea/compile-server/`, plus operating-system metadata such as `.DS_Store`, `Thumbs.db`, `Desktop.ini`, `*.iws`, `*.swp`, and `*.swo` is excluded automatically, including inside nested project directories
+
+`restoreOnTree: "ask"` is session-scoped: the extension caches whether any checkpoint in the current session has ever changed files, seeds that cache from existing session history on session start, and updates it as new checkpoints are appended.
 
 ### /tree — file restore flow
 
@@ -134,11 +178,21 @@ flowchart TD
     note1[Note: Esc in the Sync files? dialog<br/>is equivalent to selecting No.] -.-> F
 ```
 
+## Nested repositories
+
+Phase 1 keeps the existing nested Git safety boundary. If you start Pi from a broad workspace that contains nested Git repositories, the outer checkpoint excludes those nested repositories. `/rewind` and `/tree` still protect non-excluded files in the outer work tree, but they do not restore files inside those nested repositories from the outer session. To protect a nested repository, start Pi in that repository root.
+
 ## Session deletion
 
-Pi currently exposes session switch, resume, tree, fork, and clone hooks to extensions, but not a dedicated session deletion hook for `pi -r` / `/resume` `Ctrl+D` deletion. Because checkpoint storage deletion is irreversible, `pi-rewind` does not infer deleted sessions or automatically garbage-collect orphan checkpoint repositories.
+Pi currently exposes session switch, resume, tree, fork, and clone hooks to extensions, but not a dedicated session deletion hook for `pi -r` / `/resume` `Ctrl+D` deletion. Because checkpoint storage deletion is irreversible, `pi-rewind` does not infer deleted sessions or automatically garbage-collect durable checkpoint repositories.
 
-If Pi adds a deletion lifecycle event such as `session_before_delete` or `session_deleted`, `pi-rewind` should use that exact hook to remove only the deleted session's matching checkpoint storage and clear related in-memory state. Until then, deleting a session may leave orphan checkpoint storage on disk, while `/rewind` metadata disappears with the deleted session JSONL.
+Without a session deletion hook, `pi-rewind` handles lifecycle asymmetry this way:
+
+- deleting checkpoint storage from `/checkpoint` never deletes the session record
+- deleting a session elsewhere may leave orphan checkpoint storage on disk
+- `/checkpoint` surfaces those orphan items as `[no session]` and lets the user remove them explicitly
+
+If Pi adds a deletion lifecycle event such as `session_before_delete` or `session_deleted`, `pi-rewind` should use that exact hook to remove only the deleted session's matching checkpoint storage and clear related in-memory state.
 
 ## Development
 

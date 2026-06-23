@@ -17,6 +17,7 @@ describe("createMockRepo", () => {
     expect(result).toEqual({
       ok: false,
       reason: "checkout-failed",
+      message: "Checkpoint restore failed.",
       error: "checkoutCommit not mocked",
     });
   });
@@ -26,7 +27,7 @@ describe("createMockRepo", () => {
       checkoutCommit: vi.fn().mockResolvedValue(undefined),
     });
     const result = await repo.safeCheckout("target", "base");
-    expect(result).toEqual({ ok: true, safetyHash: undefined });
+    expect(result).toEqual({ ok: true });
   });
 
   test("default withLock passes function through", async () => {
@@ -104,6 +105,7 @@ describe("createMockRepo", () => {
     expect(result).toEqual({
       ok: false,
       reason: "checkout-failed",
+      message: "Checkpoint restore failed.",
       error: "string error",
     });
   });
@@ -115,7 +117,11 @@ describe("createMockRepo", () => {
       checkoutCommit: vi.fn().mockResolvedValue(undefined),
     });
     const result = await repo.safeCheckout("target", "base");
-    expect(result).toEqual({ ok: false, reason: "dirty" });
+    expect(result).toEqual({
+      ok: false,
+      reason: "dirty",
+      message: "Workspace has unsnapshotted checkpoint-managed changes.",
+    });
     expect(repo.checkoutCommit).not.toHaveBeenCalled();
   });
 
@@ -126,7 +132,7 @@ describe("createMockRepo", () => {
       checkoutCommit: vi.fn().mockResolvedValue(undefined),
     });
     const result = await repo.safeCheckout("target", "base");
-    expect(result).toEqual({ ok: true, safetyHash: undefined });
+    expect(result).toEqual({ ok: true });
   });
 
   test("default safeCheckout proceeds when createSafetyCommit returns non-string", async () => {
@@ -137,7 +143,7 @@ describe("createMockRepo", () => {
       checkoutCommit: vi.fn().mockResolvedValue(undefined),
     });
     const result = await repo.safeCheckout("target", "base");
-    expect(result).toEqual({ ok: true, safetyHash: undefined });
+    expect(result).toEqual({ ok: true });
   });
 
   test("default safeCheckout reports non-Error checkout and rollback failure", async () => {
@@ -154,9 +160,40 @@ describe("createMockRepo", () => {
     const result = await repo.safeCheckout("target", "base");
     expect(result).toEqual({
       ok: false,
-      reason: "checkout-failed",
+      reason: "rollback-failed",
+      message: "Checkpoint restore failed and rollback could not recover the previous state.",
       error: "string error",
       rollbackError: "string rollback",
+    });
+  });
+
+  test("default safeCheckout stringifies non-Error dirty-check failures", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockRejectedValue("stage failed"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await repo.safeCheckout("target", "base");
+    expect(result).toEqual({
+      ok: false,
+      reason: "dirty-check-failed",
+      message: "Could not verify the workspace is clean against the checkpoint base.",
+      error: "stage failed",
+    });
+  });
+
+  test("default safeCheckout stringifies non-Error preflight failures", async () => {
+    const repo = createMockRepo({
+      createSafetyCommit: vi.fn().mockRejectedValue("safety failed"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await repo.safeCheckout("target");
+    expect(result).toEqual({
+      ok: false,
+      reason: "preflight-failed",
+      message: "Failed to create a safety checkpoint before restore.",
+      error: "safety failed",
     });
   });
 });

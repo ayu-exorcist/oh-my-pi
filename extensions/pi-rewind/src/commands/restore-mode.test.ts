@@ -129,6 +129,45 @@ describe("Rewind Restore Mode", () => {
     );
   });
 
+  test("restores conversation even when file restore fails", async () => {
+    const ui = createUi();
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: false, reason: "checkout-failed", error: "git error" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Conversation restored, but files were not restored.",
+      "warning",
+    );
+  });
+
+  test("falls back to a generic checkout failure message", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: false, reason: "checkout-failed" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(ui.notify).toHaveBeenCalledWith("Rewind failed: checkpoint restore failed", "error");
+  });
+
   test("reports conversation failure", async () => {
     const ui = createUi();
     const repo = mockRepo({ ok: true });
@@ -144,6 +183,26 @@ describe("Rewind Restore Mode", () => {
     });
 
     expect(ui.notify).toHaveBeenCalledWith("Conversation restore failed: nav error", "error");
+  });
+
+  test("falls through unknown modes without checkout or navigation", async () => {
+    const ui = createUi();
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({ ok: true });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Unknown mode",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(repo.safeCheckout).not.toHaveBeenCalled();
+    expect(navigateTree).not.toHaveBeenCalled();
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
   });
 
   test("restores conversation without checkout", async () => {

@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import { readdir, writeFile, mkdir } from "node:fs/promises";
+import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { exec, type ExecEnv } from "./exec";
 import { withRepoLock } from "./lock";
 
@@ -10,6 +10,22 @@ const AUTO_EXCLUDE_SCAN_CONFIGURED_PRUNE_DIRS = new Set([
   "dist",
   "build",
   "target",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  ".parcel-cache",
+  ".turbo",
+  ".cache",
+  "coverage",
+  ".venv",
+  "venv",
+  ".tox",
+  "__pycache__",
+  "Pods",
+  "DerivedData",
+  ".terraform",
+  ".serverless",
+  ".aws-sam",
 ]);
 
 function getDirectoryExcludePatterns(dirName: string): Set<string> {
@@ -39,6 +55,29 @@ function toGitPath(workTree: string, absolutePath: string): string {
   return path.relative(workTree, absolutePath).replace(/[\\/]+/g, "/");
 }
 
+function isPathInside(basePath: string, candidatePath: string): boolean {
+  const relative = path.relative(basePath, candidatePath);
+  return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export type SafeCheckoutFailureReason =
+  | "dirty"
+  | "dirty-check-failed"
+  | "storage-missing"
+  | "storage-corrupt"
+  | "target-missing"
+  | "invalid-target"
+  | "path-safety-failed"
+  | "lock-failed"
+  | "exclude-refresh-failed"
+  | "checkout-failed"
+  | "rollback-failed"
+  | "preflight-failed";
+
 /**
  * Outcome of {@link RepoManager.safeCheckout}.
  *
@@ -46,11 +85,11 @@ function toGitPath(workTree: string, absolutePath: string): string {
  */
 export type SafeCheckoutResult =
   | { readonly ok: true; readonly safetyHash?: string }
-  | { readonly ok: false; readonly reason: "dirty" }
   | {
       readonly ok: false;
-      readonly reason: "checkout-failed";
-      readonly error: string;
+      readonly reason: SafeCheckoutFailureReason;
+      readonly message?: string;
+      readonly error?: string;
       readonly rollbackError?: string;
     };
 
@@ -67,6 +106,8 @@ export class RepoManager {
   private repoDir: string;
 
   private excludePatterns: readonly string[] | undefined;
+
+  private maxFileBytes: number | undefined;
 
   constructor(
     /** Absolute path to the bare `.git` directory. */
@@ -91,6 +132,10 @@ export class RepoManager {
    */
   async withLock<T>(fn: () => Promise<T>): Promise<T> {
     return withRepoLock(this.repoDir, fn);
+  }
+
+  setMaxFileBytes(maxFileBytes: number | undefined): void {
+    this.maxFileBytes = maxFileBytes;
   }
 
   private gitArgs(): string[] {
@@ -190,7 +235,10 @@ export class RepoManager {
   private async writeExclude(patterns: readonly string[]): Promise<void> {
     const excludePath = path.join(this.gitDir, "info", "exclude");
     const autoExcludes = await this.findNestedGitRepoExcludes(patterns);
-    const allPatterns = [...new Set([...patterns, ...autoExcludes])];
+    const internalStorageExcludes = isPathInside(this.workTree, this.repoDir)
+      ? Array.from(getDirectoryExcludePatterns(toGitPath(this.workTree, this.repoDir)))
+      : [];
+    const allPatterns = [...patterns, ...internalStorageExcludes, ...autoExcludes];
     await mkdir(path.dirname(excludePath), { recursive: true });
     await writeFile(excludePath, allPatterns.join("\n") + "\n", "utf8");
   }
@@ -263,7 +311,12 @@ export class RepoManager {
    */
   async createSafetyCommit(): Promise<string> {
     await this.stageAll();
-    await exec("git", [...this.gitArgs(), "commit", "-m", "[pi] safety"], this.env, this.workTree);
+    await exec(
+      "git",
+      [...this.gitArgs(), "commit", "-m", "[pi] safety", "--allow-empty"],
+      this.env,
+      this.workTree,
+    );
     const { stdout } = await exec(
       "git",
       [...this.gitArgs(), "rev-parse", "HEAD"],
@@ -354,11 +407,55 @@ export class RepoManager {
     }
   }
 
+  private async findLargeChangedPaths(): Promise<readonly string[]> {
+    if (!this.maxFileBytes) return [];
+
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "ls-files", "-m", "-o", "--exclude-standard", "-z"],
+      this.env,
+      this.workTree,
+    );
+    const candidates = stdout.split("\0").filter((entry) => entry.length > 0);
+    const oversized: string[] = [];
+
+    for (const candidate of candidates) {
+      const absolutePath = path.join(this.workTree, candidate);
+      let stats;
+      try {
+        stats = await stat(absolutePath);
+      } catch {
+        continue;
+      }
+      if (stats.isFile() && stats.size > this.maxFileBytes) {
+        oversized.push(candidate);
+      }
+    }
+
+    return oversized;
+  }
+
+  private async stageAllAfterRefresh(): Promise<void> {
+    await this.removeIgnoredFromIndex();
+    const oversizedPaths = await this.findLargeChangedPaths();
+    const addArgs = [...this.gitArgs(), "add", "-A"];
+    if (oversizedPaths.length === 0) {
+      await exec("git", addArgs, this.env, this.workTree);
+      return;
+    }
+
+    await exec(
+      "git",
+      [...addArgs, "--", ".", ...oversizedPaths.map((candidate) => `:(exclude)${candidate}`)],
+      this.env,
+      this.workTree,
+    );
+  }
+
   /** Stage all changes in the working tree. */
   async stageAll(): Promise<void> {
     await this.refreshExclude();
-    await this.removeIgnoredFromIndex();
-    await exec("git", [...this.gitArgs(), "add", "-A"], this.env, this.workTree);
+    await this.stageAllAfterRefresh();
   }
 
   /** Stage all changes while holding the repo lock. */
@@ -379,6 +476,73 @@ export class RepoManager {
     return stdout;
   }
 
+  private failure(
+    reason: SafeCheckoutFailureReason,
+    message: string,
+    error?: string,
+    rollbackError?: string,
+  ): SafeCheckoutResult {
+    return {
+      ok: false,
+      reason,
+      message,
+      ...(error ? { error } : {}),
+      ...(rollbackError ? { rollbackError } : {}),
+    };
+  }
+
+  private passesPathSafetyChecks(): boolean {
+    return (
+      path.isAbsolute(this.gitDir) &&
+      path.isAbsolute(this.repoDir) &&
+      path.isAbsolute(this.workTree) &&
+      path.resolve(this.gitDir) === path.resolve(this.repoDir, ".git")
+    );
+  }
+
+  private async validateRepoStorage(): Promise<SafeCheckoutResult | undefined> {
+    const hasGitDir = await access(this.gitDir)
+      .then(() => true)
+      .catch(() => false);
+    if (!hasGitDir) {
+      return this.failure("storage-missing", "Checkpoint storage is missing.");
+    }
+
+    try {
+      await exec("git", [...this.gitArgs(), "rev-parse", "--git-dir"], this.env, this.workTree);
+      return undefined;
+    } catch (error) {
+      return this.failure(
+        "storage-corrupt",
+        "Checkpoint storage is unreadable.",
+        errorMessage(error),
+      );
+    }
+  }
+
+  private isValidCommitReference(commitHash: string): boolean {
+    return (
+      commitHash.trim().length > 0 &&
+      !commitHash.includes("\0") &&
+      !commitHash.includes("\r") &&
+      !commitHash.includes("\n")
+    );
+  }
+
+  private async hasCommit(commitHash: string): Promise<boolean> {
+    try {
+      await exec(
+        "git",
+        [...this.gitArgs(), "cat-file", "-e", `${commitHash}^{commit}`],
+        this.env,
+        this.workTree,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Safely check out `targetCommit` with dirty-guard, safety-commit, and
    * automatic rollback on failure.
@@ -392,53 +556,108 @@ export class RepoManager {
    *   `{ ok: false, reason: "dirty" }`.
    */
   async safeCheckout(targetCommit: string, dirtyBaseCommit?: string): Promise<SafeCheckoutResult> {
-    return this.withLock(async () => {
-      // 1. Dirty guard
-      if (dirtyBaseCommit) {
-        try {
-          await this.stageAll();
-          const dirtyStdout = await this.diffAgainst(dirtyBaseCommit);
-          if (dirtyStdout.trim().length > 0) {
-            return { ok: false, reason: "dirty" };
-          }
-        } catch {
-          // Skip dirty check if diff fails
+    try {
+      return await this.withLock(async () => {
+        if (!this.passesPathSafetyChecks()) {
+          return this.failure(
+            "path-safety-failed",
+            "Checkpoint storage paths failed safety validation.",
+          );
         }
-      }
 
-      // 2. Safety commit
-      let safetyHash: string | undefined;
-      try {
-        safetyHash = await this.createSafetyCommit();
-      } catch {
-        // Proceed without safety commit
-      }
+        const storageFailure = await this.validateRepoStorage();
+        if (storageFailure) return storageFailure;
 
-      // 3. Checkout
-      try {
-        await this.checkoutCommit(targetCommit);
-        return safetyHash ? { ok: true, safetyHash } : { ok: true };
-      } catch (err) {
-        // 4. Rollback on failure
-        if (safetyHash) {
+        if (!this.isValidCommitReference(targetCommit)) {
+          return this.failure("invalid-target", "Checkpoint target is invalid.");
+        }
+        if (!(await this.hasCommit(targetCommit))) {
+          return this.failure("target-missing", "Checkpoint target does not exist.");
+        }
+
+        if (dirtyBaseCommit) {
+          if (
+            !this.isValidCommitReference(dirtyBaseCommit) ||
+            !(await this.hasCommit(dirtyBaseCommit))
+          ) {
+            return this.failure(
+              "dirty-check-failed",
+              "Could not verify the workspace is clean against the checkpoint base.",
+            );
+          }
+
+          try {
+            await this.refreshExclude();
+          } catch (error) {
+            return this.failure(
+              "exclude-refresh-failed",
+              "Failed to refresh checkpoint excludes before restore.",
+              errorMessage(error),
+            );
+          }
+
+          try {
+            await this.stageAllAfterRefresh();
+            const dirtyStdout = await this.diffAgainst(dirtyBaseCommit);
+            if (dirtyStdout.trim().length > 0) {
+              return this.failure(
+                "dirty",
+                "Workspace has unsnapshotted checkpoint-managed changes.",
+              );
+            }
+          } catch (error) {
+            return this.failure(
+              "dirty-check-failed",
+              "Could not verify the workspace is clean against the checkpoint base.",
+              errorMessage(error),
+            );
+          }
+        }
+
+        let safetyHash: string;
+        try {
+          safetyHash = await this.createSafetyCommit();
+        } catch (error) {
+          return this.failure(
+            "preflight-failed",
+            "Failed to create a safety checkpoint before restore.",
+            errorMessage(error),
+          );
+        }
+
+        try {
+          await this.refreshExclude();
+        } catch (error) {
+          return this.failure(
+            "exclude-refresh-failed",
+            "Failed to refresh checkpoint excludes before restore.",
+            errorMessage(error),
+          );
+        }
+
+        try {
+          await this.checkoutCommit(targetCommit);
+          return { ok: true, safetyHash };
+        } catch (error) {
           try {
             await this.checkoutCommit(safetyHash);
-          } catch (rollbackErr) {
-            return {
-              ok: false,
-              reason: "checkout-failed",
-              error: err instanceof Error ? err.message : String(err),
-              rollbackError:
-                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-            };
+          } catch (rollbackError) {
+            return this.failure(
+              "rollback-failed",
+              "Checkpoint restore failed and rollback could not recover the previous state.",
+              errorMessage(error),
+              errorMessage(rollbackError),
+            );
           }
+          return this.failure("checkout-failed", "Checkpoint restore failed.", errorMessage(error));
         }
-        return {
-          ok: false,
-          reason: "checkout-failed",
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    });
+      });
+    } catch (error) {
+      return this.failure(
+        "lock-failed",
+        "Failed to lock checkpoint storage for restore.",
+        errorMessage(error),
+      );
+    }
   }
 }

@@ -1197,7 +1197,7 @@ describe("registerRewind", () => {
     expect(safeCheckout).toHaveBeenCalledWith("abc", "def");
   });
 
-  test("dirty guard skips when diff fails", async () => {
+  test("dirty guard fails closed when diff fails", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn();
     const stageAll = vi.fn().mockRejectedValue(new Error("stage fail"));
@@ -1210,7 +1210,11 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
-    expect(checkoutCommit).toHaveBeenCalledWith("abc");
+    expect(checkoutCommit).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before rewinding.",
+      "warning",
+    );
   });
 
   test("rollback safety restores on failure", async () => {
@@ -1231,7 +1235,10 @@ describe("registerRewind", () => {
     await handler("", ctx);
     expect(checkoutCommit).toHaveBeenCalledWith("abc");
     expect(checkoutCommit).toHaveBeenCalledWith("safety");
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: git error", "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Rewind failed: Checkpoint restore failed.",
+      "error",
+    );
   });
 
   test("rollback safety handles rollback failure", async () => {
@@ -1288,7 +1295,7 @@ describe("registerRewind", () => {
     );
   });
 
-  test("restore without safety commit when createSafetyCommit fails", async () => {
+  test("reports preflight failure when createSafetyCommit fails", async () => {
     const pi = createMockPi();
     const checkoutCommit = vi.fn().mockRejectedValue(new Error("git error"));
     const createSafetyCommit = vi.fn().mockRejectedValue(new Error("safety fail"));
@@ -1305,8 +1312,11 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
     expect(createSafetyCommit).toHaveBeenCalled();
-    expect(checkoutCommit).toHaveBeenCalledWith("abc");
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: git error", "error");
+    expect(checkoutCommit).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Rewind failed: Failed to create a safety checkpoint before restore.",
+      "error",
+    );
   });
 
   test("restore fails gracefully when checkoutCommit is unavailable", async () => {
@@ -1321,7 +1331,10 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: checkoutCommit not mocked", "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Rewind failed: Checkpoint restore failed.",
+      "error",
+    );
   });
 
   test("handles non-Error restore failure", async () => {
@@ -1343,7 +1356,10 @@ describe("registerRewind", () => {
       .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
       .mockResolvedValueOnce("Restore code");
     await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Rewind failed: string error", "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Rewind failed: Checkpoint restore failed.",
+      "error",
+    );
   });
 
   test("renders removed changes correctly", async () => {

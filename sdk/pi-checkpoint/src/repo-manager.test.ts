@@ -728,14 +728,18 @@ describe("RepoManager", () => {
       await fs.writeFile(path.join(workTree, "a.txt"), "v2", "utf8");
 
       const result = await repo.safeCheckout(cp1, cp1);
-      expect(result).toEqual({ ok: false, reason: "dirty" });
+      expect(result).toEqual({
+        ok: false,
+        reason: "dirty",
+        message: "Workspace has unsnapshotted checkpoint-managed changes.",
+      });
 
       // File must remain untouched
       const content = await fs.readFile(path.join(workTree, "a.txt"), "utf8");
       expect(content).toBe("v2");
     });
 
-    test("proceeds when dirty guard diff fails", async () => {
+    test("fails closed when dirty guard cannot verify the base commit", async () => {
       const gitDir = path.join(tmpDir, ".git");
       const indexFile = path.join(tmpDir, "index");
       const workTree = path.join(tmpDir, "project");
@@ -747,9 +751,70 @@ describe("RepoManager", () => {
       await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
       const cp1 = await repo.checkpoint("entry-1");
 
-      // Pass an invalid commit hash so diffAgainst throws
+      // Pass an invalid commit hash so the dirty guard cannot verify cleanliness.
       const result = await repo.safeCheckout(cp1, "deadbeef");
-      expect(result.ok).toBe(true);
+      expect(result).toEqual({
+        ok: false,
+        reason: "dirty-check-failed",
+        message: "Could not verify the workspace is clean against the checkpoint base.",
+      });
+    });
+
+    test("rejects path-safety, missing storage, and corrupt storage before checkout", async () => {
+      const invalidRepo = new RepoManager(
+        "",
+        path.join(tmpDir, "index"),
+        path.join(tmpDir, "project"),
+      );
+      await expect(invalidRepo.safeCheckout("abc")).resolves.toEqual({
+        ok: false,
+        reason: "path-safety-failed",
+        message: "Checkpoint storage paths failed safety validation.",
+      });
+
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const missingRepo = new RepoManager(gitDir, indexFile, workTree);
+      await expect(missingRepo.safeCheckout("abc")).resolves.toEqual({
+        ok: false,
+        reason: "storage-missing",
+        message: "Checkpoint storage is missing.",
+      });
+
+      const corruptRepo = new RepoManager(gitDir, indexFile, workTree);
+      await corruptRepo.init();
+      await fs.rm(path.join(gitDir, "HEAD"), { force: true });
+      const corruptResult = await corruptRepo.safeCheckout("abc");
+      expect(corruptResult).toMatchObject({
+        ok: false,
+        reason: "storage-corrupt",
+        message: "Checkpoint storage is unreadable.",
+      });
+      expect(corruptResult.ok).toBe(false);
+    });
+
+    test("rejects invalid and missing target commits", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await expect(repo.safeCheckout("bad\ncommit")).resolves.toEqual({
+        ok: false,
+        reason: "invalid-target",
+        message: "Checkpoint target is invalid.",
+      });
+      await expect(repo.safeCheckout("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")).resolves.toEqual({
+        ok: false,
+        reason: "target-missing",
+        message: "Checkpoint target does not exist.",
+      });
     });
 
     test("checks out target commit and returns safety hash", async () => {
@@ -776,6 +841,48 @@ describe("RepoManager", () => {
       expect(content).toBe("v1");
     });
 
+    test("skips oversized changed files during staging when maxFileBytes is set", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+      repo.setMaxFileBytes(5);
+
+      await fs.writeFile(path.join(workTree, "small.txt"), "ok", "utf8");
+      await fs.writeFile(path.join(workTree, "large.txt"), "this is too large", "utf8");
+      const hash = await repo.checkpoint("entry-oversized");
+
+      const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+      const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+      expect(stdout).toContain("small.txt");
+      expect(stdout).not.toContain("large.txt");
+    });
+
+    test("fails dirty-check closed when diffAgainst throws after staging", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      vi.spyOn(repo, "diffAgainst").mockRejectedValueOnce(new Error("diff fail"));
+      const result = await repo.safeCheckout(cp1, cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "dirty-check-failed",
+        message: "Could not verify the workspace is clean against the checkpoint base.",
+        error: "diff fail",
+      });
+    });
+
     test("rolls back to safety commit on checkout failure", async () => {
       const gitDir = path.join(tmpDir, ".git");
       const indexFile = path.join(tmpDir, "index");
@@ -794,6 +901,7 @@ describe("RepoManager", () => {
       expect(result).toEqual({
         ok: false,
         reason: "checkout-failed",
+        message: "Checkpoint restore failed.",
         error: "git error",
       });
 
@@ -824,6 +932,7 @@ describe("RepoManager", () => {
       expect(result).toEqual({
         ok: false,
         reason: "checkout-failed",
+        message: "Checkpoint restore failed.",
         error: "string error",
       });
 
@@ -854,7 +963,8 @@ describe("RepoManager", () => {
       const result = await repo.safeCheckout(cp1);
       expect(result).toEqual({
         ok: false,
-        reason: "checkout-failed",
+        reason: "rollback-failed",
+        message: "Checkpoint restore failed and rollback could not recover the previous state.",
         error: "git error",
         rollbackError: "rollback error",
       });
@@ -862,7 +972,7 @@ describe("RepoManager", () => {
       spy.mockRestore();
     });
 
-    test("fails gracefully when safety commit cannot be created", async () => {
+    test("fails closed when safety commit cannot be created", async () => {
       const gitDir = path.join(tmpDir, ".git");
       const indexFile = path.join(tmpDir, "index");
       const workTree = path.join(tmpDir, "project");
@@ -879,12 +989,17 @@ describe("RepoManager", () => {
         .mockRejectedValueOnce(new Error("safety fail"));
 
       const result = await repo.safeCheckout(cp1, cp1);
-      expect(result.ok).toBe(true);
+      expect(result).toEqual({
+        ok: false,
+        reason: "preflight-failed",
+        message: "Failed to create a safety checkpoint before restore.",
+        error: "safety fail",
+      });
 
       spy.mockRestore();
     });
 
-    test("fails without rollback when checkout fails and no safety commit", async () => {
+    test("returns preflight failure before checkout when safety commit creation fails", async () => {
       const gitDir = path.join(tmpDir, ".git");
       const indexFile = path.join(tmpDir, "index");
       const workTree = path.join(tmpDir, "project");
@@ -904,9 +1019,11 @@ describe("RepoManager", () => {
       const result = await repo.safeCheckout(cp1, cp1);
       expect(result).toEqual({
         ok: false,
-        reason: "checkout-failed",
-        error: "git error",
+        reason: "preflight-failed",
+        message: "Failed to create a safety checkpoint before restore.",
+        error: "safety fail",
       });
+      expect(checkoutSpy).not.toHaveBeenCalled();
 
       checkoutSpy.mockRestore();
     });
@@ -923,13 +1040,13 @@ describe("RepoManager", () => {
       await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
       const cp1 = await repo.checkpoint("entry-1");
 
-      vi.spyOn(repo, "createSafetyCommit").mockRejectedValueOnce(new Error("safety fail"));
       const checkoutSpy = vi.spyOn(repo, "checkoutCommit").mockRejectedValueOnce("string error");
 
       const result = await repo.safeCheckout(cp1, cp1);
       expect(result).toEqual({
         ok: false,
         reason: "checkout-failed",
+        message: "Checkpoint restore failed.",
         error: "string error",
       });
 
@@ -959,7 +1076,8 @@ describe("RepoManager", () => {
       const result = await repo.safeCheckout(cp1);
       expect(result).toEqual({
         ok: false,
-        reason: "checkout-failed",
+        reason: "rollback-failed",
+        message: "Checkpoint restore failed and rollback could not recover the previous state.",
         error: "git error",
         rollbackError: "string rollback",
       });
@@ -990,12 +1108,118 @@ describe("RepoManager", () => {
       const result = await repo.safeCheckout(cp1);
       expect(result).toEqual({
         ok: false,
-        reason: "checkout-failed",
+        reason: "rollback-failed",
+        message: "Checkpoint restore failed and rollback could not recover the previous state.",
         error: "string error",
         rollbackError: "string rollback",
       });
 
       spy.mockRestore();
     });
+
+    test("fails when exclude refresh throws during dirty checking", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      const repoWithPrivate = repo as unknown as { refreshExclude: () => Promise<void> };
+      vi.spyOn(repoWithPrivate, "refreshExclude").mockRejectedValueOnce(new Error("exclude fail"));
+      const result = await repo.safeCheckout(cp1, cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "exclude-refresh-failed",
+        message: "Failed to refresh checkpoint excludes before restore.",
+        error: "exclude fail",
+      });
+    });
+
+    test("fails when exclude refresh throws before checkout", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      const repoWithPrivate = repo as unknown as { refreshExclude: () => Promise<void> };
+      vi.spyOn(repoWithPrivate, "refreshExclude")
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("exclude fail"));
+      const result = await repo.safeCheckout(cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "exclude-refresh-failed",
+        message: "Failed to refresh checkpoint excludes before restore.",
+        error: "exclude fail",
+      });
+    });
+
+    test("fails when repo lock acquisition throws", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      vi.spyOn(repo, "withLock").mockRejectedValueOnce(new Error("lock fail"));
+      const result = await repo.safeCheckout(cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "lock-failed",
+        message: "Failed to lock checkpoint storage for restore.",
+        error: "lock fail",
+      });
+    });
   });
+});
+
+test("findLargeChangedPaths ignores files that disappear before stat completes", async () => {
+  const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.resetModules();
+  vi.doMock("node:fs/promises", () => ({
+    ...actualFs,
+    stat: vi.fn(async (targetPath: Parameters<typeof actualFs.stat>[0]) => {
+      if (String(targetPath).endsWith("large.txt")) throw new Error("missing");
+      return actualFs.stat(targetPath);
+    }),
+  }));
+
+  const { RepoManager: DynamicRepoManager } = await import("./repo-manager");
+  const localTmpDir = await createTmpDir();
+  try {
+    const gitDir = path.join(localTmpDir, ".git");
+    const indexFile = path.join(localTmpDir, "index");
+    const workTree = path.join(localTmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new DynamicRepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    repo.setMaxFileBytes(5);
+
+    await fs.writeFile(path.join(workTree, "large.txt"), "this is too large", "utf8");
+    await repo.stageAll();
+    const repoWithPrivate = repo as unknown as {
+      findLargeChangedPaths: () => Promise<readonly string[]>;
+    };
+    await expect(repoWithPrivate.findLargeChangedPaths()).resolves.toEqual([]);
+  } finally {
+    vi.doUnmock("node:fs/promises");
+    await cleanup(localTmpDir);
+  }
 });

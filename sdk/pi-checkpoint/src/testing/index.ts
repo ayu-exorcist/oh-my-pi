@@ -101,10 +101,19 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
             const dirtyResult = diffAgainst ? await diffAgainst(dirtyBaseCommit) : "";
             const dirtyStdout = typeof dirtyResult === "string" ? dirtyResult : "";
             if (dirtyStdout.trim().length > 0) {
-              return { ok: false, reason: "dirty" };
+              return {
+                ok: false,
+                reason: "dirty",
+                message: "Workspace has unsnapshotted checkpoint-managed changes.",
+              };
             }
-          } catch {
-            // skip dirty check if diff fails
+          } catch (error) {
+            return {
+              ok: false,
+              reason: "dirty-check-failed",
+              message: "Could not verify the workspace is clean against the checkpoint base.",
+              error: error instanceof Error ? error.message : String(error),
+            };
           }
         }
 
@@ -115,8 +124,13 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
             const result = await createSafetyCommit();
             if (typeof result === "string") safetyHash = result;
           }
-        } catch {
-          // proceed without safety commit
+        } catch (error) {
+          return {
+            ok: false,
+            reason: "preflight-failed",
+            message: "Failed to create a safety checkpoint before restore.",
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
 
         const checkoutCommit = asMock(repo.checkoutCommit);
@@ -124,6 +138,7 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
           return {
             ok: false,
             reason: "checkout-failed",
+            message: "Checkpoint restore failed.",
             error: "checkoutCommit not mocked",
           };
         }
@@ -131,24 +146,27 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
         try {
           await checkoutCommit(targetCommit);
           return safetyHash ? { ok: true, safetyHash } : { ok: true };
-        } catch (err) {
+        } catch (error) {
           if (safetyHash) {
             try {
               await checkoutCommit(safetyHash);
-            } catch (rollbackErr) {
+            } catch (rollbackError) {
               return {
                 ok: false,
-                reason: "checkout-failed",
-                error: err instanceof Error ? err.message : String(err),
+                reason: "rollback-failed",
+                message:
+                  "Checkpoint restore failed and rollback could not recover the previous state.",
+                error: error instanceof Error ? error.message : String(error),
                 rollbackError:
-                  rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+                  rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
               };
             }
           }
           return {
             ok: false,
             reason: "checkout-failed",
-            error: err instanceof Error ? err.message : String(err),
+            message: "Checkpoint restore failed.",
+            error: error instanceof Error ? error.message : String(error),
           };
         }
       },

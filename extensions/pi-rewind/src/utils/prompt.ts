@@ -12,6 +12,13 @@ function isSessionUserMessageEntry(entry: SessionEntry): entry is SessionMessage
   return isUserMessageEntry(entry);
 }
 
+/** Find the earliest user message in a session or branch. */
+export function findFirstUserEntry(
+  entries: readonly SessionEntry[],
+): SessionMessageEntry | undefined {
+  return entries.find(isSessionUserMessageEntry);
+}
+
 /** Find the most recent user message in a branch (used to label checkpoints). */
 export function findLastUserEntry(branch: SessionEntry[]): SessionMessageEntry | undefined {
   return [...branch].reverse().find(isSessionUserMessageEntry);
@@ -39,4 +46,9 @@ export function extractPrompt(leaf: SessionMessageEntry): string {
   }
   // istanbul ignore next — unreachable for type-safe callers, kept for runtime safety
   return "[message]";
+}
+
+export function extractFirstUserPrompt(entries: readonly SessionEntry[]): string | undefined {
+  const first = findFirstUserEntry(entries);
+  return first ? extractPrompt(first) : undefined;
 }
