@@ -1,5 +1,11 @@
 # @ayulab/oh-my-pi
 
+## 0.4.9
+
+### Patch Changes
+
+- 35065fc: Bump version after unpublish conflict.
+
 ## 0.4.8
 
 ### Patch Changes
