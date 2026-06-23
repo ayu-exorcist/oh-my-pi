@@ -173,7 +173,7 @@ type RestoreRepoResult =
   | { readonly ok: false; readonly reason: "not-found" }
   | { readonly ok: false; readonly reason: "unusable"; readonly message: string };
 
-function notifyMissingResumeStorage(ui: ExtensionContext["ui"] | undefined): void {
+function notifyMissingCodeStorage(ui: ExtensionContext["ui"] | undefined): void {
   ui?.notify(
     "No checkpoint storage is available for this session's code state. Files were not restored.",
     "warning",
@@ -602,7 +602,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       const restoreRepo = await resolveRepoForRestore(sessionId, sessionFile, ctx.cwd, config);
       if (!restoreRepo.ok) {
         if (restoreRepo.reason === "not-found") {
-          notifyMissingResumeStorage(ctx.hasUI ? ctx.ui : undefined);
+          notifyMissingCodeStorage(ctx.hasUI ? ctx.ui : undefined);
         } else {
           notifyUnusableResumeStorage(ctx.hasUI ? ctx.ui : undefined, restoreRepo.message);
         }
@@ -773,8 +773,23 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (restoreIntent?.mode === "Restore conversation") return;
     if (!restoreIntent && config.restoreOnTree !== "always") return;
 
-    const repo = repos.getRepo(sessionId);
-    if (!repo) return;
+    const cwd = sessionCwds.getOrUndefined(sessionId);
+    if (!cwd) return;
+    const restoreRepo = await resolveRepoForRestore(
+      sessionId,
+      sessionFiles.getOrUndefined(sessionId),
+      cwd,
+      config,
+    );
+    if (!restoreRepo.ok) {
+      if (restoreRepo.reason === "not-found") {
+        notifyMissingCodeStorage(ctx.hasUI ? ctx.ui : undefined);
+      } else {
+        notifyUnusableResumeStorage(ctx.hasUI ? ctx.ui : undefined, restoreRepo.message);
+      }
+      return;
+    }
+    const repo = restoreRepo.repo;
 
     const entries = ctx.sessionManager.getEntries();
     const treeEvent = getTreeEventRecord(event);

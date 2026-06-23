@@ -2466,7 +2466,48 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "No checkpoint storage is available for this session's code state. Files were not restored.",
+      "warning",
+    );
   });
+
+  test("session_tree resolves existing checkpoint storage when repo is not pre-bound", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    await enableTreeRestore(tmpDir);
+
+    const bootstrap = createMockApi();
+    const ext = await import("./index");
+    ext.default(bootstrap.api);
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of bootstrap.events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(bootstrap.events, bootstrapCtx);
+
+    const { api, events } = createMockApi();
+    ext.default(api);
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after", undefined);
+  }, 15000);
 
   test("session_tree ignores non-record entries while building branches", async () => {
     const checkpointEntry = createCheckpointEntry({
