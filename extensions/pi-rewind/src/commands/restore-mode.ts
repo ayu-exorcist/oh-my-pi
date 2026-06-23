@@ -10,6 +10,7 @@ import { errorMessage } from "@ayulab/runtime-core";
 interface RestoreModeUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
   input(message: string, initialValue: string): Promise<string | undefined>;
+  select?(message: string, options: readonly string[]): Promise<string | undefined>;
 }
 
 interface RunRestoreModeOptions {
@@ -69,6 +70,104 @@ async function restoreConversation(
   }
 }
 
+async function promptDirtyConversationFallback(
+  ui: RestoreModeUi,
+  details: string,
+): Promise<"Restore conversation only" | "Force restore code and conversation" | "Cancel"> {
+  if (!ui.select) return "Cancel";
+
+  const selection = await ui.select(
+    `${details}\n\nFiles cannot be restored safely.\n\nChoose one:`,
+    ["Restore conversation only", "Force restore code and conversation", "Cancel"],
+  );
+  return selection === "Restore conversation only" ||
+    selection === "Force restore code and conversation"
+    ? selection
+    : "Cancel";
+}
+
+async function restoreCodeAndConversationAfterConflict(
+  options: RunRestoreModeOptions,
+  conversationEntryId: string,
+  dirtyMessage: string,
+  dirtyCheckFailedMessage: string,
+  failedPrefix: string,
+  rollbackFailedPrefix: string,
+): Promise<void> {
+  if (!options.repo) {
+    options.ui.notify(
+      "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+      "warning",
+    );
+    return;
+  }
+
+  const result = await options.repo.safeCheckout(
+    options.targetCp.beforeCommit,
+    options.dirtyBaseCommit ?? options.latestCp.afterCommit,
+  );
+  if (result.ok) {
+    const conversationRestored = await restoreConversation(
+      options.ui,
+      options.navigateTree,
+      conversationEntryId,
+    );
+    if (!conversationRestored) return;
+    options.ui.notify("Rewind completed", "info");
+    return;
+  }
+
+  if (result.reason !== "dirty") {
+    notifyCheckoutFailure(
+      options.ui,
+      result,
+      dirtyMessage,
+      dirtyCheckFailedMessage,
+      failedPrefix,
+      rollbackFailedPrefix,
+    );
+    return;
+  }
+
+  const selection = await promptDirtyConversationFallback(
+    options.ui,
+    result.message ?? dirtyMessage,
+  );
+  if (selection === "Cancel") return;
+
+  if (selection === "Restore conversation only") {
+    const conversationRestored = await restoreConversation(
+      options.ui,
+      options.navigateTree,
+      conversationEntryId,
+    );
+    if (!conversationRestored) return;
+    options.ui.notify("Rewind completed", "info");
+    return;
+  }
+
+  const forcedResult = await options.repo.safeCheckout(options.targetCp.beforeCommit);
+  if (!forcedResult.ok) {
+    notifyCheckoutFailure(
+      options.ui,
+      forcedResult,
+      dirtyMessage,
+      dirtyCheckFailedMessage,
+      failedPrefix,
+      rollbackFailedPrefix,
+    );
+    return;
+  }
+
+  const conversationRestored = await restoreConversation(
+    options.ui,
+    options.navigateTree,
+    conversationEntryId,
+  );
+  if (!conversationRestored) return;
+  options.ui.notify("Rewind completed", "info");
+}
+
 export async function runRestoreMode(options: RunRestoreModeOptions): Promise<void> {
   const conversationEntryId = options.conversationEntryId ?? options.targetCp.userEntryId;
   const restoreCode = options.mode === "Restore code";
@@ -83,36 +182,13 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   const rollbackFailedPrefix = "Rewind failed and rollback also failed";
 
   if (restoreCodeAndConversation) {
-    if (!options.repo) {
-      options.ui.notify(
-        "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
-        "warning",
-      );
-      return;
-    }
-
-    const result = await options.repo.safeCheckout(options.targetCp.beforeCommit, dirtyBaseCommit);
-    if (!result.ok) {
-      notifyCheckoutFailure(
-        options.ui,
-        result,
-        dirtyMessage,
-        dirtyCheckFailedMessage,
-        failedPrefix,
-        rollbackFailedPrefix,
-      );
-    }
-
-    const conversationRestored = await restoreConversation(
-      options.ui,
-      options.navigateTree,
+    await restoreCodeAndConversationAfterConflict(
+      options,
       conversationEntryId,
-    );
-    if (!conversationRestored) return;
-
-    options.ui.notify(
-      result.ok ? "Rewind completed" : "Conversation restored, but files were not restored.",
-      result.ok ? "info" : "warning",
+      dirtyMessage,
+      dirtyCheckFailedMessage,
+      failedPrefix,
+      rollbackFailedPrefix,
     );
     return;
   }

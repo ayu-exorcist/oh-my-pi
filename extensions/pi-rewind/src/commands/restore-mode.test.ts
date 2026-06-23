@@ -26,6 +26,7 @@ function createUi() {
   return {
     notify: vi.fn(),
     input: vi.fn(),
+    select: vi.fn(),
   };
 }
 
@@ -129,10 +130,15 @@ describe("Rewind Restore Mode", () => {
     );
   });
 
-  test("restores conversation even when file restore fails", async () => {
+  test("offers conversation-only fallback when code restore is blocked by workspace changes", async () => {
     const ui = createUi();
+    ui.select.mockResolvedValueOnce("Restore conversation only");
     const navigateTree = vi.fn().mockResolvedValue(undefined);
-    const repo = mockRepo({ ok: false, reason: "checkout-failed", error: "git error" });
+    const repo = mockRepo({
+      ok: false,
+      reason: "dirty",
+      message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+    });
     const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
 
     await runRestoreMode({
@@ -144,11 +150,67 @@ describe("Rewind Restore Mode", () => {
       latestCp: target,
     });
 
-    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
-    expect(ui.notify).toHaveBeenCalledWith(
-      "Conversation restored, but files were not restored.",
-      "warning",
+    expect(ui.select).toHaveBeenCalledWith(
+      "Current workspace contains changes outside the target checkpoint:\n- ttt.txt\n\nFiles cannot be restored safely.\n\nChoose one:",
+      ["Restore conversation only", "Force restore code and conversation", "Cancel"],
     );
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("forces code and conversation restore after confirmation", async () => {
+    const ui = createUi();
+    ui.select.mockResolvedValueOnce("Force restore code and conversation");
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = createMockRepo({
+      safeCheckout: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          reason: "dirty",
+          message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+        })
+        .mockResolvedValueOnce({ ok: true }),
+    });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(repo.safeCheckout).toHaveBeenNthCalledWith(1, "before", "after");
+    expect(repo.safeCheckout).toHaveBeenNthCalledWith(2, "before");
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("cancels restore when user declines dirty conflict options", async () => {
+    const ui = createUi();
+    ui.select.mockResolvedValueOnce("Cancel");
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({
+      ok: false,
+      reason: "dirty",
+      message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+    });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(navigateTree).not.toHaveBeenCalled();
+    expect(ui.notify).not.toHaveBeenCalled();
   });
 
   test("falls back to a generic checkout failure message", async () => {
