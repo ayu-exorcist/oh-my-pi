@@ -776,7 +776,11 @@ describe("checkpoint extension", () => {
     const ext = await import("./index");
     ext.default(api);
 
-    const forkCtx = createMockContext(forkSessionFile, [], tmpDir);
+    const forkCtx = createMockContext(
+      forkSessionFile,
+      [createUserEntry("entry-1", "lazy checkpoint")],
+      tmpDir,
+    );
 
     const sessionStartHandlers = events["session_start"] || [];
     for (const h of sessionStartHandlers) {
@@ -797,7 +801,14 @@ describe("checkpoint extension", () => {
       .then(() => true)
       .catch(() => false);
     expect(forkGitExists).toBe(false);
-  });
+
+    await emitAssistantStart(events, forkCtx);
+    const lazyGitExists = await fs
+      .access(path.join(forkRepoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(lazyGitExists).toBe(true);
+  }, 15000);
 
   test("fork skips restore when no user entry found", async () => {
     const srcBranch = [createUserEntry("entry-1", "init")];
@@ -952,7 +963,11 @@ describe("checkpoint extension", () => {
     const ext = await import("./index");
     ext.default(api);
 
-    const forkCtx = createMockContext(forkSessionFile, [], tmpDir);
+    const forkCtx = createMockContext(
+      forkSessionFile,
+      [createUserEntry("entry-1", "lazy checkpoint")],
+      tmpDir,
+    );
 
     const sessionStartHandlers = events["session_start"] || [];
     for (const h of sessionStartHandlers) {
@@ -979,7 +994,14 @@ describe("checkpoint extension", () => {
       .then(() => true)
       .catch(() => false);
     expect(forkGitExists).toBe(false);
-  });
+
+    await emitAssistantStart(events, forkCtx);
+    const lazyGitExists = await fs
+      .access(path.join(forkRepoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(lazyGitExists).toBe(true);
+  }, 15000);
 
   test("fork returns early when dst repo already exists", async () => {
     const srcBranch = [createUserEntry("entry-1", "init")];

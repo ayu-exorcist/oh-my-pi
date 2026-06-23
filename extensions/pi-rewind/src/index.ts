@@ -546,9 +546,11 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     sessionCwds.set(sessionId, ctx.cwd);
 
     if (event.reason === "fork") {
+      const entries = ctx.sessionManager.getEntries();
+      resetSessionRuntimeState(sessionId, entries);
+      const forkIntent = await readForkIntent(sessionFile);
       if (!event.previousSessionFile) return;
 
-      const forkIntent = await readForkIntent(sessionFile);
       const storage = await safeCloneSessionCheckpointStorage({
         previousSessionFile: event.previousSessionFile,
         sessionFile,
@@ -558,8 +560,6 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       if (!storage.ok) return;
 
-      const entries = ctx.sessionManager.getEntries();
-      resetSessionRuntimeState(sessionId, entries);
       configureRepo(storage.repo, config);
       repos.setRepo(sessionId, storage.repo);
       producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
