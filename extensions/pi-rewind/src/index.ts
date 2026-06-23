@@ -18,7 +18,7 @@ import {
 } from "@ayulab/pi-checkpoint";
 import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
-import { isRecord } from "@ayulab/runtime-core";
+import { errorMessage, isRecord } from "@ayulab/runtime-core";
 import { extractFirstUserPrompt, extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { findLatestBranchCheckpoint } from "./utils/branch-checkpoints";
 import { registerCheckpointStorageCommand } from "./commands/checkpoint";
@@ -166,6 +166,25 @@ interface ForkIntent {
 interface TreeRestoreIntent {
   readonly targetId: string;
   readonly mode: "Restore code and conversation" | "Restore conversation";
+}
+
+type RestoreRepoResult =
+  | { readonly ok: true; readonly repo: RepoManager }
+  | { readonly ok: false; readonly reason: "not-found" }
+  | { readonly ok: false; readonly reason: "unusable"; readonly message: string };
+
+function notifyMissingResumeStorage(ui: ExtensionContext["ui"] | undefined): void {
+  ui?.notify(
+    "No checkpoint storage is available for this session's code state. Files were not restored.",
+    "warning",
+  );
+}
+
+function notifyUnusableResumeStorage(
+  ui: ExtensionContext["ui"] | undefined,
+  message: string,
+): void {
+  ui?.notify(`Checkpoint storage could not be prepared for resume restore: ${message}`, "error");
 }
 
 function checkpointHasFileChanges(checkpoint: CheckpointEntry): boolean {
@@ -462,6 +481,25 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     return producer;
   }
 
+  async function resolveRepoForRestore(
+    sessionId: string,
+    sessionFile: string | undefined,
+    cwd: string,
+    config: CheckpointConfig,
+  ): Promise<RestoreRepoResult> {
+    const repo = await bindSessionRepo(sessionId, sessionFile, cwd, repos);
+    if (!repo) return { ok: false, reason: "not-found" };
+
+    configureRepo(repo, config);
+    try {
+      await repo.lockedSetExclude(config.exclude);
+    } catch (error) {
+      return { ok: false, reason: "unusable", message: errorMessage(error) };
+    }
+
+    return { ok: true, repo };
+  }
+
   async function appendCheckpoint(
     sessionId: string,
     sessionFile: string | undefined,
@@ -549,29 +587,38 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     resetSessionRuntimeState(sessionId, sessionEntries);
 
     if (event.reason === "resume" && config.restoreOnResume === "always") {
-      const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
-        exclude: config.exclude,
-      });
-      configureRepo(repo, config);
-      const producer = createAutoCheckpointProducer(repo, config);
-      producers.set(sessionId, producer);
-      await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
-
       const entries = ctx.sessionManager.getEntries();
       const targetCommit = resolveTreeTargetCommit(
         entries,
         ctx.sessionManager.getBranch(),
         undefined,
       );
-      const dirtyBaseCommit = await findCleanCheckpointCommit(repo, getCheckpointEntries(entries));
-      if (targetCommit && !dirtyBaseCommit) {
+      if (!targetCommit) return;
+
+      const restoreRepo = await resolveRepoForRestore(sessionId, sessionFile, ctx.cwd, config);
+      if (!restoreRepo.ok) {
+        if (restoreRepo.reason === "not-found") {
+          notifyMissingResumeStorage(ctx.hasUI ? ctx.ui : undefined);
+        } else {
+          notifyUnusableResumeStorage(ctx.hasUI ? ctx.ui : undefined, restoreRepo.message);
+        }
+        return;
+      }
+
+      await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
+
+      const dirtyBaseCommit = await findCleanCheckpointCommit(
+        restoreRepo.repo,
+        getCheckpointEntries(entries),
+      );
+      if (!dirtyBaseCommit) {
         ctx.ui.notify(
           "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before resuming checkpoint state.",
           "warning",
         );
         return;
       }
-      await safeRestoreTreeCodeState(repo, targetCommit, dirtyBaseCommit, ctx.ui);
+      await safeRestoreTreeCodeState(restoreRepo.repo, targetCommit, dirtyBaseCommit, ctx.ui);
     }
   });
 

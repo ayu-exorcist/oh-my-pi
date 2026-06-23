@@ -1534,7 +1534,39 @@ describe("checkpoint extension", () => {
     expect(appendEntry).not.toHaveBeenCalled();
   });
 
-  test("resume session_start restores latest branch checkpoint when workspace matches known checkpoint", async () => {
+  test("resume session_start with restore always returns silently when no target checkpoint exists", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      "utf8",
+    );
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const gitExists = await fs
+      .access(path.join(repoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(gitExists).toBe(false);
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("resume session_start warns when restore storage is missing", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
     const branch = [
       createUserEntry("entry-1", "test"),
@@ -1550,6 +1582,55 @@ describe("checkpoint extension", () => {
       JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const gitExists = await fs
+      .access(path.join(repoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(gitExists).toBe(false);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "No checkpoint storage is available for this session's code state. Files were not restored.",
+      "warning",
+    );
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
+  test("resume session_start restores latest branch checkpoint when existing storage matches known checkpoint", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      "utf8",
+    );
+
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(events, bootstrapCtx);
 
     vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
     vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation((commit: string) =>
@@ -1590,6 +1671,15 @@ describe("checkpoint extension", () => {
       JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(events, bootstrapCtx);
 
     vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
     vi.spyOn(RepoManager.prototype, "diffAgainst").mockReturnValue(
