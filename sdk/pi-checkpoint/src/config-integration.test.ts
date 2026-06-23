@@ -63,7 +63,14 @@ describe("loadConfig integration", () => {
     const { loadConfigFromFile } = await import("./config");
     const config = loadConfigFromFile(path.join(projectDir, ".pi"));
 
-    expect(config.exclude).toEqual(["custom/**"]);
+    expect(config.exclude).toContain("custom/**");
+    expect(config.exclude).toContain("node_modules/");
+    expect(config.exclude).toContain("**/.idea/caches/");
+    expect(config.exclude).not.toContain(".idea/caches/");
+    expect(config.exclude).toContain("**/.DS_Store");
+    expect(config.exclude).toContain("**/Thumbs.db");
+    expect(config.exclude).toContain("**/Desktop.ini");
+    expect(config.exclude).not.toContain("vendor/");
     expect(config.enabled).toBe(true); // default
   });
 
@@ -73,8 +80,7 @@ describe("loadConfig integration", () => {
 
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
-    expect(config.exclude).toContain("node_modules/**");
-    expect(config.exclude).toContain("**/node_modules/**");
+    expect(config.exclude).toContain("node_modules/");
   });
 
   test("loadConfigFromFile returns defaults when JSON is invalid", async () => {

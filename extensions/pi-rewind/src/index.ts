@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
@@ -13,12 +13,15 @@ import {
   bindSessionRepo,
   getRepoDir,
   getCheckpointEntries,
+  readCheckpointStorageManifest,
+  writeCheckpointStorageManifest,
 } from "@ayulab/pi-checkpoint";
 import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { isRecord } from "@ayulab/runtime-core";
-import { extractPrompt, findLastUserEntry } from "./utils/prompt";
+import { extractFirstUserPrompt, extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { findLatestBranchCheckpoint } from "./utils/branch-checkpoints";
+import { registerCheckpointStorageCommand } from "./commands/checkpoint";
 import { registerRewind } from "./commands/rewind";
 import { AutoCheckpointProducer } from "./auto-checkpoint";
 import {
@@ -59,6 +62,79 @@ async function readSettingsRecord(configDir: string): Promise<Record<string, unk
     }
     throw error;
   }
+}
+
+function normalizeSessionTitle(prompt: string | undefined): string {
+  const collapsed = prompt?.replace(/\s+/g, " ").trim() ?? "";
+  return collapsed.length > 0 ? collapsed : "Untitled session";
+}
+
+function toMaxFileBytes(config: CheckpointConfig): number | undefined {
+  return typeof config.maxFileMB === "number"
+    ? Math.max(1, Math.floor(config.maxFileMB * 1024 * 1024))
+    : undefined;
+}
+
+function configureRepo(repo: RepoManager, config: CheckpointConfig): void {
+  repo.setMaxFileBytes(toMaxFileBytes(config));
+}
+
+async function syncCheckpointStorageManifest(
+  sessionFile: string | undefined,
+  sessionId: string,
+  cwd: string,
+  entries: readonly SessionEntry[],
+  fallbackPrompt?: string,
+): Promise<void> {
+  if (!sessionFile) return;
+
+  const repoDir = getRepoDir(sessionFile);
+  const existing = await readCheckpointStorageManifest(repoDir);
+  const now = new Date().toISOString();
+  const firstUserMessage = normalizeSessionTitle(
+    existing?.firstUserMessage || fallbackPrompt || extractFirstUserPrompt(entries),
+  );
+
+  await writeCheckpointStorageManifest(repoDir, {
+    version: 1,
+    sessionId,
+    sessionFile,
+    cwd,
+    firstUserMessage,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  });
+}
+
+function notifySafeCheckoutFailure(
+  ui: ExtensionContext["ui"] | undefined,
+  result: Exclude<Awaited<ReturnType<RepoManager["safeCheckout"]>>, { readonly ok: true }>,
+  dirtyMessage: string,
+  dirtyCheckFailedMessage: string,
+  failedPrefix: string,
+  rollbackFailedPrefix: string,
+): void {
+  if (!ui) return;
+
+  if (result.reason === "dirty") {
+    ui.notify(dirtyMessage, "warning");
+    return;
+  }
+
+  if (result.reason === "dirty-check-failed") {
+    ui.notify(dirtyCheckFailedMessage, "warning");
+    return;
+  }
+
+  if (result.rollbackError) {
+    ui.notify(`${rollbackFailedPrefix}: ${result.rollbackError}`, "error");
+    return;
+  }
+
+  ui.notify(
+    `${failedPrefix}: ${result.message ?? result.error ?? "checkpoint restore failed"}`,
+    "error",
+  );
 }
 
 /** Find the checkpoint that was created right before a given user entry. */
@@ -263,23 +339,14 @@ async function safeRestoreTreeCodeState(
   const result = await repo.safeCheckout(targetCommit, dirtyBaseCommit);
   if (result.ok) return true;
 
-  if (result.reason === "dirty") {
-    ui?.notify(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before navigating the tree.",
-      "warning",
-    );
-    return false;
-  }
-
-  if (result.rollbackError) {
-    ui?.notify(
-      `Tree file restore failed and rollback also failed: ${result.rollbackError}`,
-      "error",
-    );
-    return false;
-  }
-
-  ui?.notify(`Tree file restore failed: ${result.error}`, "error");
+  notifySafeCheckoutFailure(
+    ui,
+    result,
+    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before navigating the tree.",
+    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before navigating the tree.",
+    "Tree file restore failed",
+    "Tree file restore failed and rollback also failed",
+  );
   return false;
 }
 
@@ -288,31 +355,56 @@ async function restoreForkCodeState(
   entries: readonly unknown[],
   branch: readonly TreeEntryRecord[],
   selectedEntryId: string | undefined,
+  ui: ExtensionContext["ui"] | undefined,
 ): Promise<void> {
   const selectedCp = selectedEntryId
     ? findCheckpointForEntryId(entries, selectedEntryId)
     : undefined;
   const targetCommit =
     selectedCp?.beforeCommit ?? findLatestBranchCheckpoint(entries, branch)?.afterCommit;
-  if (targetCommit) {
-    await repo.withLock(async () => {
-      await repo.checkoutCommit(targetCommit);
-    });
-  }
+  if (!targetCommit) return;
+
+  const dirtyBaseCommit =
+    (await findCleanCheckpointCommit(repo, getCheckpointEntries(entries))) ??
+    findLatestBranchCheckpoint(entries, branch)?.afterCommit;
+  const result = await repo.safeCheckout(targetCommit, dirtyBaseCommit);
+  if (result.ok) return;
+
+  notifySafeCheckoutFailure(
+    ui,
+    result,
+    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before restoring fork files.",
+    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before restoring fork files.",
+    "Fork file restore failed",
+    "Fork file restore failed and rollback also failed",
+  );
 }
 
 async function restoreCloneCodeState(
   repo: RepoManager,
   entries: readonly unknown[],
+  branch: readonly TreeEntryRecord[],
   selectedEntryId: string,
+  ui: ExtensionContext["ui"] | undefined,
 ): Promise<void> {
   const targetCp =
     findCheckpointForEntryId(entries, selectedEntryId) ?? findLatestCheckpoint(entries);
-  if (targetCp) {
-    await repo.withLock(async () => {
-      await repo.checkoutCommit(targetCp.afterCommit);
-    });
-  }
+  if (!targetCp) return;
+
+  const dirtyBaseCommit =
+    (await findCleanCheckpointCommit(repo, getCheckpointEntries(entries))) ??
+    findLatestBranchCheckpoint(entries, branch)?.afterCommit;
+  const result = await repo.safeCheckout(targetCp.afterCommit, dirtyBaseCommit);
+  if (result.ok) return;
+
+  notifySafeCheckoutFailure(
+    ui,
+    result,
+    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before restoring cloned files.",
+    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before restoring cloned files.",
+    "Clone file restore failed",
+    "Clone file restore failed and rollback also failed",
+  );
 }
 
 /**
@@ -338,11 +430,18 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
   }
 
-  function appendCheckpoint(sessionId: string, entry: CheckpointEntry): void {
+  async function appendCheckpoint(
+    sessionId: string,
+    sessionFile: string | undefined,
+    cwd: string,
+    entries: readonly SessionEntry[],
+    entry: CheckpointEntry,
+  ): Promise<void> {
     if (lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
     lastCheckpointTurnIds.set(sessionId, entry.turnId);
     rememberCheckpointFileChanges(sessionHasCheckpointFileChanges, sessionId, [entry]);
     pi.appendEntry("pi-checkpoint", entry);
+    await syncCheckpointStorageManifest(sessionFile, sessionId, cwd, entries, entry.prompt);
   }
 
   let pendingForkIntent: ForkIntent | undefined;
@@ -385,17 +484,29 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       if (!storage.ok) return;
 
+      configureRepo(storage.repo, config);
       repos.setRepo(sessionId, storage.repo);
       producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
+      sessionTasks.delete(sessionId);
+      lastCheckpointTurnIds.delete(sessionId);
+      pendingTreeRestores.delete(sessionId);
+      suppressedTreeRestores.delete(sessionId);
       sessionHasCheckpointFileChanges.set(
         sessionId,
         hasCheckpointFileChanges(ctx.sessionManager.getEntries()),
       );
 
       const entries = ctx.sessionManager.getEntries();
+      await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, entries);
       if (forkIntent?.position === "at") {
         if (config.restoreOnClone === "always") {
-          await restoreCloneCodeState(storage.repo, entries, forkIntent.entryId);
+          await restoreCloneCodeState(
+            storage.repo,
+            entries,
+            ctx.sessionManager.getBranch(),
+            forkIntent.entryId,
+            ctx.hasUI ? ctx.ui : undefined,
+          );
         }
       } else if (config.restoreOnFork === "always") {
         await restoreForkCodeState(
@@ -403,6 +514,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
           entries,
           ctx.sessionManager.getBranch(),
           forkIntent?.entryId,
+          ctx.hasUI ? ctx.ui : undefined,
         );
       }
       return;
@@ -411,16 +523,16 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
       exclude: config.exclude,
     });
+    configureRepo(repo, config);
     const producer = createAutoCheckpointProducer(repo, config);
     producers.set(sessionId, producer);
     sessionTasks.delete(sessionId);
     lastCheckpointTurnIds.delete(sessionId);
     pendingTreeRestores.delete(sessionId);
     suppressedTreeRestores.delete(sessionId);
-    sessionHasCheckpointFileChanges.set(
-      sessionId,
-      hasCheckpointFileChanges(ctx.sessionManager.getEntries()),
-    );
+    const sessionEntries = ctx.sessionManager.getEntries();
+    sessionHasCheckpointFileChanges.set(sessionId, hasCheckpointFileChanges(sessionEntries));
+    await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
 
     if (event.reason === "resume" && config.restoreOnResume === "always") {
       const entries = ctx.sessionManager.getEntries();
@@ -441,14 +553,21 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
   });
 
-  async function finalizeCheckpointForSession(sessionId: string): Promise<void> {
+  async function finalizeCheckpointForSession(ctx: ExtensionContext): Promise<void> {
+    const sessionId = ctx.sessionManager.getSessionId();
     await sessionTasks.run(sessionId, async () => {
       const producer = producers.getOrUndefined(sessionId);
       if (!producer) return;
 
       const result = await producer.finalizeRun();
       if (result.ok) {
-        appendCheckpoint(sessionId, result.entry);
+        await appendCheckpoint(
+          sessionId,
+          ctx.sessionManager.getSessionFile(),
+          ctx.cwd,
+          ctx.sessionManager.getEntries(),
+          result.entry,
+        );
       }
     });
   }
@@ -472,7 +591,13 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       if (result.ok) {
         for (const entry of result.entries) {
-          appendCheckpoint(sessionId, entry);
+          await appendCheckpoint(
+            sessionId,
+            ctx.sessionManager.getSessionFile(),
+            ctx.cwd,
+            ctx.sessionManager.getEntries(),
+            entry,
+          );
         }
         return;
       }
@@ -507,7 +632,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    await finalizeCheckpointForSession(ctx.sessionManager.getSessionId());
+    await finalizeCheckpointForSession(ctx);
   });
 
   pi.on("session_before_tree", async (event, ctx) => {
@@ -528,7 +653,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     // settings can still apply.
     if (treeEvent.userWantsSummary === true) return;
 
-    await finalizeCheckpointForSession(sessionId);
+    await finalizeCheckpointForSession(ctx);
     const hasKnownFileChanges =
       sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
       hasCheckpointFileChanges(ctx.sessionManager.getEntries());
@@ -597,6 +722,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     );
   });
 
+  registerCheckpointStorageCommand(pi);
   registerRewind(
     pi,
     (sessionId) => repos.getRepo(sessionId),

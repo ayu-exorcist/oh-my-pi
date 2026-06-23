@@ -16,8 +16,12 @@ export interface CheckpointConfig {
   readonly restoreOnTree: "always" | "ask" | "never";
   /** Default instructions for summarization during rewind. */
   readonly defaultSummaryInstructions: string;
-  /** Glob patterns to exclude from checkpoints. */
+  /** Final internal exclude patterns written to checkpoint storage. */
   readonly exclude: readonly string[];
+  /** User include patterns re-applied after internal and user excludes. */
+  readonly include: readonly string[];
+  /** Skip files larger than this many MB when staging checkpoints. */
+  readonly maxFileMB: number | undefined;
 }
 
 /**

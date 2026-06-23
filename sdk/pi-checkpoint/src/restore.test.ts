@@ -11,12 +11,13 @@ describe("safeRestore", () => {
         }
       | {
           ok: false;
-          reason: "dirty";
+          reason: "dirty" | "dirty-check-failed";
         }
       | {
           ok: false;
           reason: "checkout-failed";
-          error: string;
+          error?: string;
+          message?: string;
           rollbackError?: string;
         },
   ): RepoManager {
@@ -102,6 +103,31 @@ describe("safeRestore", () => {
     expect(ui.notify).toHaveBeenCalledWith("Checkout failed: git error", "error");
   });
 
+  test("returns failure when dirty-check cannot verify the workspace", async () => {
+    const repo = createMockRepo({ ok: false, reason: "dirty-check-failed" });
+    const ui = createMockUi();
+    const navigateTree = createMockNavigateTree();
+
+    const result = await safeRestore({
+      repo,
+      ui,
+      navigateTree,
+      targetCommit: "abc123",
+      dirtyBaseCommit: "def456",
+      targetLeafId: "leaf-1",
+      dirtyMessage: "workspace is dirty",
+      failedPrefix: "failed",
+      rollbackFailedPrefix: "rollback failed",
+      successMessage: "success",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Could not verify the workspace is clean. workspace is dirty",
+      "warning",
+    );
+  });
+
   test("returns failure on rollback error", async () => {
     const repo = createMockRepo({
       ok: false,
@@ -127,6 +153,54 @@ describe("safeRestore", () => {
 
     expect(result).toEqual({ ok: false });
     expect(ui.notify).toHaveBeenCalledWith("Rollback failed: rollback also failed", "error");
+  });
+
+  test("prefers the structured message when checkout fails", async () => {
+    const repo = createMockRepo({
+      ok: false,
+      reason: "checkout-failed",
+      message: "structured failure",
+    });
+    const ui = createMockUi();
+    const navigateTree = createMockNavigateTree();
+
+    const result = await safeRestore({
+      repo,
+      ui,
+      navigateTree,
+      targetCommit: "abc123",
+      dirtyBaseCommit: "def456",
+      targetLeafId: "leaf-1",
+      dirtyMessage: "dirty",
+      failedPrefix: "Checkout failed",
+      rollbackFailedPrefix: "Rollback failed",
+      successMessage: "success",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(ui.notify).toHaveBeenCalledWith("Checkout failed: structured failure", "error");
+  });
+
+  test("falls back to a default checkout failure message", async () => {
+    const repo = createMockRepo({ ok: false, reason: "checkout-failed" });
+    const ui = createMockUi();
+    const navigateTree = createMockNavigateTree();
+
+    const result = await safeRestore({
+      repo,
+      ui,
+      navigateTree,
+      targetCommit: "abc123",
+      dirtyBaseCommit: "def456",
+      targetLeafId: "leaf-1",
+      dirtyMessage: "dirty",
+      failedPrefix: "Checkout failed",
+      rollbackFailedPrefix: "Rollback failed",
+      successMessage: "success",
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(ui.notify).toHaveBeenCalledWith("Checkout failed: checkpoint restore failed", "error");
   });
 
   test("returns failure on navigation error", async () => {

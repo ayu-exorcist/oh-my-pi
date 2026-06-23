@@ -37,14 +37,18 @@ import {
   execSafe,
   extractCheckpointData,
   filterCheckpointEntries,
+  deleteSessionCheckpointStorage,
   getCheckpointEntries,
+  getCheckpointSessionsRoot,
   getGitDir,
   getIndexPath,
   getRepoDir,
   isCheckpointEntry,
   loadConfig,
   loadConfigFromFile,
+  listCheckpointStorageManifests,
   parseDiffStats,
+  readCheckpointStorageManifest,
   RepoManager,
   resolveSessionCheckpointStorage,
   safeCloneSessionCheckpointStorage,
@@ -52,6 +56,7 @@ import {
   safeRestore,
   SessionStateMap,
   withRepoLock,
+  writeCheckpointStorageManifest,
 } from "@ayulab/pi-checkpoint";
 
 import type {
@@ -171,19 +176,11 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
       "autoCheckpoint": true,
       "restoreOnFork": "always",
       "restoreOnClone": "always",
-      "restoreOnResume": "always",
+      "restoreOnResume": "never",
       "defaultSummaryInstructions": "",
-      "exclude": [
-        "node_modules/**",
-        "**/node_modules/**",
-        ".git",
-        ".pi/**",
-        "dist/**",
-        "build/**",
-        "target/**",
-        "*.log",
-        "*.tmp"
-      ]
+      "exclude": ["tmp/generated/**"],
+      "include": ["tmp/generated/keep-me.txt"],
+      "maxFileMB": 25
     },
     "rewind": {
       "restoreOnTree": "never"
@@ -194,15 +191,25 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
-The SDK config type accepts `"always"`, `"ask"`, and `"never"` for fork, clone, and resume restore settings. `pi-rewind` currently performs those automatic restores only for `"always"`; use `"never"` to disable them.
+The SDK config type accepts `"always"`, `"ask"`, and `"never"` for fork, clone, and resume restore settings. In phase 1, `restoreOnResume` defaults to `"never"`; fork and clone still default to `"always"`.
 
 ### Exclude behavior
 
 Checkpoint staging respects Git ignore rules from the work tree, including root and nested `.gitignore` files. Checkpoint Storage also writes its own internal excludes to the bare repo's `info/exclude` before staging; these rules are not written to the user's project `.git`.
 
-The internal excludes cover high-cost or unsafe paths such as `node_modules`, generated build output, and auto-detected nested Git repository roots. For example, if a session is opened at `Desktop` and `Desktop/project-a/.git` exists, the `project-a/` directory is excluded from the `Desktop` Checkpoint. `/rewind` still works for non-excluded files in `Desktop`, but it will not restore files inside `project-a/` from that outer session. If the session is opened directly at `Desktop/project-a`, that repository is the work tree root and is protected normally except for configured excludes.
+The internal excludes cover high-cost or unsafe paths such as `node_modules`, generated build output, common cache directories, personal IDE state, operating-system metadata files, and auto-detected nested Git repository roots. Built-in excludes run first, `ayu.checkpoint.exclude` appends more excludes, and `ayu.checkpoint.include` re-includes explicit paths afterward. `.pi/`, `.vscode/`, `vendor/`, `*.iml`, and `*.d.ts` are not excluded by default; only high-confidence personal IDE files such as `.idea/workspace.xml`, `.idea/tasks.xml`, `.idea/caches/`, `.idea/shelf/`, `.idea/localHistory/`, `.idea/compile-server/`, plus operating-system metadata such as `.DS_Store`, `Thumbs.db`, `Desktop.ini`, `*.iws`, `*.swp`, and `*.swo` are excluded automatically, including when those files appear inside nested project directories.
+
+For example, if a session is opened at `Desktop` and `Desktop/project-a/.git` exists, the `project-a/` directory is excluded from the `Desktop` Checkpoint. `/rewind` still works for non-excluded files in `Desktop`, but it will not restore files inside `project-a/` from that outer session. If the session is opened directly at `Desktop/project-a`, that repository is the work tree root and is protected normally except for configured excludes.
 
 This avoids Git indexing embedded repositories as gitlinks and keeps restore behavior scoped to one work tree. Cloned Checkpoint Storage should receive the same exclude list before any checkout or restore so `git clean` keeps excluded work tree content protected. To protect a nested repository's files, open a Pi session in that repository root.
+
+`ayu.checkpoint.maxFileMB` is opt-in. When set, oversized changed files are skipped during checkpoint staging; by default no file-size limit is applied.
+
+### Storage manifests
+
+Each session storage directory now carries its own `manifest.json` with the session id, session file, cwd, first user message, and timestamps. This keeps storage metadata local to each repo and avoids a global registry write hotspot. Extensions can list manifest-backed storage with `listCheckpointStorageManifests()`, read or update manifests directly, and delete a non-active storage directory with `deleteSessionCheckpointStorage()` after their own UI confirms the action.
+
+`deleteSessionCheckpointStorage()` is the strict path: it requires checkpoint-root path safety, refuses the current active session, and expects both a manifest and a healthy bare `.git` directory before removal. For orphan cleanup, use `purgeSessionCheckpointStorage()` when the session record is already gone or the residual storage is partially corrupt. That path still enforces checkpoint-root path safety and current-session protection, but it does not require a healthy bare repo before removing the directory.
 
 ### Design note: changed-path capture
 

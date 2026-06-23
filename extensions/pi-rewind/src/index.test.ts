@@ -251,6 +251,27 @@ describe("checkpoint extension", () => {
     }
   });
 
+  test("session_start skips manifest sync when no session file is available", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = {
+      ...createMockContext(sessionFile, branch, tmpDir),
+      sessionManager: {
+        ...createMockSessionManager(sessionFile, branch),
+        getSessionFile: () => undefined,
+      },
+    } as MockContext;
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  }, 15000);
+
   test("session_start skips init when git already exists", async () => {
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events } = createMockApi();
@@ -410,13 +431,15 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", targetSessionFile: forkSessionFile }, srcCtx);
     }
 
-    const checkoutCommit = vi.spyOn(RepoManager.prototype, "checkoutCommit").mockResolvedValue();
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
     const forkCtx = createMockContext(forkSessionFile, branch, tmpDir);
     for (const h of sessionStartHandlers) {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
 
-    expect(checkoutCommit).toHaveBeenCalledWith("root-after");
+    expect(safeCheckout).toHaveBeenCalledWith("root-after", "root-after");
   }, 15000);
 
   test("fork copies repo and restores code to fork point", async () => {
@@ -536,7 +559,9 @@ describe("checkpoint extension", () => {
       .map((call) => call[1])
       .pop();
 
-    await fs.writeFile(path.join(projectDir, "app.ts"), "console.log(3)", "utf8");
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
 
     const cloneSessionFile = path.join(tmpDir, "clone-session.jsonl");
     await fs.writeFile(cloneSessionFile, "", "utf8");
@@ -563,6 +588,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, cloneCtx);
     }
 
+    expect(safeCheckout).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(2)");
   }, 15000);
@@ -1472,7 +1498,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
 
@@ -1512,7 +1538,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [] } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
       "utf8",
     );
 
@@ -2377,6 +2403,122 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
+  test("session_start applies maxFileMB in bytes", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { maxFileMB: 2 } } }),
+      "utf8",
+    );
+
+    const setMaxFileBytes = vi.spyOn(RepoManager.prototype, "setMaxFileBytes");
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    expect(setMaxFileBytes).toHaveBeenCalledWith(2 * 1024 * 1024);
+  });
+
+  test("fork and clone skip UI notifications when UI is unavailable", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "after-hash" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+
+    for (const position of ["before", "at"] as const) {
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
+      const safeCheckout = vi
+        .spyOn(RepoManager.prototype, "safeCheckout")
+        .mockResolvedValueOnce({ ok: false, reason: "checkout-failed", error: "restore failed" });
+      const ctx = { ...createMockContext(sessionFile, branch, tmpDir), hasUI: false };
+
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "new" }, ctx);
+      }
+      for (const h of events["session_before_fork"] || []) {
+        await h({ entryId: "entry-1", position }, ctx);
+      }
+      for (const h of events["session_shutdown"] || []) {
+        await h({ reason: "fork", targetSessionFile: path.join(tmpDir, `${position}.jsonl`) }, ctx);
+      }
+      const targetCtx = {
+        ...createMockContext(path.join(tmpDir, `${position}.jsonl`), branch, tmpDir),
+        hasUI: false,
+      };
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "fork", previousSessionFile: sessionFile }, targetCtx);
+      }
+
+      expect(safeCheckout).toHaveBeenCalled();
+      expect(targetCtx.ui.notify).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    }
+  });
+
+  test("fork and clone report restore failures without UI crashes", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "after-hash" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const cases: Array<{ reason: "fork" | "clone"; message: string }> = [
+      { reason: "fork", message: "Fork file restore failed" },
+      { reason: "clone", message: "Clone file restore failed" },
+    ];
+
+    for (const testCase of cases) {
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
+      vi.spyOn(RepoManager.prototype, "safeCheckout").mockResolvedValueOnce({
+        ok: false,
+        reason: "checkout-failed",
+        error: "restore failed",
+      });
+      const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "new" }, ctx);
+      }
+      for (const h of events["session_before_fork"] || []) {
+        await h(
+          { entryId: "entry-1", position: testCase.reason === "clone" ? "at" : "before" },
+          ctx,
+        );
+      }
+      for (const h of events["session_shutdown"] || []) {
+        await h(
+          { reason: "fork", targetSessionFile: path.join(tmpDir, `${testCase.reason}.jsonl`) },
+          ctx,
+        );
+      }
+      const targetCtx = createMockContext(
+        path.join(tmpDir, `${testCase.reason}.jsonl`),
+        branch,
+        tmpDir,
+      );
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "fork", previousSessionFile: sessionFile }, targetCtx);
+      }
+
+      expect(targetCtx.ui.notify).toHaveBeenCalledWith(
+        expect.stringContaining(testCase.message),
+        expect.any(String),
+      );
+      vi.restoreAllMocks();
+    }
+  });
+
   test("session_tree reports restore failures", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
     const branch = [
@@ -2385,6 +2527,7 @@ describe("checkpoint extension", () => {
     ];
     const cases: Array<{ readonly result: SafeCheckoutResult; readonly message: string }> = [
       { result: { ok: false, reason: "dirty" }, message: "unsnapshotted changes" },
+      { result: { ok: false, reason: "dirty-check-failed" }, message: "Could not verify" },
       {
         result: {
           ok: false,
@@ -2397,6 +2540,10 @@ describe("checkpoint extension", () => {
       {
         result: { ok: false, reason: "checkout-failed", error: "restore failed" },
         message: "Tree file restore failed: restore failed",
+      },
+      {
+        result: { ok: false, reason: "checkout-failed" },
+        message: "Tree file restore failed: checkpoint restore failed",
       },
     ];
 

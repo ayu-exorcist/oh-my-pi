@@ -1,5 +1,5 @@
 import { errorMessage } from "@ayulab/runtime-core";
-import type { RepoManager } from "./repo-manager";
+import type { RepoManager, SafeCheckoutResult } from "./repo-manager";
 
 interface RestoreUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
@@ -37,6 +37,31 @@ interface RestoreOptions {
 
 export type RestoreResult = { readonly ok: true } | { readonly ok: false };
 
+function notifyRestoreFailure(
+  ui: RestoreUi,
+  result: Exclude<SafeCheckoutResult, { readonly ok: true }>,
+  dirtyMessage: string,
+  failedPrefix: string,
+  rollbackFailedPrefix: string,
+): void {
+  if (result.reason === "dirty") {
+    ui.notify(dirtyMessage, "warning");
+    return;
+  }
+  if (result.reason === "dirty-check-failed") {
+    ui.notify(`Could not verify the workspace is clean. ${dirtyMessage}`, "warning");
+    return;
+  }
+  if (result.rollbackError) {
+    ui.notify(`${rollbackFailedPrefix}: ${result.rollbackError}`, "error");
+    return;
+  }
+  ui.notify(
+    `${failedPrefix}: ${result.message ?? result.error ?? "checkpoint restore failed"}`,
+    "error",
+  );
+}
+
 /**
  * Safely check out a commit and navigate the conversation tree.
  *
@@ -47,15 +72,13 @@ export async function safeRestore(options: RestoreOptions): Promise<RestoreResul
   const result = await options.repo.safeCheckout(options.targetCommit, options.dirtyBaseCommit);
 
   if (!result.ok) {
-    if (result.reason === "dirty") {
-      options.ui.notify(options.dirtyMessage, "warning");
-      return { ok: false };
-    }
-    if (result.rollbackError) {
-      options.ui.notify(`${options.rollbackFailedPrefix}: ${result.rollbackError}`, "error");
-      return { ok: false };
-    }
-    options.ui.notify(`${options.failedPrefix}: ${result.error}`, "error");
+    notifyRestoreFailure(
+      options.ui,
+      result,
+      options.dirtyMessage,
+      options.failedPrefix,
+      options.rollbackFailedPrefix,
+    );
     return { ok: false };
   }
 

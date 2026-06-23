@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@ayulab/repo-tools": "workspace:*",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

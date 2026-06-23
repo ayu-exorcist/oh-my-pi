@@ -142,7 +142,11 @@ It shines when you want to:
 - restore files from a checkpoint and keep working on the same conversation path
 - use `/tree` for navigation and choose whether file state should sync after Pi's native `No summary` choice
 
-Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` if you want `/tree` to offer or perform file sync. `ayu` settings are merged recursively across user and project scopes, so `ayu.checkpoint` and `ayu.rewind` can be split across `~/.pi/agent/settings.json` and `.pi/settings.json`.
+Pi-native `/tree` behavior is preserved by default; set `ayu.rewind.restoreOnTree` to `"ask"` or `"always"` if you want `/tree` to offer or perform file sync. Resume now defaults to conversation-only (`ayu.checkpoint.restoreOnResume: "never"`). `ayu` settings are merged recursively across user and project scopes, so `ayu.checkpoint` and `ayu.rewind` can be split across `~/.pi/agent/settings.json` and `.pi/settings.json`.
+
+Use `/checkpoint` to inspect checkpoint storage state. `Current Folder` shows current-directory sessions that still have checkpoint storage plus manifested `[no session]` orphan storage for that directory. `All` adds live sessions from every directory; sessions without checkpoint storage appear as `[no checkpoints]`. Press `Ctrl+P` to toggle the right-side path display, and use `Ctrl+D` on a non-current storage row to confirm deletion.
+
+Phase 1 keeps the nested-repository safety boundary: if you start Pi from a broad workspace, nested Git repositories are excluded from the outer checkpoint. To protect a nested repository, start Pi in that repository root.
 
 ```
 > /rewind

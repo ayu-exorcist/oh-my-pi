@@ -1,7 +1,7 @@
 export { loadConfig, loadConfigFromFile, defaultConfig } from "./config";
 export { RepoManager } from "./repo-manager";
 export type { SafeCheckoutResult } from "./repo-manager";
-export { getRepoDir, getGitDir, getIndexPath } from "./resolver";
+export { getCheckpointSessionsRoot, getRepoDir, getGitDir, getIndexPath } from "./resolver";
 export { exec, execSafe, type ExecEnv, type Result } from "./exec";
 export { parseDiffStats } from "./diff-parser";
 export {
@@ -23,6 +23,13 @@ export {
   safeEnsureSessionCheckpointStorage,
 } from "./session-checkpoint-storage";
 export { bindSessionRepo } from "./session-repo-binder";
+export {
+  deleteSessionCheckpointStorage,
+  listCheckpointStorageManifests,
+  purgeSessionCheckpointStorage,
+  readCheckpointStorageManifest,
+  writeCheckpointStorageManifest,
+} from "./storage-manifest";
 export type {
   CloneSessionCheckpointStorageOptions,
   CloneSessionCheckpointStorageResult,
@@ -32,3 +39,8 @@ export type {
 } from "./session-checkpoint-storage";
 export type { CheckpointConfig, CheckpointMeta, FileChange } from "./types";
 export type { CheckpointEntry } from "./checkpoint-entry";
+export type {
+  CheckpointStorageManifest,
+  CheckpointStorageManifestRecord,
+  DeleteSessionCheckpointStorageResult,
+} from "./storage-manifest";
