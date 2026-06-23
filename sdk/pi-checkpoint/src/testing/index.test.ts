@@ -120,7 +120,8 @@ describe("createMockRepo", () => {
     expect(result).toEqual({
       ok: false,
       reason: "dirty",
-      message: "Workspace has unsnapshotted checkpoint-managed changes.",
+      message:
+        "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.",
     });
     expect(repo.checkoutCommit).not.toHaveBeenCalled();
   });

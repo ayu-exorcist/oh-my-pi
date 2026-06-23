@@ -117,7 +117,7 @@ function notifySafeCheckoutFailure(
   if (!ui) return;
 
   if (result.reason === "dirty") {
-    ui.notify(dirtyMessage, "warning");
+    ui.notify(result.message ? `${dirtyMessage}\n${result.message}` : dirtyMessage, "warning");
     return;
   }
 
@@ -361,8 +361,8 @@ async function safeRestoreTreeCodeState(
   notifySafeCheckoutFailure(
     ui,
     result,
-    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before navigating the tree.",
-    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before navigating the tree.",
+    "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before navigating the tree.",
+    "Could not verify the workspace is clean. Clean up workspace changes before navigating the tree.",
     "Tree file restore failed",
     "Tree file restore failed and rollback also failed",
   );
@@ -392,8 +392,8 @@ async function restoreForkCodeState(
   notifySafeCheckoutFailure(
     ui,
     result,
-    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before restoring fork files.",
-    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before restoring fork files.",
+    "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before restoring fork files.",
+    "Could not verify the workspace is clean. Clean up workspace changes before restoring fork files.",
     "Fork file restore failed",
     "Fork file restore failed and rollback also failed",
   );
@@ -419,8 +419,8 @@ async function restoreCloneCodeState(
   notifySafeCheckoutFailure(
     ui,
     result,
-    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before restoring cloned files.",
-    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before restoring cloned files.",
+    "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before restoring cloned files.",
+    "Could not verify the workspace is clean. Clean up workspace changes before restoring cloned files.",
     "Clone file restore failed",
     "Clone file restore failed and rollback also failed",
   );
@@ -611,18 +611,20 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
 
-      const dirtyBaseCommit = await findCleanCheckpointCommit(
-        restoreRepo.repo,
-        getCheckpointEntries(entries),
-      );
-      if (!dirtyBaseCommit) {
-        ctx.ui.notify(
-          "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before resuming checkpoint state.",
-          "warning",
+      const dirtyBaseCommit =
+        (await findCleanCheckpointCommit(restoreRepo.repo, getCheckpointEntries(entries))) ??
+        targetCommit;
+      const result = await restoreRepo.repo.safeCheckout(targetCommit, dirtyBaseCommit);
+      if (!result.ok) {
+        notifySafeCheckoutFailure(
+          ctx.hasUI ? ctx.ui : undefined,
+          result,
+          "Skipped file restore because the workspace has changes that are not captured by this session's checkpoint history.",
+          "Could not verify the workspace is clean. Clean up workspace changes before resuming checkpoint state.",
+          "Resume file restore failed",
+          "Resume file restore failed and rollback also failed",
         );
-        return;
       }
-      await safeRestoreTreeCodeState(restoreRepo.repo, targetCommit, dirtyBaseCommit, ctx.ui);
     }
   });
 

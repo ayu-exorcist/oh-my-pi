@@ -731,7 +731,8 @@ describe("RepoManager", () => {
       expect(result).toEqual({
         ok: false,
         reason: "dirty",
-        message: "Workspace has unsnapshotted checkpoint-managed changes.",
+        message:
+          "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.\nChanged paths:\n- a.txt",
       });
 
       // File must remain untouched

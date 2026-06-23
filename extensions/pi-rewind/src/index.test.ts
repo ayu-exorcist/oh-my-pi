@@ -1709,7 +1709,7 @@ describe("checkpoint extension", () => {
     );
     const safeCheckout = vi
       .spyOn(RepoManager.prototype, "safeCheckout")
-      .mockResolvedValue({ ok: true });
+      .mockResolvedValue({ ok: false, reason: "dirty" });
     const ctx = createMockContext(sessionFile, branch, tmpDir);
 
     const sessionStartHandlers = events["session_start"] || [];
@@ -1718,10 +1718,10 @@ describe("checkpoint extension", () => {
     }
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before resuming checkpoint state.",
+      "Skipped file restore because the workspace has changes that are not captured by this session's checkpoint history.",
       "warning",
     );
-    expect(safeCheckout).not.toHaveBeenCalled();
+    expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
   });
 
   test("session_tree keeps Pi-native behavior by default", async () => {
@@ -2741,7 +2741,10 @@ describe("checkpoint extension", () => {
       { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
     ];
     const cases: Array<{ readonly result: SafeCheckoutResult; readonly message: string }> = [
-      { result: { ok: false, reason: "dirty" }, message: "unsnapshotted changes" },
+      {
+        result: { ok: false, reason: "dirty" },
+        message: "changes that are not captured by this session's checkpoint history",
+      },
       { result: { ok: false, reason: "dirty-check-failed" }, message: "Could not verify" },
       {
         result: {

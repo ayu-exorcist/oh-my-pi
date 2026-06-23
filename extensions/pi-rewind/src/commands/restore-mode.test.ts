@@ -124,7 +124,7 @@ describe("Rewind Restore Mode", () => {
     });
 
     expect(ui.notify).toHaveBeenCalledWith(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before rewinding.",
       "warning",
     );
   });

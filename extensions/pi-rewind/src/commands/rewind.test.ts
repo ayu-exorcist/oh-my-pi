@@ -1188,7 +1188,9 @@ describe("registerRewind", () => {
     expect(diffAgainst).toHaveBeenCalledWith("def");
     expect(checkoutCommit).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      expect.stringContaining(
+        "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before rewinding.",
+      ),
       "warning",
     );
   });
@@ -1236,7 +1238,7 @@ describe("registerRewind", () => {
     await handler("", ctx);
     expect(checkoutCommit).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before rewinding.",
+      "Could not verify the workspace is clean. Clean up workspace changes before rewinding.",
       "warning",
     );
   });

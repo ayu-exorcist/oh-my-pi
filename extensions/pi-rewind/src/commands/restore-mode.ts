@@ -35,7 +35,7 @@ function notifyCheckoutFailure(
   rollbackFailedPrefix: string,
 ): void {
   if (result.reason === "dirty") {
-    ui.notify(dirtyMessage, "warning");
+    ui.notify(result.message ? `${dirtyMessage}\n${result.message}` : dirtyMessage, "warning");
     return;
   }
 
@@ -76,9 +76,9 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   const restoreConversationOnly = options.mode === "Restore conversation";
   const dirtyBaseCommit = options.dirtyBaseCommit ?? options.latestCp.afterCommit;
   const dirtyMessage =
-    "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.";
+    "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before rewinding.";
   const dirtyCheckFailedMessage =
-    "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before rewinding.";
+    "Could not verify the workspace is clean. Clean up workspace changes before rewinding.";
   const failedPrefix = "Rewind failed";
   const rollbackFailedPrefix = "Rewind failed and rollback also failed";
 
