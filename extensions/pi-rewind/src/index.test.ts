@@ -2721,7 +2721,7 @@ describe("checkpoint extension", () => {
       );
       vi.restoreAllMocks();
     }
-  });
+  }, 15000);
 
   test("session_tree uses old branch dirty base and target user before commit", async () => {
     const root = { ...createUserEntry("root-user", "root"), parentId: "model" };

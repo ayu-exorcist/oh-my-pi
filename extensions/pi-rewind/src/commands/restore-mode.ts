@@ -14,7 +14,7 @@ interface RestoreModeUi {
 
 interface RunRestoreModeOptions {
   readonly mode: string;
-  readonly repo: RepoManager;
+  readonly repo?: RepoManager;
   readonly ui: RestoreModeUi;
   readonly navigateTree: (
     entryId: string,
@@ -83,6 +83,14 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   const rollbackFailedPrefix = "Rewind failed and rollback also failed";
 
   if (restoreCodeAndConversation) {
+    if (!options.repo) {
+      options.ui.notify(
+        "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+        "warning",
+      );
+      return;
+    }
+
     const result = await options.repo.safeCheckout(options.targetCp.beforeCommit, dirtyBaseCommit);
     if (!result.ok) {
       notifyCheckoutFailure(
@@ -110,6 +118,14 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
   }
 
   if (restoreCode) {
+    if (!options.repo) {
+      options.ui.notify(
+        "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+        "warning",
+      );
+      return;
+    }
+
     const result = await options.repo.safeCheckout(options.targetCp.beforeCommit, dirtyBaseCommit);
     if (!result.ok) {
       notifyCheckoutFailure(

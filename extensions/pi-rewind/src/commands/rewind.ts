@@ -358,6 +358,37 @@ export async function selectCheckpointItem(
   });
 }
 
+type ResolveRewindRepoResult =
+  | { readonly ok: true; readonly repo: RepoManager }
+  | { readonly ok: false; readonly message: string; readonly level: "warning" | "error" };
+
+type ResolveRewindRepo = (
+  sessionId: string,
+) =>
+  | RepoManager
+  | undefined
+  | ResolveRewindRepoResult
+  | Promise<RepoManager | undefined | ResolveRewindRepoResult>;
+
+function isResolveRewindRepoResult(value: unknown): value is ResolveRewindRepoResult {
+  return typeof value === "object" && value !== null && "ok" in value;
+}
+
+async function resolveRewindRepo(
+  resolveRepo: ResolveRewindRepo,
+  sessionId: string,
+): Promise<ResolveRewindRepoResult> {
+  const resolved = await resolveRepo(sessionId);
+  if (isResolveRewindRepoResult(resolved)) return resolved;
+  if (resolved) return { ok: true, repo: resolved };
+  return {
+    ok: false,
+    message:
+      "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+    level: "warning",
+  };
+}
+
 /**
  * Register the `/rewind` command.
  *
@@ -375,19 +406,13 @@ export async function selectCheckpointItem(
  */
 export function registerRewind(
   pi: ExtensionAPI,
-  getRepo: (sessionId: string) => RepoManager | undefined,
+  resolveRepo: ResolveRewindRepo,
   suppressTreeRestore: (sessionId: string) => void = () => undefined,
   clearTreeRestoreSuppression: (sessionId: string) => void = () => undefined,
 ) {
   pi.registerCommand("rewind", {
     description: "Rewind files to a previous checkpoint",
     handler: async (_args, ctx) => {
-      const repo = getRepo(ctx.sessionManager.getSessionId());
-      if (!repo) {
-        ctx.ui.notify("Checkpoint extension not ready", "warning");
-        return;
-      }
-
       const entries = ctx.sessionManager.getEntries();
       const branch = ctx.sessionManager.getBranch();
       const cps = getBranchCheckpointEntries(entries, branch);
@@ -427,14 +452,22 @@ export function registerRewind(
       if (!latest) return;
 
       const restoresCode = mode === "Restore code" || mode === "Restore code and conversation";
-      const dirtyBaseCommit = restoresCode
+      const repoResult = restoresCode
+        ? await resolveRewindRepo(resolveRepo, ctx.sessionManager.getSessionId())
+        : undefined;
+      if (repoResult && !repoResult.ok) {
+        ctx.ui.notify(repoResult.message, repoResult.level);
+        return;
+      }
+      const repo = repoResult?.repo;
+      const dirtyBaseCommit = repo
         ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latest.afterCommit)
         : latest.afterCommit;
 
       const sessionId = ctx.sessionManager.getSessionId();
       await runRestoreMode({
         mode,
-        repo,
+        ...(repo ? { repo } : {}),
         ui: ctx.ui,
         navigateTree: async (entryId, options) => {
           suppressTreeRestore(sessionId);

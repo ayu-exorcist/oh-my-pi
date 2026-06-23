@@ -444,6 +444,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const suppressedTreeRestores = new SessionStateMap<boolean>();
   const sessionHasCheckpointFileChanges = new SessionStateMap<boolean>();
   const sessionConfigs = new SessionStateMap<CheckpointConfig>();
+  const sessionFiles = new SessionStateMap<string | undefined>();
+  const sessionCwds = new SessionStateMap<string>();
 
   function getSessionConfig(sessionId: string): CheckpointConfig {
     return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
@@ -540,6 +542,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const projectSettings = await readSettingsRecord(path.join(ctx.cwd, ".pi"));
     const config = loadConfig(mergeSettingsRecords(globalSettings, projectSettings));
     sessionConfigs.set(sessionId, config);
+    sessionFiles.set(sessionId, sessionFile);
+    sessionCwds.set(sessionId, ctx.cwd);
 
     if (event.reason === "fork") {
       if (!event.previousSessionFile) return;
@@ -796,7 +800,40 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   registerCheckpointStorageCommand(pi);
   registerRewind(
     pi,
-    (sessionId) => repos.getRepo(sessionId),
+    async (sessionId) => {
+      const config = getSessionConfig(sessionId);
+      const sessionFileForRestore = sessionFiles.getOrUndefined(sessionId);
+      const cwd = sessionCwds.getOrUndefined(sessionId);
+      if (!cwd) {
+        return {
+          ok: false,
+          message: "Checkpoint extension is not ready for this session.",
+          level: "warning",
+        };
+      }
+
+      const restoreRepo = await resolveRepoForRestore(
+        sessionId,
+        sessionFileForRestore,
+        cwd,
+        config,
+      );
+      if (restoreRepo.ok) return { ok: true, repo: restoreRepo.repo };
+      if (restoreRepo.reason === "not-found") {
+        return {
+          ok: false,
+          message:
+            "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+          level: "warning",
+        };
+      }
+
+      return {
+        ok: false,
+        message: `Checkpoint storage could not be prepared for rewind: ${restoreRepo.message}`,
+        level: "error",
+      };
+    },
     (sessionId) => {
       suppressedTreeRestores.set(sessionId, true);
     },
