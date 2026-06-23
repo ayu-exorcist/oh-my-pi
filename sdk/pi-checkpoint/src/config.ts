@@ -17,8 +17,8 @@ import type { CheckpointConfig } from "./types";
  * Using `as const` produces a true literal union so the compiler
  * knows every possible value at the type level (skill: const assertions).
  */
-const RESTORE_OPTIONS = ["always", "ask", "never"] as const;
-const TREE_RESTORE_OPTIONS = RESTORE_OPTIONS;
+const RESTORE_OPTIONS = ["always", "never"] as const;
+const TREE_RESTORE_OPTIONS = ["always", "ask", "never"] as const;
 type RestoreOption = (typeof RESTORE_OPTIONS)[number];
 type TreeRestoreOption = (typeof TREE_RESTORE_OPTIONS)[number];
 

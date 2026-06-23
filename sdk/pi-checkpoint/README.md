@@ -191,7 +191,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
-The SDK config type accepts `"always"`, `"ask"`, and `"never"` for fork, clone, and resume restore settings. In phase 1, `restoreOnResume` defaults to `"never"`; fork and clone still default to `"always"`.
+The SDK config type accepts `"always"` and `"never"` for fork, clone, and resume restore settings. `restoreOnTree` separately accepts `"always"`, `"ask"`, and `"never"`. `restoreOnResume` defaults to `"never"`; fork and clone still default to `"always"`.
 
 ### Exclude behavior
 

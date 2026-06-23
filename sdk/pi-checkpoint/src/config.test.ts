@@ -46,6 +46,21 @@ describe("loadConfig", () => {
     expect(config.maxFileMB).toBe(25);
   });
 
+  test("ask falls back to defaults for fork clone and resume restore", () => {
+    const config = loadConfig({
+      ayu: {
+        checkpoint: {
+          restoreOnFork: "ask",
+          restoreOnClone: "ask",
+          restoreOnResume: "ask",
+        },
+      },
+    });
+    expect(config.restoreOnFork).toBe("always");
+    expect(config.restoreOnClone).toBe("always");
+    expect(config.restoreOnResume).toBe("never");
+  });
+
   test("invalid restore options and missing fields fall back to defaults", () => {
     const config = loadConfig({
       ayu: {
