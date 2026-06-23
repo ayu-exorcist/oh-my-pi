@@ -272,7 +272,7 @@ describe("checkpoint extension", () => {
     expect(ctx.ui.notify).not.toHaveBeenCalled();
   }, 15000);
 
-  test("session_start skips init when git already exists", async () => {
+  test("plain session_start does not create checkpoint storage", async () => {
     const branch = [createUserEntry("entry-1", "test")];
     const { api, events } = createMockApi();
     const ext = await import("./index");
@@ -285,9 +285,51 @@ describe("checkpoint extension", () => {
       await h({ reason: "new" }, ctx);
     }
 
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const gitExists = await fs
+      .access(path.join(repoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(gitExists).toBe(false);
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  }, 15000);
+
+  test("plain resume session_start does not create checkpoint storage", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
     for (const h of sessionStartHandlers) {
       await h({ reason: "resume" }, ctx);
     }
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const gitExists = await fs
+      .access(path.join(repoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(gitExists).toBe(false);
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  }, 15000);
+
+  test("first assistant message_start lazily creates checkpoint storage", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    const sessionStartHandlers = events["session_start"] || [];
+    for (const h of sessionStartHandlers) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
 
     const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
     const gitExists = await fs
@@ -417,6 +459,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, srcCtx);
     }
+    await emitAssistantStart(events, srcCtx);
 
     const forkSessionFile = path.join(tmpDir, "fork-session.jsonl");
     await fs.writeFile(forkSessionFile, "", "utf8");
@@ -1325,6 +1368,12 @@ describe("checkpoint extension", () => {
     }
 
     expect(appendEntry).not.toHaveBeenCalled();
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const gitExists = await fs
+      .access(path.join(repoDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    expect(gitExists).toBe(false);
   });
 
   test("session_shutdown does nothing on non-fork", async () => {
@@ -1582,6 +1631,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const treeHandlers = events["session_tree"] || [];
     for (const h of treeHandlers) {
@@ -1617,6 +1667,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     const treeHandlers = events["session_tree"] || [];
@@ -1679,6 +1730,7 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
     for (const h of events["session_before_tree"] || []) {
       await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
     }
@@ -2205,6 +2257,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const treeHandlers = events["session_tree"] || [];
     for (const h of treeHandlers) {
@@ -2233,6 +2286,7 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
     for (const h of events["session_tree"] || []) {
       await h({}, ctx);
     }
@@ -2259,6 +2313,7 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
     for (const h of events["session_before_tree"] || []) {
       await h(null, ctx);
       await h({ preparation: "not-object" }, ctx);
@@ -2290,6 +2345,7 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
     for (const h of events["session_tree"] || []) {
       await h(null, ctx);
     }
@@ -2350,6 +2406,7 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
     for (const h of events["session_tree"] || []) {
       await h({ oldLeafId: "entry-1", newLeafId: "entry-1" }, ctx);
     }
@@ -2422,6 +2479,9 @@ describe("checkpoint extension", () => {
     for (const h of events["session_start"] || []) {
       await h({ reason: "new" }, ctx);
     }
+    expect(setMaxFileBytes).not.toHaveBeenCalled();
+
+    await emitAssistantStart(events, ctx);
 
     expect(setMaxFileBytes).toHaveBeenCalledWith(2 * 1024 * 1024);
   });
@@ -2445,6 +2505,7 @@ describe("checkpoint extension", () => {
       for (const h of events["session_start"] || []) {
         await h({ reason: "new" }, ctx);
       }
+      await emitAssistantStart(events, ctx);
       for (const h of events["session_before_fork"] || []) {
         await h({ entryId: "entry-1", position }, ctx);
       }
@@ -2490,6 +2551,7 @@ describe("checkpoint extension", () => {
       for (const h of events["session_start"] || []) {
         await h({ reason: "new" }, ctx);
       }
+      await emitAssistantStart(events, ctx);
       for (const h of events["session_before_fork"] || []) {
         await h(
           { entryId: "entry-1", position: testCase.reason === "clone" ? "at" : "before" },
@@ -2517,7 +2579,7 @@ describe("checkpoint extension", () => {
       );
       vi.restoreAllMocks();
     }
-  });
+  }, 15000);
 
   test("session_tree reports restore failures", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
@@ -2558,6 +2620,7 @@ describe("checkpoint extension", () => {
       for (const h of events["session_start"] || []) {
         await h({ reason: "new" }, ctx);
       }
+      await emitAssistantStart(events, ctx);
       for (const h of events["session_tree"] || []) {
         await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
       }
@@ -2625,6 +2688,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {
@@ -2701,6 +2765,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {
@@ -2767,6 +2832,7 @@ describe("checkpoint extension", () => {
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
+    await emitAssistantStart(events, ctx);
 
     const beforeTreeHandlers = events["session_before_tree"] || [];
     for (const h of beforeTreeHandlers) {

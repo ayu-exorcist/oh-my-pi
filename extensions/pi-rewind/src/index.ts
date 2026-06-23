@@ -430,6 +430,38 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
   }
 
+  function resetSessionRuntimeState(sessionId: string, entries: readonly unknown[]): void {
+    producers.delete(sessionId);
+    sessionTasks.delete(sessionId);
+    lastCheckpointTurnIds.delete(sessionId);
+    pendingTreeRestores.delete(sessionId);
+    suppressedTreeRestores.delete(sessionId);
+    sessionHasCheckpointFileChanges.set(sessionId, hasCheckpointFileChanges(entries));
+  }
+
+  async function getOrCreateAutoCheckpointProducer(
+    sessionId: string,
+    ctx: ExtensionContext,
+    config: CheckpointConfig,
+  ): Promise<AutoCheckpointProducer | undefined> {
+    const existing = producers.getOrUndefined(sessionId);
+    if (existing) return existing;
+    if (!config.enabled || !config.autoCheckpoint) return undefined;
+
+    const repo = await bindSessionRepo(
+      sessionId,
+      ctx.sessionManager.getSessionFile(),
+      ctx.cwd,
+      repos,
+      { exclude: config.exclude },
+    );
+    configureRepo(repo, config);
+
+    const producer = createAutoCheckpointProducer(repo, config);
+    producers.set(sessionId, producer);
+    return producer;
+  }
+
   async function appendCheckpoint(
     sessionId: string,
     sessionFile: string | undefined,
@@ -484,19 +516,12 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       if (!storage.ok) return;
 
+      const entries = ctx.sessionManager.getEntries();
+      resetSessionRuntimeState(sessionId, entries);
       configureRepo(storage.repo, config);
       repos.setRepo(sessionId, storage.repo);
       producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
-      sessionTasks.delete(sessionId);
-      lastCheckpointTurnIds.delete(sessionId);
-      pendingTreeRestores.delete(sessionId);
-      suppressedTreeRestores.delete(sessionId);
-      sessionHasCheckpointFileChanges.set(
-        sessionId,
-        hasCheckpointFileChanges(ctx.sessionManager.getEntries()),
-      );
 
-      const entries = ctx.sessionManager.getEntries();
       await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, entries);
       if (forkIntent?.position === "at") {
         if (config.restoreOnClone === "always") {
@@ -520,21 +545,18 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       return;
     }
 
-    const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
-      exclude: config.exclude,
-    });
-    configureRepo(repo, config);
-    const producer = createAutoCheckpointProducer(repo, config);
-    producers.set(sessionId, producer);
-    sessionTasks.delete(sessionId);
-    lastCheckpointTurnIds.delete(sessionId);
-    pendingTreeRestores.delete(sessionId);
-    suppressedTreeRestores.delete(sessionId);
     const sessionEntries = ctx.sessionManager.getEntries();
-    sessionHasCheckpointFileChanges.set(sessionId, hasCheckpointFileChanges(sessionEntries));
-    await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
+    resetSessionRuntimeState(sessionId, sessionEntries);
 
     if (event.reason === "resume" && config.restoreOnResume === "always") {
+      const repo = await bindSessionRepo(sessionId, sessionFile, ctx.cwd, repos, {
+        exclude: config.exclude,
+      });
+      configureRepo(repo, config);
+      const producer = createAutoCheckpointProducer(repo, config);
+      producers.set(sessionId, producer);
+      await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, sessionEntries);
+
       const entries = ctx.sessionManager.getEntries();
       const targetCommit = resolveTreeTargetCommit(
         entries,
@@ -577,12 +599,14 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     ctx: ExtensionContext,
   ): Promise<void> {
     await sessionTasks.run(sessionId, async () => {
-      const producer = producers.getOrUndefined(sessionId);
       const config = getSessionConfig(sessionId);
-      if (!config.enabled || !config.autoCheckpoint || !producer) return;
+      if (!config.enabled || !config.autoCheckpoint) return;
 
       const leaf = findLastUserEntry(ctx.sessionManager.getBranch());
       if (!leaf) return;
+
+      const producer = await getOrCreateAutoCheckpointProducer(sessionId, ctx, config);
+      if (!producer) return;
 
       const result = await producer.turnStart({
         userEntryId: leaf.id,
