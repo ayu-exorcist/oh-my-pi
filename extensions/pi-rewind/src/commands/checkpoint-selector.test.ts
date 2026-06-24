@@ -494,7 +494,6 @@ describe("checkpoint selector", () => {
   });
 
   test("covers platform, empty-state, and direct helper edge cases", async () => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const options = createOptions({
       currentLoader: vi.fn().mockRejectedValueOnce("load failed"),
     });
@@ -592,8 +591,11 @@ describe("checkpoint selector", () => {
   });
 
   test("exposes helper functions for direct edge-case coverage", () => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const platformSpy = vi.spyOn(process, "platform", "get");
+    platformSpy.mockReturnValue("linux");
     expect(__checkpointSelectorTestOnly.normalizeComparablePath("A\\B")).toBe("A/B");
+    platformSpy.mockReturnValue("win32");
+    expect(__checkpointSelectorTestOnly.normalizeComparablePath("A\\B")).toBe("a/b");
     expect(__checkpointSelectorTestOnly.normalizeTitle(undefined)).toBe("Untitled session");
     expect(
       __checkpointSelectorTestOnly.matchSession(

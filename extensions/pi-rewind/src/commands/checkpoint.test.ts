@@ -398,7 +398,8 @@ describe("checkpoint command", () => {
 
   test("covers direct helper branches for checkpoint sessions", async () => {
     const { __checkpointCommandTestOnly } = await import("./checkpoint");
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const platformSpy = vi.spyOn(process, "platform", "get");
+    platformSpy.mockReturnValue("linux");
     const cwd = path.join(tmpDir, "project");
     const namedSession = createSession({
       id: "named",
@@ -448,6 +449,10 @@ describe("checkpoint command", () => {
       expect.objectContaining({ createdAt: "2026-06-20T00:00:00.000Z" }),
     );
     expect(__checkpointCommandTestOnly.normalizeComparablePath("A\\B")).toBe(path.resolve("A\\B"));
+    platformSpy.mockReturnValue("win32");
+    expect(__checkpointCommandTestOnly.normalizeComparablePath("A\\B")).toBe(
+      path.resolve("A\\B").toLowerCase(),
+    );
     expect(__checkpointCommandTestOnly.normalizeTitle(undefined)).toBe("Untitled session");
     expect(__checkpointCommandTestOnly.toDate("bad-date") instanceof Date).toBe(true);
   });

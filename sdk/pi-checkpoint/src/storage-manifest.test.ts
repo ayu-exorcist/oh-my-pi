@@ -256,6 +256,8 @@ describe("storage manifest", () => {
     );
     await createHealthyBareRepo(failingDeleteRepo);
 
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+
     const repeatedFault = Object.assign(new Error("bad address"), { code: "EFAULT" });
     const failingRm = vi.spyOn(fs, "rm").mockRejectedValue(repeatedFault);
     failingRm.mockClear();
@@ -284,7 +286,7 @@ describe("storage manifest", () => {
     expect(purgeRm).toHaveBeenCalledTimes(4);
     purgeRm.mockRestore();
 
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    platformSpy.mockReturnValue("linux");
     const linuxBusyRm = vi.spyOn(fs, "rm").mockRejectedValue(repeatedBusy);
     linuxBusyRm.mockClear();
     await expect(purgeSessionCheckpointStorage(failingPurgeRepo, undefined)).resolves.toMatchObject(
