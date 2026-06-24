@@ -1,5 +1,13 @@
 # @ayulab/pi-rewind
 
+## 0.4.1
+
+### Patch Changes
+
+- d20e1b0: Bump package versions past npm versions that were previously published and unpublished, so the next release can publish fresh package versions.
+- Updated dependencies [d20e1b0]
+  - @ayulab/pi-checkpoint@0.6.1
+
 ## 0.4.0
 
 ### Minor Changes
