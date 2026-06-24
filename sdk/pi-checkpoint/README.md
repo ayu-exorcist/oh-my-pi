@@ -184,7 +184,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
       "maxFileMB": 25
     },
     "rewind": {
-      "restoreOnTree": "never"
+      "restoreOnTree": "ask"
     }
   }
 }
@@ -192,7 +192,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
-The SDK config type accepts booleans for checkpoint restore settings. `restoreOnFork`, `restoreOnClone`, `restoreOnResume`, and `restoreOnTree` all default to `false`. Product-level `/tree` policy such as `"always" | "ask" | "never"` lives in `ayu.rewind.restoreOnTree`.
+The SDK config type accepts booleans for checkpoint restore settings. `restoreOnFork`, `restoreOnClone`, `restoreOnResume`, and `restoreOnTree` all default to `false`. Product-level `/tree` policy such as `"always" | "ask" | "never"` lives in `ayu.rewind.restoreOnTree`; `pi-rewind` defaults that policy to `"ask"`.
 
 ### Exclude behavior
 
@@ -210,7 +210,7 @@ This avoids Git indexing embedded repositories as gitlinks and keeps restore beh
 
 Each session storage directory now carries its own `manifest.json` with the session id, session file, cwd, first user message, and timestamps. This keeps storage metadata local to each repo and avoids a global registry write hotspot. Extensions can list manifest-backed storage with `listCheckpointStorageManifests()`, read or update manifests directly, and delete a non-active storage directory with `deleteSessionCheckpointStorage()` after their own UI confirms the action.
 
-`deleteSessionCheckpointStorage()` is the strict path: it requires checkpoint-root path safety, refuses the current active session, and expects both a manifest and a healthy bare `.git` directory before removal. For orphan cleanup, use `purgeSessionCheckpointStorage()` when the session record is already gone or the residual storage is partially corrupt. That path still enforces checkpoint-root path safety and current-session protection, but it does not require a healthy bare repo before removing the directory.
+`deleteSessionCheckpointStorage()` is the strict path: it requires checkpoint-root path safety, refuses the caller-provided active session, and expects both a manifest and a healthy bare `.git` directory before removal. It does not detect whether a different Pi process is using the same storage; callers that need cross-process usage protection must add their own lease or busy-check policy. Once the safety checks pass, deletion is idempotent if the directory has already disappeared before the final removal step. For orphan cleanup, use `purgeSessionCheckpointStorage()` when the session record is already gone or the residual storage is partially corrupt. That path still enforces checkpoint-root path safety and current-session protection, but it does not require a healthy bare repo before removing the directory.
 
 ### Design note: changed-path capture
 

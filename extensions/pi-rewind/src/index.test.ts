@@ -21,6 +21,14 @@ import { AutoCheckpointProducer } from "./auto-checkpoint";
 
 type MockEventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
+const codeRestoreWarningWidgetId = "pi-rewind-code-restore-warning";
+const checkpointSessionStorageMissingWidgetMessage =
+  "Checkpoint storage for this session is missing. File restore for existing checkpoints is unavailable.";
+const checkpointStorageMissingWidgetMessage =
+  "Files were not restored because checkpoint storage for this session is missing.";
+const checkpointTargetMissingWidgetMessage =
+  "Files were not restored because the selected checkpoint is not present in checkpoint storage.";
+
 interface MockSessionManager {
   getSessionFile(): string;
   getSessionId(): string;
@@ -35,9 +43,39 @@ type MockContext = ExtensionContext & {
     notify: ReturnType<typeof vi.fn>;
     confirm: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
+    setWidget: ReturnType<typeof vi.fn>;
   };
   readonly hasUI: boolean;
 };
+
+function expectCodeRestoreWarningWidget(
+  setWidget: ReturnType<typeof vi.fn>,
+  message: string,
+): void {
+  const expectedText = `Warning: ${message}`;
+  const found = setWidget.mock.calls.some(([id, content]) => {
+    if (id !== codeRestoreWarningWidgetId || typeof content !== "function") return false;
+
+    const renderWarning = content as (
+      tui: unknown,
+      theme: { fg: ReturnType<typeof vi.fn> },
+    ) => unknown;
+    const theme = { fg: vi.fn((_color: string, text: string) => text) };
+    renderWarning(undefined, theme);
+
+    return theme.fg.mock.calls.some(([color, text]) => {
+      return color === "warning" && text === expectedText;
+    });
+  });
+
+  expect(found).toBe(true);
+}
+
+function hasCodeRestoreWarningWidget(setWidget: ReturnType<typeof vi.fn>): boolean {
+  return setWidget.mock.calls.some(([id, content]) => {
+    return id === codeRestoreWarningWidgetId && typeof content === "function";
+  });
+}
 
 function createMockApi(): {
   api: ExtensionAPI;
@@ -195,7 +233,7 @@ function createMockContext(
   return {
     sessionManager: createMockSessionManager(sessionFile, branch, sessionId),
     cwd,
-    ui: { notify: vi.fn(), confirm: vi.fn(), select: vi.fn() },
+    ui: { notify: vi.fn(), confirm: vi.fn(), select: vi.fn(), setWidget: vi.fn() },
     hasUI: true,
   } as MockContext;
 }
@@ -315,6 +353,49 @@ describe("checkpoint extension", () => {
     expect(gitExists).toBe(false);
     expect(ctx.ui.notify).not.toHaveBeenCalled();
   }, 15000);
+
+  test.each(["resume", "startup"] as const)(
+    "%s session_start warns when checkpoint history has no storage",
+    async (reason) => {
+      const checkpointEntry = createCheckpointEntry({
+        fileCount: 1,
+        fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      });
+      const branch = [
+        createUserEntry("entry-1", "test"),
+        { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+      ];
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
+
+      const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+      for (const h of events["session_start"] || []) {
+        await h({ reason }, ctx);
+      }
+
+      const repoDir = path.join(
+        tmpDir,
+        ".pi",
+        "agent",
+        "ayu",
+        "checkpoints",
+        "sessions",
+        "session",
+      );
+      const gitExists = await fs
+        .access(path.join(repoDir, ".git"))
+        .then(() => true)
+        .catch(() => false);
+      expect(gitExists).toBe(false);
+      expect(ctx.ui.notify).not.toHaveBeenCalled();
+      expectCodeRestoreWarningWidget(
+        ctx.ui.setWidget,
+        checkpointSessionStorageMissingWidgetMessage,
+      );
+    },
+  );
 
   test("first assistant message_start lazily creates checkpoint storage", async () => {
     const branch = [createUserEntry("entry-1", "test")];
@@ -482,7 +563,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, forkCtx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("root-after", "root-after");
+    expect(safeCheckout).toHaveBeenCalledWith("root-after");
   }, 15000);
 
   test("fork copies repo and restores code to fork point", async () => {
@@ -637,7 +718,7 @@ describe("checkpoint extension", () => {
       await h({ reason: "fork", previousSessionFile: sessionFile }, cloneCtx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith(expect.any(String), expect.any(String));
+    expect(safeCheckout).toHaveBeenCalledWith(expect.any(String));
     const content = await fs.readFile(path.join(projectDir, "app.ts"), "utf8");
     expect(content).toBe("console.log(2)");
   }, 15000);
@@ -1594,96 +1675,120 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
-  test("resume session_start warns when restore storage is missing", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
-    const branch = [
-      createUserEntry("entry-1", "test"),
-      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
-    ];
-    const { api, events } = createMockApi();
-    const ext = await import("./index");
-    ext.default(api);
+  test.each(["resume", "startup"] as const)(
+    "%s session_start warns when restore storage is missing",
+    async (reason) => {
+      const checkpointEntry = createCheckpointEntry({
+        afterCommit: "resume-after",
+        fileCount: 1,
+        fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      });
+      const branch = [
+        createUserEntry("entry-1", "test"),
+        { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+      ];
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
 
-    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
-    await fs.writeFile(
-      path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
-      "utf8",
-    );
+      await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, ".pi", "settings.json"),
+        JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+        "utf8",
+      );
 
-    const safeCheckout = vi
-      .spyOn(RepoManager.prototype, "safeCheckout")
-      .mockResolvedValue({ ok: true });
-    const ctx = createMockContext(sessionFile, branch, tmpDir);
+      const safeCheckout = vi
+        .spyOn(RepoManager.prototype, "safeCheckout")
+        .mockResolvedValue({ ok: true });
+      const ctx = createMockContext(sessionFile, branch, tmpDir);
 
-    for (const h of events["session_start"] || []) {
-      await h({ reason: "resume" }, ctx);
-    }
+      for (const h of events["session_start"] || []) {
+        await h({ reason }, ctx);
+      }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
-    const gitExists = await fs
-      .access(path.join(repoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(gitExists).toBe(false);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "No checkpoint storage is available for this session's code state. Files were not restored.",
-      "warning",
-    );
-    expect(safeCheckout).not.toHaveBeenCalled();
-  });
+      const repoDir = path.join(
+        tmpDir,
+        ".pi",
+        "agent",
+        "ayu",
+        "checkpoints",
+        "sessions",
+        "session",
+      );
+      const gitExists = await fs
+        .access(path.join(repoDir, ".git"))
+        .then(() => true)
+        .catch(() => false);
+      expect(gitExists).toBe(false);
+      expect(ctx.ui.notify).not.toHaveBeenCalled();
+      expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
+      expect(safeCheckout).not.toHaveBeenCalled();
+    },
+  );
 
-  test("resume session_start restores latest branch checkpoint when existing storage matches known checkpoint", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
-    const branch = [
-      createUserEntry("entry-1", "test"),
-      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
-    ];
-    const { api, events } = createMockApi();
-    const ext = await import("./index");
-    ext.default(api);
+  test.each(["resume", "startup"] as const)(
+    "%s session_start restores latest branch checkpoint when existing storage matches known checkpoint",
+    async (reason) => {
+      const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+      const branch = [
+        createUserEntry("entry-1", "test"),
+        { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+      ];
+      const { api, events } = createMockApi();
+      const ext = await import("./index");
+      ext.default(api);
 
-    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
-    await fs.writeFile(
-      path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
-      "utf8",
-    );
+      await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, ".pi", "settings.json"),
+        JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+        "utf8",
+      );
 
-    const bootstrapCtx = createMockContext(
-      sessionFile,
-      [createUserEntry("entry-1", "test")],
-      tmpDir,
-    );
-    for (const h of events["session_start"] || []) {
-      await h({ reason: "new" }, bootstrapCtx);
-    }
-    await emitAssistantStart(events, bootstrapCtx);
+      const bootstrapCtx = createMockContext(
+        sessionFile,
+        [createUserEntry("entry-1", "test")],
+        tmpDir,
+      );
+      for (const h of events["session_start"] || []) {
+        await h({ reason: "new" }, bootstrapCtx);
+      }
+      await emitAssistantStart(events, bootstrapCtx);
 
-    vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
-    vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation((commit: string) =>
-      Promise.resolve(commit === "resume-after" ? "" : "1\t0\tfile.ts\n"),
-    );
-    const safeCheckout = vi
-      .spyOn(RepoManager.prototype, "safeCheckout")
-      .mockResolvedValue({ ok: true });
-    const ctx = createMockContext(sessionFile, branch, tmpDir);
+      vi.spyOn(RepoManager.prototype, "stageAll").mockResolvedValue();
+      vi.spyOn(RepoManager.prototype, "diffAgainst").mockImplementation((commit: string) =>
+        Promise.resolve(commit === "resume-after" ? "" : "1\t0\tfile.ts\n"),
+      );
+      const safeCheckout = vi
+        .spyOn(RepoManager.prototype, "safeCheckout")
+        .mockResolvedValue({ ok: true });
+      const ctx = createMockContext(sessionFile, branch, tmpDir);
 
-    const sessionStartHandlers = events["session_start"] || [];
-    for (const h of sessionStartHandlers) {
-      await h({ reason: "resume" }, ctx);
-    }
+      const sessionStartHandlers = events["session_start"] || [];
+      for (const h of sessionStartHandlers) {
+        await h({ reason }, ctx);
+      }
 
-    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
-    const gitExists = await fs
-      .access(path.join(repoDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    expect(gitExists).toBe(true);
-    expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
-  });
+      const repoDir = path.join(
+        tmpDir,
+        ".pi",
+        "agent",
+        "ayu",
+        "checkpoints",
+        "sessions",
+        "session",
+      );
+      const gitExists = await fs
+        .access(path.join(repoDir, ".git"))
+        .then(() => true)
+        .catch(() => false);
+      expect(gitExists).toBe(true);
+      expect(safeCheckout).toHaveBeenCalledWith("resume-after");
+    },
+  );
 
-  test("resume session_start warns when workspace has unsnapshotted changes", async () => {
+  test("resume session_start force restores when workspace has unsnapshotted changes", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
     const branch = [
       createUserEntry("entry-1", "test"),
@@ -1715,7 +1820,7 @@ describe("checkpoint extension", () => {
     );
     const safeCheckout = vi
       .spyOn(RepoManager.prototype, "safeCheckout")
-      .mockResolvedValue({ ok: false, reason: "dirty" });
+      .mockResolvedValue({ ok: true });
     const ctx = createMockContext(sessionFile, branch, tmpDir);
 
     const sessionStartHandlers = events["session_start"] || [];
@@ -1723,15 +1828,16 @@ describe("checkpoint extension", () => {
       await h({ reason: "resume" }, ctx);
     }
 
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Skipped file restore because the workspace has changes that are not captured by this session's checkpoint history.",
-      "warning",
-    );
-    expect(safeCheckout).toHaveBeenCalledWith("resume-after", "resume-after");
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    expect(safeCheckout).toHaveBeenCalledWith("resume-after");
   });
 
-  test("session_tree keeps Pi-native behavior by default", async () => {
-    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+  test("session_tree defaults to ask mode", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
     const branch = [
       createUserEntry("entry-1", "test"),
       { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
@@ -1744,18 +1850,23 @@ describe("checkpoint extension", () => {
       .spyOn(RepoManager.prototype, "safeCheckout")
       .mockResolvedValue({ ok: true });
     const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("No");
 
     const sessionStartHandlers = events["session_start"] || [];
     for (const h of sessionStartHandlers) {
       await h({ reason: "new" }, ctx);
     }
-    await emitAssistantStart(events, ctx);
 
+    const beforeTreeHandlers = events["session_before_tree"] || [];
+    for (const h of beforeTreeHandlers) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
     const treeHandlers = events["session_tree"] || [];
     for (const h of treeHandlers) {
       await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
     }
 
+    expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
@@ -1857,7 +1968,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
-    expect(safeCheckout).toHaveBeenCalledWith("before-hash", undefined);
+    expect(safeCheckout).toHaveBeenCalledWith("before-hash");
   });
 
   test("session_tree ask mode warns when storage disappears after repo was pre-bound", async () => {
@@ -1897,10 +2008,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "No checkpoint storage is available for this session's code state. Files were not restored.",
-      "warning",
-    );
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
   }, 15000);
 
   test("session_tree ask mode keeps missing-storage warning when tree callback has no UI", async () => {
@@ -1941,10 +2049,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "No checkpoint storage is available for this session's code state. Files were not restored.",
-      "warning",
-    );
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
   }, 15000);
 
   test("session_tree ask mode does not prompt when user chooses to summarise", async () => {
@@ -2442,6 +2547,47 @@ describe("checkpoint extension", () => {
     expect(ctx.ui.select).not.toHaveBeenCalled();
   });
 
+  test("session_tree always mode warns when selected restore storage is missing", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    await fs.rm(repoDir, { recursive: true, force: true });
+
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    expect(hasCodeRestoreWarningWidget(ctx.ui.setWidget)).toBe(false);
+
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
+  }, 15000);
+
   test("session_tree restores latest branch checkpoint when ayu rewind restoreOnTree is always", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
     const branch = [
@@ -2469,7 +2615,7 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", undefined);
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   });
 
   test("session_tree falls back to current branch without UI", async () => {
@@ -2496,7 +2642,7 @@ describe("checkpoint extension", () => {
       await h({}, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", "tree-after");
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   }, 15000);
 
   test("session_before_tree ignores malformed events", async () => {
@@ -2528,7 +2674,7 @@ describe("checkpoint extension", () => {
       await h({ newLeafId: "entry-1" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", "tree-after");
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   });
 
   test("session_tree ignores malformed event when repo exists", async () => {
@@ -2555,10 +2701,15 @@ describe("checkpoint extension", () => {
       await h(null, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", "tree-after");
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   });
 
-  test("session_tree returns when checkpoint storage is not bound", async () => {
+  test("session_tree warns when target checkpoint storage is not bound", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
     const { api, events } = createMockApi();
     const ext = await import("./index");
     ext.default(api, {
@@ -2571,21 +2722,87 @@ describe("checkpoint extension", () => {
     const safeCheckout = vi
       .spyOn(RepoManager.prototype, "safeCheckout")
       .mockResolvedValue({ ok: true });
-    const ctx = createMockContext(sessionFile, [], tmpDir);
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
 
     for (const h of events["session_start"] || []) {
       await h({ reason: "fork" }, ctx);
     }
     for (const h of events["session_tree"] || []) {
-      await h({ oldLeafId: "old", newLeafId: "new" }, ctx);
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
     }
 
     expect(safeCheckout).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "No checkpoint storage is available for this session's code state. Files were not restored.",
-      "warning",
-    );
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
   });
+
+  test("session_tree always mode keeps missing-storage warning when tree callback has no UI", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    await fs.rm(repoDir, { recursive: true, force: true });
+
+    const treeCtx = { ...ctx, hasUI: false } as MockContext;
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, treeCtx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
+  }, 15000);
+
+  test("session_tree reports missing target checkpoint from storage", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await enableTreeRestore(tmpDir);
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: false, reason: "target-missing" });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointTargetMissingWidgetMessage);
+
+    ctx.ui.setWidget.mockClear();
+    for (const h of events["input"] || []) {
+      await h({ text: "next" }, ctx);
+    }
+
+    expect(ctx.ui.setWidget).toHaveBeenCalledWith(codeRestoreWarningWidgetId, undefined);
+  }, 15000);
 
   test("session_tree resolves existing checkpoint storage when repo is not pre-bound", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
@@ -2621,7 +2838,7 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", undefined);
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   }, 15000);
 
   test("session_tree ignores non-record entries while building branches", async () => {
@@ -2657,7 +2874,7 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "entry-1", newLeafId: "entry-1" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("tree-after", "tree-after");
+    expect(safeCheckout).toHaveBeenCalledWith("tree-after");
   });
 
   test("session_tree falls back for malformed target message", async () => {
@@ -2903,7 +3120,7 @@ describe("checkpoint extension", () => {
     }
   }, 15000);
 
-  test("session_tree uses old branch dirty base and target user before commit", async () => {
+  test("session_tree always mode force restores target user before commit", async () => {
     const root = { ...createUserEntry("root-user", "root"), parentId: "model" };
     const oldUser = { ...createUserEntry("old-user", "old"), parentId: "root-user" };
     const oldLeaf = { ...createUserEntry("old-leaf", "old leaf"), parentId: "old-user" };
@@ -2976,10 +3193,10 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old-leaf", newLeafId: "root-user" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("target-before", "old-after");
+    expect(safeCheckout).toHaveBeenCalledWith("target-before");
   });
 
-  test("session_tree uses matching checkpoint outside old branch as dirty base", async () => {
+  test("session_tree always mode ignores matching dirty base checkpoint", async () => {
     const root = { ...createUserEntry("root-user", "root"), parentId: "model" };
     const oldUser = { ...createUserEntry("old-user", "old"), parentId: "root-user" };
     const oldLeaf = { ...createUserEntry("old-leaf", "old leaf"), parentId: "old-user" };
@@ -3047,7 +3264,7 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old-leaf", newLeafId: "root-user" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("target-before", "outside-after");
+    expect(safeCheckout).toHaveBeenCalledWith("target-before");
   });
 
   test("session_tree restores non-user target branch after commit", async () => {
@@ -3114,7 +3331,7 @@ describe("checkpoint extension", () => {
       await h({ oldLeafId: "old-leaf", newLeafId: "target-assistant" }, ctx);
     }
 
-    expect(safeCheckout).toHaveBeenCalledWith("target-after", "old-after");
+    expect(safeCheckout).toHaveBeenCalledWith("target-after");
   });
 
   test("message_start ignores non-assistant messages", async () => {

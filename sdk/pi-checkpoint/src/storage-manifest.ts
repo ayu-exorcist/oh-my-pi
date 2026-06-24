@@ -80,6 +80,10 @@ function isBusyRenameError(error: unknown): error is NodeJS.ErrnoException {
   return isRecord(error) && WINDOWS_RENAME_RETRY_CODES.has(String(error.code));
 }
 
+function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
+  return isRecord(error) && error.code === "ENOENT";
+}
+
 function isSafeStorageComponent(name: string): boolean {
   return STORAGE_COMPONENT_PATTERN.test(name);
 }
@@ -204,7 +208,11 @@ export async function deleteSessionCheckpointStorage(
     };
   }
 
-  await fs.rm(resolvedRepoDir, { recursive: true, force: false });
+  try {
+    await fs.rm(resolvedRepoDir, { recursive: true, force: false });
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+  }
   return { ok: true };
 }
 

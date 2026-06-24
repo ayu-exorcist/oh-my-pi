@@ -213,6 +213,46 @@ describe("Rewind Restore Mode", () => {
     expect(ui.notify).not.toHaveBeenCalled();
   });
 
+  test("reports missing checkpoint storage", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: false, reason: "storage-missing" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Files were not restored because checkpoint storage for this session is missing. Conversation restore is still available.",
+      "warning",
+    );
+  });
+
+  test("reports missing target checkpoint", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: false, reason: "target-missing" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Files were not restored because the selected checkpoint is not present in checkpoint storage.",
+      "warning",
+    );
+  });
+
   test("falls back to a generic checkout failure message", async () => {
     const ui = createUi();
     const repo = mockRepo({ ok: false, reason: "checkout-failed" });

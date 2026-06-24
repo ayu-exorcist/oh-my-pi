@@ -7,6 +7,11 @@ import type {
 } from "@ayulab/pi-checkpoint";
 import { errorMessage } from "@ayulab/runtime-core";
 
+const checkpointStorageMissingConversationMessage =
+  "Files were not restored because checkpoint storage for this session is missing. Conversation restore is still available.";
+const checkpointTargetMissingMessage =
+  "Files were not restored because the selected checkpoint is not present in checkpoint storage.";
+
 interface RestoreModeUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
   input(message: string, initialValue: string): Promise<string | undefined>;
@@ -42,6 +47,16 @@ function notifyCheckoutFailure(
 
   if (result.reason === "dirty-check-failed") {
     ui.notify(dirtyCheckFailedMessage, "warning");
+    return;
+  }
+
+  if (result.reason === "storage-missing") {
+    ui.notify(checkpointStorageMissingConversationMessage, "warning");
+    return;
+  }
+
+  if (result.reason === "target-missing") {
+    ui.notify(checkpointTargetMissingMessage, "warning");
     return;
   }
 
@@ -95,10 +110,7 @@ async function restoreCodeAndConversationAfterConflict(
   rollbackFailedPrefix: string,
 ): Promise<void> {
   if (!options.repo) {
-    options.ui.notify(
-      "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
-      "warning",
-    );
+    options.ui.notify(checkpointStorageMissingConversationMessage, "warning");
     return;
   }
 
@@ -195,10 +207,7 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
 
   if (restoreCode) {
     if (!options.repo) {
-      options.ui.notify(
-        "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
-        "warning",
-      );
+      options.ui.notify(checkpointStorageMissingConversationMessage, "warning");
       return;
     }
 

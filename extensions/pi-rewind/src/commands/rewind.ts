@@ -384,7 +384,7 @@ async function resolveRewindRepo(
   return {
     ok: false,
     message:
-      "No checkpoint storage is available for this session's code state. Conversation restore is still available.",
+      "Files were not restored because checkpoint storage for this session is missing. Conversation restore is still available.",
     level: "warning",
   };
 }

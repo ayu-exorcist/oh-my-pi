@@ -197,7 +197,7 @@ describe("storage manifest", () => {
     });
   });
 
-  test("deletes healthy storage and purges orphan storage", async () => {
+  test("deletes healthy storage and treats already-removed storage as deleted", async () => {
     const repoDir = path.join(getCheckpointSessionsRoot(), "session-delete");
     await writeCheckpointStorageManifest(
       repoDir,
@@ -207,6 +207,22 @@ describe("storage manifest", () => {
 
     await expect(deleteSessionCheckpointStorage(repoDir, undefined)).resolves.toEqual({ ok: true });
     await expect(fs.access(repoDir)).rejects.toBeDefined();
+
+    const raceRepoDir = path.join(getCheckpointSessionsRoot(), "session-delete-race");
+    await writeCheckpointStorageManifest(
+      raceRepoDir,
+      createManifest(path.join(tmpDir, "delete-race.jsonl"), tmpDir, "7"),
+    );
+    await fs.mkdir(path.join(raceRepoDir, ".git"), { recursive: true });
+    const realRm = fs.rm.bind(fs);
+    vi.spyOn(fs, "rm").mockImplementationOnce(async () => {
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+
+    await expect(deleteSessionCheckpointStorage(raceRepoDir, undefined)).resolves.toEqual({
+      ok: true,
+    });
+    await realRm(raceRepoDir, { recursive: true, force: true });
 
     const orphanRepo = path.join(getCheckpointSessionsRoot(), "session-purge");
     await fs.mkdir(orphanRepo, { recursive: true });

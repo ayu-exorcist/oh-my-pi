@@ -13,8 +13,9 @@ Pi extension providing the `/rewind` interactive checkpoint navigation command.
 - Conversation-only restore option when the checkpoint list has no file changes
 - Optional file-state sync when navigating the Pi session tree (`ayu.rewind.restoreOnTree`) with `never`, `ask`, and `always` modes
 - Auto-copy checkpoint storage on fork; fork restores the selected turn's `beforeCommit` and clone restores the cloned branch's latest `afterCommit` when enabled
+- Fork, clone, resume, and `restoreOnTree: "always"` file restores overwrite checkpoint-managed files without a dirty-workspace prompt
 - `/checkpoint` storage manager with `Current Folder` and `All` views, status-aware rows, and `Ctrl+D` delete in the TUI list
-- Resume defaults to conversation-only; file restore on resume is opt-in via `ayu.checkpoint.restoreOnResume`
+- Opening an existing session defaults to conversation-only; file restore for `/resume` and `pi -r` is opt-in via `ayu.checkpoint.restoreOnResume`
 - File restore failures do not block conversation navigation, tree navigation, fork, or clone
 - File-change stats shown for each checkpoint in the selection list
 - Bundled checkpoint engine is emitted as a deterministic `@ayulab__pi-checkpoint.js` chunk for Pi package loading
@@ -53,7 +54,7 @@ It fits the moments when you want to:
 - retry a prompt after fixing the code it generated
 - inspect an earlier branch of thought without changing the workspace
 - restore files from a checkpoint while staying on the current conversation path
-- use `/tree` for navigation and only restore files when `ayu.rewind.restoreOnTree` is `ask` or `always`
+- use `/tree` for navigation and decide whether file state should sync after Pi's native `No summary` choice
 
 Use `/checkpoint` to inspect checkpoint storage state.
 
@@ -61,7 +62,7 @@ Use `/checkpoint` to inspect checkpoint storage state.
 - `All` adds live sessions from every directory; sessions without checkpoint storage show `[no checkpoints]`, while manifested orphan storage shows `[no session]`.
 - The right side shows status, cwd or path, message count, and relative time.
 - `Ctrl+P` toggles path display.
-- `Ctrl+D` deletes the selected non-current storage. Deleting storage keeps the Pi session record, but file restore for that session becomes unavailable. For `[no session]` orphan storage, `Ctrl+D` purges the residual storage directory even if the bare repo itself is already missing.
+- `Ctrl+D` deletes the selected non-current storage. Deleting storage keeps the Pi session record, but file restore for that session becomes unavailable. Deletion protects the current Pi instance's active session storage; it does not detect another Pi instance using the same storage. If a stale selector row points at storage that disappeared just before removal, the delete is treated as already complete. For `[no session]` orphan storage, `Ctrl+D` purges the residual storage directory even if the bare repo itself is already missing.
 
 ```
 > /rewind
@@ -91,10 +92,13 @@ Select mode: 1
 
 Default behavior in phase 1:
 
-- `/tree` keeps Pi's native conversation-only behavior unless `ayu.rewind.restoreOnTree` is `ask` or `always`
-- `ayu.checkpoint.restoreOnResume` defaults to `false`, so resume does not modify files unless you opt in
-- `ayu.checkpoint.restoreOnFork` and `ayu.checkpoint.restoreOnClone` default to `false`
+- `/tree` keeps Pi's native conversation navigation and `ayu.rewind.restoreOnTree` defaults to `"ask"`, so no-summary tree navigation prompts before syncing files when the session has checkpointed file changes
+- `ayu.rewind.restoreOnTree: "never"` disables file sync prompts and keeps `/tree` conversation-only
+- `ayu.rewind.restoreOnTree: "always"` restores files automatically and overwrites checkpoint-managed workspace state to the target checkpoint
+- `ayu.checkpoint.restoreOnResume` defaults to `false`, so opening an existing session does not modify files unless you opt in; when `true`, `/resume` and startup session selection such as `pi -r` overwrite checkpoint-managed files to the latest branch checkpoint
+- `ayu.checkpoint.restoreOnFork` and `ayu.checkpoint.restoreOnClone` default to `false`; when enabled, they overwrite checkpoint-managed files to the fork or clone checkpoint state
 - `/rewind` restores the selected turn's `beforeCommit`
+- Existing-session and `/tree` restore failures for missing checkpoint storage are reported above the editor input using the warning theme and clear on the next user input. Whole-session storage loss is reported when entering an existing session with checkpointed file changes; a missing selected checkpoint is reported only when that file restore is attempted. `/rewind` reports missing restore storage through its command UI notification so conversation-only restore can still proceed.
 - File restore failures are reported without silently proceeding; when conversation navigation is part of the action, it can still continue even if file restore fails, and rollback failure is surfaced explicitly
 
 Example: keep a shared `ayu.rewind` default in user settings, then override just one field in the project.
@@ -104,7 +108,7 @@ Example: keep a shared `ayu.rewind` default in user settings, then override just
 {
   "ayu": {
     "rewind": {
-      "restoreOnTree": "ask"
+      "restoreOnTree": "never"
     }
   }
 }
@@ -123,11 +127,11 @@ Example: keep a shared `ayu.rewind` default in user settings, then override just
 
 Supported values:
 
-| Setting    | Behavior                                                                                                                                                                                                                                                                                                           |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `"never"`  | Default. Keep Pi-native `/tree` behavior; do not restore files.                                                                                                                                                                                                                                                    |
-| `"ask"`    | When `/tree` is used with **No summary**, ask `Sync files?` if the session has ever produced checkpointed file changes; once any checkpoint changes files, later `/tree` prompts stay on during the session. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore). |
-| `"always"` | When `/tree` is used with **No summary**, restore files automatically without prompting. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore).                                                                                                                     |
+| Setting    | Behavior                                                                                                                                                                                                                                                                                                                    |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"ask"`    | Default. When `/tree` is used with **No summary**, ask `Sync files?` if the session has ever produced checkpointed file changes; once any checkpoint changes files, later `/tree` prompts stay on during the session. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore). |
+| `"never"`  | Keep Pi-native `/tree` behavior; do not restore files or show the sync prompt.                                                                                                                                                                                                                                              |
+| `"always"` | When `/tree` is used with **No summary**, restore files automatically without prompting and overwrite checkpoint-managed files to the target checkpoint state. When **Summarize** or **Summarize with custom prompt**, behave like native `/tree` (no file restore).                                                        |
 
 `/rewind` code restore, fork, clone, and resume behavior are not controlled by `ayu.rewind.restoreOnTree`.
 
@@ -156,6 +160,7 @@ Rules:
 - `ayu.checkpoint.exclude` appends more excludes
 - `ayu.checkpoint.include` re-includes paths after those excludes
 - `ayu.checkpoint.maxFileMB` is opt-in; when set, oversized changed files are skipped during checkpoint staging
+- `ayu.checkpoint.restoreOnResume`, `restoreOnFork`, and `restoreOnClone` are opt-in; when set to `true`, automatic file restore overwrites checkpoint-managed workspace state without a dirty-workspace prompt. `restoreOnResume` is the single switch for opening existing sessions, including `/resume` and startup session selection such as `pi -r`
 - `.pi/`, `.vscode/`, `vendor/`, `*.iml`, and `*.d.ts` are not excluded by default; only high-confidence personal IDE state such as `.idea/workspace.xml`, `.idea/tasks.xml`, `.idea/caches/`, `.idea/shelf/`, `.idea/localHistory/`, `.idea/compile-server/`, plus operating-system metadata such as `.DS_Store`, `Thumbs.db`, `Desktop.ini`, `*.iws`, `*.swp`, and `*.swo` is excluded automatically, including inside nested project directories
 
 `restoreOnTree: "ask"` is session-scoped: the extension caches whether any checkpoint in the current session has ever changed files, seeds that cache from existing session history on session start, and updates it as new checkpoints are appended.
@@ -180,6 +185,8 @@ flowchart TD
     note1[Note: Esc in the Sync files? dialog<br/>is equivalent to selecting No.] -.-> F
 ```
 
+In `restoreOnTree: "always"`, the file sync is a force restore: checkpoint-managed files are reset to the target checkpoint state, and untracked checkpoint-managed files are removed. Excluded paths and nested repository boundaries remain untouched.
+
 ## Nested repositories
 
 Phase 1 keeps the existing nested Git safety boundary. If you start Pi from a broad workspace that contains nested Git repositories, the outer checkpoint excludes those nested repositories. `/rewind` and `/tree` still protect non-excluded files in the outer work tree, but they do not restore files inside those nested repositories from the outer session. To protect a nested repository, start Pi in that repository root.
@@ -191,6 +198,7 @@ Pi currently exposes session switch, resume, tree, fork, and clone hooks to exte
 Without a session deletion hook, `pi-rewind` handles lifecycle asymmetry this way:
 
 - deleting checkpoint storage from `/checkpoint` never deletes the session record
+- deleting checkpoint storage from `/checkpoint` only protects the current Pi instance's active session storage; other Pi instances using the same storage are not detected
 - deleting a session elsewhere may leave orphan checkpoint storage on disk
 - `/checkpoint` surfaces those orphan items as `[no session]` and lets the user remove them explicitly
 
