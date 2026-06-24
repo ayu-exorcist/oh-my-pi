@@ -24,6 +24,13 @@ function createManifest(sessionFile: string, cwd: string, suffix = "1"): Checkpo
   };
 }
 
+async function createHealthyBareRepo(repoDir: string): Promise<void> {
+  await fs.mkdir(path.join(repoDir, ".git", "objects"), { recursive: true });
+  await fs.mkdir(path.join(repoDir, ".git", "refs"), { recursive: true });
+  await fs.writeFile(path.join(repoDir, ".git", "HEAD"), "ref: refs/heads/main\n", "utf8");
+  await fs.writeFile(path.join(repoDir, ".git", "config"), "[core]\n", "utf8");
+}
+
 describe("storage manifest", () => {
   let tmpDir: string;
 
@@ -144,7 +151,7 @@ describe("storage manifest", () => {
       activeRepoDir,
       createManifest(activeSessionFile, tmpDir, "4"),
     );
-    await fs.mkdir(path.join(activeRepoDir, ".git"), { recursive: true });
+    await createHealthyBareRepo(activeRepoDir);
 
     await expect(
       deleteSessionCheckpointStorage(
@@ -181,7 +188,7 @@ describe("storage manifest", () => {
     await expect(deleteSessionCheckpointStorage(corruptRepo, undefined)).resolves.toEqual({
       ok: false,
       reason: "storage-corrupt",
-      message: "Checkpoint storage is missing its bare git repository.",
+      message: "Checkpoint storage is missing required bare git files.",
     });
   });
 
@@ -197,13 +204,31 @@ describe("storage manifest", () => {
     });
   });
 
+  test("uses non-Windows remove options on non-Windows platforms", async () => {
+    const repoDir = path.join(getCheckpointSessionsRoot(), "session-linux-delete");
+    await writeCheckpointStorageManifest(
+      repoDir,
+      createManifest(path.join(tmpDir, "linux-delete.jsonl"), tmpDir, "6a"),
+    );
+    await createHealthyBareRepo(repoDir);
+
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const rm = vi.spyOn(fs, "rm").mockResolvedValue(undefined);
+
+    await expect(deleteSessionCheckpointStorage(repoDir, undefined)).resolves.toEqual({ ok: true });
+    expect(rm).toHaveBeenCalledWith(
+      repoDir,
+      expect.objectContaining({ recursive: true, force: false, maxRetries: 0 }),
+    );
+  });
+
   test("deletes healthy storage and treats already-removed storage as deleted", async () => {
     const repoDir = path.join(getCheckpointSessionsRoot(), "session-delete");
     await writeCheckpointStorageManifest(
       repoDir,
       createManifest(path.join(tmpDir, "delete.jsonl"), tmpDir, "6"),
     );
-    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    await createHealthyBareRepo(repoDir);
 
     await expect(deleteSessionCheckpointStorage(repoDir, undefined)).resolves.toEqual({ ok: true });
     await expect(fs.access(repoDir)).rejects.toBeDefined();
@@ -213,7 +238,7 @@ describe("storage manifest", () => {
       raceRepoDir,
       createManifest(path.join(tmpDir, "delete-race.jsonl"), tmpDir, "7"),
     );
-    await fs.mkdir(path.join(raceRepoDir, ".git"), { recursive: true });
+    await createHealthyBareRepo(raceRepoDir);
     const realRm = fs.rm.bind(fs);
     vi.spyOn(fs, "rm").mockImplementationOnce(async () => {
       throw Object.assign(new Error("missing"), { code: "ENOENT" });
@@ -223,6 +248,54 @@ describe("storage manifest", () => {
       ok: true,
     });
     await realRm(raceRepoDir, { recursive: true, force: true });
+
+    const failingDeleteRepo = path.join(getCheckpointSessionsRoot(), "session-delete-failure");
+    await writeCheckpointStorageManifest(
+      failingDeleteRepo,
+      createManifest(path.join(tmpDir, "delete-failure.jsonl"), tmpDir, "9"),
+    );
+    await createHealthyBareRepo(failingDeleteRepo);
+
+    const repeatedFault = Object.assign(new Error("bad address"), { code: "EFAULT" });
+    const failingRm = vi.spyOn(fs, "rm").mockRejectedValue(repeatedFault);
+    failingRm.mockClear();
+    await expect(
+      deleteSessionCheckpointStorage(failingDeleteRepo, undefined),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "delete-failed",
+      error: "bad address",
+    });
+    expect(failingRm).toHaveBeenCalledTimes(4);
+    failingRm.mockRestore();
+
+    const failingPurgeRepo = path.join(getCheckpointSessionsRoot(), "session-purge-failure");
+    await fs.mkdir(failingPurgeRepo, { recursive: true });
+    const repeatedBusy = Object.assign(new Error("busy"), { code: "EPERM" });
+    const purgeRm = vi.spyOn(fs, "rm").mockRejectedValue(repeatedBusy);
+    purgeRm.mockClear();
+    await expect(purgeSessionCheckpointStorage(failingPurgeRepo, undefined)).resolves.toMatchObject(
+      {
+        ok: false,
+        reason: "delete-failed",
+        error: "busy",
+      },
+    );
+    expect(purgeRm).toHaveBeenCalledTimes(4);
+    purgeRm.mockRestore();
+
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const linuxBusyRm = vi.spyOn(fs, "rm").mockRejectedValue(repeatedBusy);
+    linuxBusyRm.mockClear();
+    await expect(purgeSessionCheckpointStorage(failingPurgeRepo, undefined)).resolves.toMatchObject(
+      {
+        ok: false,
+        reason: "delete-failed",
+        error: "busy",
+      },
+    );
+    expect(linuxBusyRm).toHaveBeenCalledTimes(1);
+    linuxBusyRm.mockRestore();
 
     const orphanRepo = path.join(getCheckpointSessionsRoot(), "session-purge");
     await fs.mkdir(orphanRepo, { recursive: true });

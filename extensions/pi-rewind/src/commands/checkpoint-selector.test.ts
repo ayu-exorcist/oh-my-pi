@@ -748,6 +748,35 @@ describe("checkpoint selector", () => {
     );
   });
 
+  test("surfaces thrown delete failures in the header", async () => {
+    const session = createSession({
+      id: "session-throw",
+      path: "/tmp/session-throw.jsonl",
+      checkpointRepoDir: "/tmp/session-throw-repo",
+      sourceSessionFile: "/tmp/session-throw.jsonl",
+      firstMessage: "Delete me",
+    });
+    const component = new CheckpointSelectorComponent(
+      createOptions({
+        currentLoader: vi.fn().mockResolvedValue([session]),
+        allLoader: vi.fn().mockResolvedValue([session]),
+        deleteStorage: vi.fn().mockRejectedValue(new Error("kaboom")),
+      }),
+    );
+    await flush();
+
+    (component as any).currentSessions = [session];
+    (component as any).allSessions = [session];
+    (component as any).filteredSessions = [
+      { session, depth: 0, isLast: true, ancestorContinues: [] },
+    ];
+    await (component as any).confirmDelete();
+    await flush();
+    expect((component as any).header.render(120).join("\n")).toContain(
+      "Checkpoint storage delete failed: kaboom",
+    );
+  });
+
   test("cancels delete confirmation and triggers uncached all-scope loading", async () => {
     let progress: ((loaded: number, total: number) => void) | undefined;
     const allLoader = vi.fn((onProgress?: (loaded: number, total: number) => void) => {

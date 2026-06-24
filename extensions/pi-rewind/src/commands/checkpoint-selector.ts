@@ -1,5 +1,6 @@
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@ayulab/runtime-core";
 import {
   Input,
   truncateToWidth,
@@ -758,32 +759,43 @@ export class CheckpointSelectorComponent implements Component, Focusable {
     this.header.setConfirmingDelete(false);
     if (!selected) return;
 
-    const result = await this.options.deleteStorage(selected);
-    if (!result.ok) {
-      this.header.setStatusMessage({ type: "error", message: result.message }, 3000);
+    try {
+      const result = await this.options.deleteStorage(selected);
+      if (!result.ok) {
+        this.header.setStatusMessage({ type: "error", message: result.message }, 3000);
+        this.options.requestRender();
+        return;
+      }
+
+      this.header.setStatusMessage({ type: "info", message: "Checkpoint storage deleted" }, 2000);
+      this.applyOptimisticDelete(selected);
       this.options.requestRender();
-      return;
+
+      void Promise.all([this.options.currentLoader(), this.options.allLoader()])
+        .then(([currentSessions, allSessions]) => {
+          this.currentSessions = currentSessions;
+          this.allSessions = allSessions;
+          this.setVisibleSessionsForScope(this.scope);
+          this.options.requestRender();
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          this.header.setStatusMessage(
+            { type: "error", message: `Checkpoint list refresh failed: ${message}` },
+            3000,
+          );
+          this.options.requestRender();
+        });
+    } catch (error) {
+      this.header.setStatusMessage(
+        {
+          type: "error",
+          message: `Checkpoint storage delete failed: ${errorMessage(error)}`,
+        },
+        4000,
+      );
+      this.options.requestRender();
     }
-
-    this.header.setStatusMessage({ type: "info", message: "Checkpoint storage deleted" }, 2000);
-    this.applyOptimisticDelete(selected);
-    this.options.requestRender();
-
-    void Promise.all([this.options.currentLoader(), this.options.allLoader()])
-      .then(([currentSessions, allSessions]) => {
-        this.currentSessions = currentSessions;
-        this.allSessions = allSessions;
-        this.setVisibleSessionsForScope(this.scope);
-        this.options.requestRender();
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        this.header.setStatusMessage(
-          { type: "error", message: `Checkpoint list refresh failed: ${message}` },
-          3000,
-        );
-        this.options.requestRender();
-      });
   }
 
   private applyOptimisticDelete(selected: CheckpointSelectorSession): void {

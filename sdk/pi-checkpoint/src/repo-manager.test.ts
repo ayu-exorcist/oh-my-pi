@@ -436,6 +436,22 @@ describe("RepoManager", () => {
     expect(content).toContain("*.log");
   });
 
+  test("setExclude excludes internal checkpoint storage when repo lives inside the work tree", async () => {
+    const workTree = path.join(tmpDir, "project");
+    const gitDir = path.join(workTree, ".pi", "checkpoint", ".git");
+    const indexFile = path.join(tmpDir, "index");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude(["*.log"]);
+
+    const excludePath = path.join(gitDir, "info", "exclude");
+    const content = await fs.readFile(excludePath, "utf8");
+    expect(content).toContain("*.log");
+    expect(content).toContain(".pi/checkpoint");
+  });
+
   test("ensureReady does nothing when repo is intact", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");
@@ -738,6 +754,55 @@ describe("RepoManager", () => {
       // File must remain untouched
       const content = await fs.readFile(path.join(workTree, "a.txt"), "utf8");
       expect(content).toBe("v2");
+    });
+
+    test("dirty guard summarizes additional changed paths", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      for (const name of ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"]) {
+        await fs.writeFile(path.join(workTree, name), `${name}-v1`, "utf8");
+      }
+      const cp1 = await repo.checkpoint("entry-1");
+
+      for (const name of ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"]) {
+        await fs.writeFile(path.join(workTree, name), `${name}-v2`, "utf8");
+      }
+
+      const result = await repo.safeCheckout(cp1, cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "dirty",
+        message:
+          "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.\nChanged paths:\n- a.txt\n- b.txt\n- c.txt\n- d.txt\n- e.txt\n- ...and 1 more",
+      });
+    });
+
+    test("dirty guard falls back to the generic dirty message when changed paths cannot be listed", async () => {
+      const gitDir = path.join(tmpDir, ".git");
+      const indexFile = path.join(tmpDir, "index");
+      const workTree = path.join(tmpDir, "project");
+      await fs.mkdir(workTree, { recursive: true });
+
+      const repo = new RepoManager(gitDir, indexFile, workTree);
+      await repo.init();
+
+      await fs.writeFile(path.join(workTree, "a.txt"), "v1", "utf8");
+      const cp1 = await repo.checkpoint("entry-1");
+
+      vi.spyOn(repo, "diffAgainst").mockResolvedValue("M\t");
+      const result = await repo.safeCheckout(cp1, cp1);
+      expect(result).toEqual({
+        ok: false,
+        reason: "dirty",
+        message:
+          "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.",
+      });
     });
 
     test("fails closed when dirty guard cannot verify the base commit", async () => {

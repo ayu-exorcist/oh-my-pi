@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getStringField, isRecord } from "@ayulab/runtime-core";
+import { errorMessage, getStringField, isRecord } from "@ayulab/runtime-core";
 import { getCheckpointSessionsRoot, getRepoDir } from "./resolver";
 
 const STORAGE_COMPONENT_PATTERN = /^[A-Za-z0-9._-]+$/;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EBUSY", "EPERM"]);
+const WINDOWS_REMOVE_RETRY_CODES = new Set(["EBUSY", "EPERM", "ENOTEMPTY", "EFAULT"]);
+const REMOVE_RETRY_DELAY_MS = 75;
+const REMOVE_ATTEMPTS = 4;
 
 export interface CheckpointStorageManifest {
   readonly version: 1;
@@ -32,8 +35,10 @@ export type DeleteSessionCheckpointStorageResult =
         | "path-safety-failed"
         | "manifest-missing"
         | "storage-corrupt"
-        | "active-session";
+        | "active-session"
+        | "delete-failed";
       readonly message: string;
+      readonly error?: string;
     };
 
 interface ValidatedCheckpointStoragePath {
@@ -80,6 +85,12 @@ function isBusyRenameError(error: unknown): error is NodeJS.ErrnoException {
   return isRecord(error) && WINDOWS_RENAME_RETRY_CODES.has(String(error.code));
 }
 
+function isRetryableRemoveError(error: unknown): error is NodeJS.ErrnoException {
+  return process.platform === "win32" && isRecord(error)
+    ? WINDOWS_REMOVE_RETRY_CODES.has(String(error.code))
+    : false;
+}
+
 function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
   return isRecord(error) && error.code === "ENOENT";
 }
@@ -111,6 +122,60 @@ async function renameWithRetry(sourcePath: string, targetPath: string): Promise<
       await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
     }
   }
+}
+
+async function hasHealthyBareGitDir(gitDir: string): Promise<boolean> {
+  const requiredPaths = [
+    path.join(gitDir, "HEAD"),
+    path.join(gitDir, "config"),
+    path.join(gitDir, "objects"),
+    path.join(gitDir, "refs"),
+  ];
+
+  for (const requiredPath of requiredPaths) {
+    const exists = await fs
+      .access(requiredPath)
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) return false;
+  }
+
+  return true;
+}
+
+function toDeleteFailure(error: unknown): DeleteSessionCheckpointStorageResult {
+  return {
+    ok: false,
+    reason: "delete-failed",
+    message: `Failed to delete checkpoint storage: ${errorMessage(error)}`,
+    error: errorMessage(error),
+  };
+}
+
+async function removeDirectoryWithRetry(
+  targetPath: string,
+  force: boolean,
+): Promise<DeleteSessionCheckpointStorageResult> {
+  for (let attempt = 0; attempt < REMOVE_ATTEMPTS; attempt++) {
+    try {
+      await fs.rm(targetPath, {
+        recursive: true,
+        force,
+        maxRetries: process.platform === "win32" ? 2 : 0,
+        retryDelay: REMOVE_RETRY_DELAY_MS,
+      });
+      return { ok: true };
+    } catch (error) {
+      if (isNotFoundError(error)) return { ok: true };
+      if (isRetryableRemoveError(error) && attempt < REMOVE_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, REMOVE_RETRY_DELAY_MS * (attempt + 1)));
+        continue;
+      }
+      return toDeleteFailure(error);
+    }
+  }
+
+  return toDeleteFailure(new Error("delete retries exhausted"));
 }
 
 export async function readCheckpointStorageManifest(
@@ -196,24 +261,16 @@ export async function deleteSessionCheckpointStorage(
   }
 
   const gitDir = path.join(resolvedRepoDir, ".git");
-  const hasGitDir = await fs
-    .access(gitDir)
-    .then(() => true)
-    .catch(() => false);
-  if (!hasGitDir) {
+  const hasHealthyGitDir = await hasHealthyBareGitDir(gitDir);
+  if (!hasHealthyGitDir) {
     return {
       ok: false,
       reason: "storage-corrupt",
-      message: "Checkpoint storage is missing its bare git repository.",
+      message: "Checkpoint storage is missing required bare git files.",
     };
   }
 
-  try {
-    await fs.rm(resolvedRepoDir, { recursive: true, force: false });
-  } catch (error) {
-    if (!isNotFoundError(error)) throw error;
-  }
-  return { ok: true };
+  return removeDirectoryWithRetry(resolvedRepoDir, false);
 }
 
 export async function purgeSessionCheckpointStorage(
@@ -223,6 +280,5 @@ export async function purgeSessionCheckpointStorage(
   const validation = validateCheckpointStoragePath(repoDir, activeSessionFile);
   if (!validation.ok || !("resolvedRepoDir" in validation)) return validation;
 
-  await fs.rm(validation.resolvedRepoDir, { recursive: true, force: true });
-  return { ok: true };
+  return removeDirectoryWithRetry(validation.resolvedRepoDir, true);
 }

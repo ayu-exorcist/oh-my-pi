@@ -817,6 +817,27 @@ describe("registerRewind", () => {
     );
   });
 
+  test("accepts structured rewind repo resolution results", async () => {
+    const pi = createMockPi();
+    registerRewind(pi, () => ({ ok: false, message: "blocked", level: "error" }));
+    const handler = getRegisterCall(pi);
+    const entries = [
+      createEntry({
+        userEntryId: "entry-1",
+        beforeCommit: "abc",
+        afterCommit: "def",
+        fileCount: 1,
+      }),
+    ];
+    const ctx = createMockCtx(entries);
+    ctx.ui.select.mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)));
+    ctx.ui.select.mockResolvedValueOnce("Restore code");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("blocked", "error");
+  });
+
   test("warns when no checkpoints available", async () => {
     const pi = createMockPi();
     registerRewind(pi, () => createMockRepo());

@@ -287,7 +287,7 @@ describe("checkpoint command", () => {
     });
   });
 
-  test("surfaces delete failures through the selector callback", async () => {
+  test("surfaces safety delete failures through the selector callback", async () => {
     const live = createSession({
       id: "live-failure",
       path: path.join(tmpDir, "live-failure.jsonl"),
@@ -298,7 +298,11 @@ describe("checkpoint command", () => {
     sessionManagerList.mockResolvedValue([live]);
     sessionManagerListAll.mockResolvedValue([live]);
     listCheckpointStorageManifests.mockResolvedValue([]);
-    deleteSessionCheckpointStorage.mockResolvedValue({ ok: false, message: "blocked" });
+    deleteSessionCheckpointStorage.mockResolvedValue({
+      ok: false,
+      reason: "active-session",
+      message: "blocked",
+    });
 
     const { registerCheckpointStorageCommand } = await import("./checkpoint");
     const registerCommand = vi.fn();
@@ -314,6 +318,82 @@ describe("checkpoint command", () => {
       ok: false,
       message: "blocked",
     });
+    expect(purgeSessionCheckpointStorage).not.toHaveBeenCalled();
+  });
+
+  test("falls back to purge for corrupt checkpoint storage and catches thrown delete errors", async () => {
+    const live = createSession({
+      id: "live-corrupt",
+      path: path.join(tmpDir, "live-corrupt.jsonl"),
+      cwd: path.join(tmpDir, "project"),
+      firstMessage: "Corrupt storage",
+    });
+    await fs.mkdir(path.join(tmpDir, ".repos", "live-corrupt", ".git"), { recursive: true });
+    sessionManagerList.mockResolvedValue([live]);
+    sessionManagerListAll.mockResolvedValue([live]);
+    listCheckpointStorageManifests.mockResolvedValue([]);
+    deleteSessionCheckpointStorage.mockResolvedValueOnce({
+      ok: false,
+      reason: "storage-corrupt",
+      message: "corrupt",
+    });
+    purgeSessionCheckpointStorage.mockResolvedValueOnce({ ok: true });
+    deleteSessionCheckpointStorage.mockResolvedValueOnce({
+      ok: false,
+      reason: "storage-corrupt",
+      message: "corrupt again",
+    });
+    purgeSessionCheckpointStorage.mockResolvedValueOnce({ ok: false, message: "purge blocked" });
+    deleteSessionCheckpointStorage.mockRejectedValueOnce(new Error("kaboom"));
+
+    const { registerCheckpointStorageCommand } = await import("./checkpoint");
+    const registerCommand = vi.fn();
+    registerCheckpointStorageCommand({ registerCommand } as unknown as ExtensionAPI);
+    const handler = registerCommand.mock.calls[0]?.[1]?.handler;
+    if (!handler) throw new Error("expected checkpoint handler");
+
+    const ctx = createCtx(tmpDir, true);
+    await handler("", ctx);
+
+    const sessions = await selectorOptions!.currentLoader();
+    await expect(selectorOptions!.deleteStorage(sessions[0]!)).resolves.toEqual({ ok: true });
+    expect(purgeSessionCheckpointStorage).toHaveBeenCalledWith(
+      path.join(tmpDir, ".repos", "live-corrupt"),
+      path.join(tmpDir, "active.jsonl"),
+    );
+
+    await expect(selectorOptions!.deleteStorage(sessions[0]!)).resolves.toEqual({
+      ok: false,
+      message: "purge blocked",
+    });
+
+    await expect(selectorOptions!.deleteStorage(sessions[0]!)).resolves.toEqual({
+      ok: false,
+      message: "Checkpoint storage delete failed: kaboom",
+    });
+  });
+
+  test("surfaces orphan purge failures", async () => {
+    const orphan = {
+      ...createSession({
+        id: "orphan-failure",
+        path: path.join(tmpDir, "orphan-failure.jsonl"),
+        cwd: path.join(tmpDir, "project"),
+        firstMessage: "Orphan",
+      }),
+      checkpointRepoDir: path.join(tmpDir, ".repos", "orphan-failure"),
+      sourceSessionFile: undefined,
+      checkpointStatus: "no session" as const,
+    } satisfies CheckpointSelectorSession;
+    purgeSessionCheckpointStorage.mockResolvedValueOnce({ ok: false, message: "orphan blocked" });
+
+    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    await expect(
+      __checkpointCommandTestOnly.deleteCheckpointStorage(
+        orphan,
+        path.join(tmpDir, "active.jsonl"),
+      ),
+    ).resolves.toEqual({ ok: false, message: "orphan blocked" });
   });
 
   test("covers direct helper branches for checkpoint sessions", async () => {

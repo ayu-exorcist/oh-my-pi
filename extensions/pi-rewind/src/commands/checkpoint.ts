@@ -12,6 +12,7 @@ import {
   readCheckpointStorageManifest,
   writeCheckpointStorageManifest,
 } from "@ayulab/pi-checkpoint";
+import { errorMessage } from "@ayulab/runtime-core";
 import path from "node:path";
 import { access } from "node:fs/promises";
 import {
@@ -186,12 +187,36 @@ async function deleteCheckpointStorage(
     return { ok: false, message: "This session has no checkpoint storage to delete" };
   }
 
-  const result =
-    selected.checkpointStatus === "no session"
-      ? await purgeSessionCheckpointStorage(selected.checkpointRepoDir, activeSessionFile)
-      : await deleteSessionCheckpointStorage(selected.checkpointRepoDir, activeSessionFile);
+  try {
+    if (selected.checkpointStatus === "no session") {
+      const orphanResult = await purgeSessionCheckpointStorage(
+        selected.checkpointRepoDir,
+        activeSessionFile,
+      );
+      return orphanResult.ok ? { ok: true } : { ok: false, message: orphanResult.message };
+    }
 
-  return result.ok ? { ok: true } : { ok: false, message: result.message };
+    const result = await deleteSessionCheckpointStorage(
+      selected.checkpointRepoDir,
+      activeSessionFile,
+    );
+    if (result.ok) return { ok: true };
+
+    if (result.reason === "active-session" || result.reason === "path-safety-failed") {
+      return { ok: false, message: result.message };
+    }
+
+    const purgeResult = await purgeSessionCheckpointStorage(
+      selected.checkpointRepoDir,
+      activeSessionFile,
+    );
+    return purgeResult.ok ? { ok: true } : { ok: false, message: purgeResult.message };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Checkpoint storage delete failed: ${errorMessage(error)}`,
+    };
+  }
 }
 
 async function openCheckpointSelector(ctx: ExtensionCommandContext): Promise<void> {

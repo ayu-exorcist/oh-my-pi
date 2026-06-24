@@ -188,6 +188,32 @@ describe("Session Checkpoint Storage", () => {
     );
   });
 
+  test("safeCloneSessionCheckpointStorage reports missing source and existing destination", async () => {
+    const withRepoLock = vi
+      .spyOn(lock, "withRepoLock")
+      .mockImplementation(async (_repoDir, fn) => fn());
+
+    const missingSource = await safeCloneSessionCheckpointStorage({
+      previousSessionFile: path.join(tmpDir, ".pi", "agent", "sessions", "missing-safe.jsonl"),
+      sessionFile: path.join(tmpDir, ".pi", "agent", "sessions", "safe-fork-a.jsonl"),
+      cwd: tmpDir,
+    });
+    expect(missingSource).toEqual({ ok: false, reason: "source-not-found" });
+
+    const sourceSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "safe-source-b.jsonl");
+    const forkSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "safe-fork-b.jsonl");
+    await fs.mkdir(getGitDir(getRepoDir(sourceSessionFile)), { recursive: true });
+    await fs.mkdir(getGitDir(getRepoDir(forkSessionFile)), { recursive: true });
+
+    const destinationExists = await safeCloneSessionCheckpointStorage({
+      previousSessionFile: sourceSessionFile,
+      sessionFile: forkSessionFile,
+      cwd: tmpDir,
+    });
+    expect(destinationExists).toEqual({ ok: false, reason: "destination-exists" });
+    expect(withRepoLock).toHaveBeenCalled();
+  });
+
   test("safeCloneSessionCheckpointStorage writes exclude before checkout", async () => {
     const sourceSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "source.jsonl");
     const forkSessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "fork.jsonl");
@@ -235,5 +261,26 @@ describe("Session Checkpoint Storage", () => {
     expect(result.repoDir).toBe(repoDir);
     expect(init).not.toHaveBeenCalled();
     expect(setExclude).toHaveBeenCalledWith(["node_modules/**"]);
+  });
+
+  test("safeEnsureSessionCheckpointStorage reuses existing storage without init", async () => {
+    const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "existing-safe.jsonl");
+    await fs.mkdir(getGitDir(getRepoDir(sessionFile)), { recursive: true });
+    const withRepoLock = vi
+      .spyOn(lock, "withRepoLock")
+      .mockImplementation(async (_repoDir, fn) => fn());
+    const init = vi.spyOn(RepoManager.prototype, "init").mockResolvedValue(undefined);
+    const setExclude = vi.spyOn(RepoManager.prototype, "setExclude").mockResolvedValue(undefined);
+
+    const result = await safeEnsureSessionCheckpointStorage({
+      sessionFile,
+      cwd: tmpDir,
+      exclude: ["dist/**"],
+    });
+
+    expect(result.repoDir).toBe(getRepoDir(sessionFile));
+    expect(withRepoLock).toHaveBeenCalled();
+    expect(init).not.toHaveBeenCalled();
+    expect(setExclude).toHaveBeenCalledWith(["dist/**"]);
   });
 });

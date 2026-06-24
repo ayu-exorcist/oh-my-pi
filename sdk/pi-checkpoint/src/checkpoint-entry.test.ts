@@ -1,5 +1,7 @@
 import { describe, test, expect } from "vitest";
 import {
+  extractCheckpointData,
+  getCheckpointEntries,
   isCheckpointEntry,
   filterCheckpointEntries,
   type CheckpointEntry,
@@ -108,7 +110,53 @@ describe("isCheckpointEntry", () => {
   });
 });
 
-describe("filterCheckpointEntries", () => {
+describe("extractCheckpointData and filterCheckpointEntries", () => {
+  test("extracts checkpoint custom entry payloads and ignores unrelated entries", () => {
+    const valid: CheckpointEntry = {
+      v: 2,
+      kind: "checkpoint",
+      turnId: "t1",
+      userEntryId: "e1",
+      beforeCommit: "abc",
+      afterCommit: "def",
+      prompt: "p1",
+      fileCount: 0,
+      fileChanges: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    expect(
+      extractCheckpointData([
+        { type: "custom", customType: "pi-checkpoint", data: valid },
+        { type: "custom", customType: "other", data: "skip" },
+        { type: "message", customType: "pi-checkpoint", data: "skip" },
+        "bad",
+      ]),
+    ).toEqual([valid]);
+  });
+
+  test("getCheckpointEntries combines raw extraction and validation", () => {
+    const valid: CheckpointEntry = {
+      v: 2,
+      kind: "checkpoint",
+      turnId: "t2",
+      userEntryId: "e2",
+      beforeCommit: "ghi",
+      afterCommit: "jkl",
+      prompt: "p2",
+      fileCount: 0,
+      fileChanges: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    expect(
+      getCheckpointEntries([
+        { type: "custom", customType: "pi-checkpoint", data: valid },
+        { type: "custom", customType: "pi-checkpoint", data: { v: 1 } },
+      ]),
+    ).toEqual([valid]);
+  });
+
   test("filters valid entries and discards invalid ones", () => {
     const valid: CheckpointEntry = {
       v: 2,

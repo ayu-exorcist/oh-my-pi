@@ -147,6 +147,18 @@ describe("createMockRepo", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  test("default safeCheckout returns safetyHash on success when safety commit is created", async () => {
+    const repo = createMockRepo({
+      createSafetyCommit: vi.fn().mockResolvedValue("safety-hash"),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(repo.safeCheckout("target")).resolves.toEqual({
+      ok: true,
+      safetyHash: "safety-hash",
+    });
+  });
+
   test("default safeCheckout reports non-Error checkout and rollback failure", async () => {
     const repo = createMockRepo({
       stageAll: vi.fn().mockResolvedValue(undefined),
@@ -195,6 +207,55 @@ describe("createMockRepo", () => {
       reason: "preflight-failed",
       message: "Failed to create a safety checkpoint before restore.",
       error: "safety failed",
+    });
+  });
+
+  test("default safeCheckout preserves Error messages across failure branches", async () => {
+    const dirtyCheckRepo = createMockRepo({
+      stageAll: vi.fn().mockRejectedValue(new Error("stage boom")),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+    await expect(dirtyCheckRepo.safeCheckout("target", "base")).resolves.toEqual({
+      ok: false,
+      reason: "dirty-check-failed",
+      message: "Could not verify the workspace is clean against the checkpoint base.",
+      error: "stage boom",
+    });
+
+    const preflightRepo = createMockRepo({
+      createSafetyCommit: vi.fn().mockRejectedValue(new Error("preflight boom")),
+      checkoutCommit: vi.fn().mockResolvedValue(undefined),
+    });
+    await expect(preflightRepo.safeCheckout("target")).resolves.toEqual({
+      ok: false,
+      reason: "preflight-failed",
+      message: "Failed to create a safety checkpoint before restore.",
+      error: "preflight boom",
+    });
+
+    const checkoutRepo = createMockRepo({
+      createSafetyCommit: vi.fn().mockResolvedValue("safety"),
+      checkoutCommit: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("checkout boom"))
+        .mockRejectedValueOnce(new Error("rollback boom")),
+    });
+    await expect(checkoutRepo.safeCheckout("target")).resolves.toEqual({
+      ok: false,
+      reason: "rollback-failed",
+      message: "Checkpoint restore failed and rollback could not recover the previous state.",
+      error: "checkout boom",
+      rollbackError: "rollback boom",
+    });
+
+    const checkoutOnlyRepo = createMockRepo({
+      checkoutCommit: vi.fn().mockRejectedValue(new Error("checkout only boom")),
+    });
+    await expect(checkoutOnlyRepo.safeCheckout("target")).resolves.toEqual({
+      ok: false,
+      reason: "checkout-failed",
+      message: "Checkpoint restore failed.",
+      error: "checkout only boom",
     });
   });
 });

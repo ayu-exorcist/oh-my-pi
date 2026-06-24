@@ -96,7 +96,9 @@ export type SafeCheckoutResult =
 function formatDirtyPaths(diffStdout: string): string | undefined {
   const paths = diffStdout
     .split(/\r?\n/)
-    .map((line) => line.split("\t").at(-1)?.trim() ?? "")
+    .map((line) =>
+      line.includes("\t") ? line.slice(line.lastIndexOf("\t") + 1).trim() : line.trim(),
+    )
     .filter((entry) => entry.length > 0);
   if (paths.length === 0) return undefined;
 

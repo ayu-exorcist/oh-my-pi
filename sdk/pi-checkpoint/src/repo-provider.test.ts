@@ -58,4 +58,21 @@ describe("repo provider", () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  test("bindSessionRepo ensures and binds storage when exclude patterns are provided", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "repo-provider-test-"));
+    try {
+      const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "ensure.jsonl");
+      const provider = createDefaultRepoProvider();
+
+      const repo = await bindSessionRepo("session-ensure", sessionFile, tmpDir, provider, {
+        exclude: ["node_modules/**"],
+      });
+
+      expect(repo).toBeDefined();
+      expect(provider.getRepo("session-ensure")).toBe(repo);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

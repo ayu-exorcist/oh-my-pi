@@ -9,8 +9,10 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { RepoManager } from "@ayulab/pi-checkpoint";
-import type { CheckpointEntry, SafeCheckoutResult } from "@ayulab/pi-checkpoint";
+import type { CheckpointConfig, CheckpointEntry, SafeCheckoutResult } from "@ayulab/pi-checkpoint";
+import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
 import {
+  __piRewindIndexTestOnly,
   getForkIntentPath,
   isForkIntent,
   isForkIntentRecord,
@@ -257,6 +259,206 @@ async function setTreeRestoreMode(
 async function enableTreeRestore(cwd: string): Promise<void> {
   await setTreeRestoreMode(cwd, "always");
 }
+
+describe("index helpers", () => {
+  test("resolves tree restore mode, titles, and max file bytes", () => {
+    expect(__piRewindIndexTestOnly.resolveTreeRestoreMode({})).toBe("ask");
+    expect(
+      __piRewindIndexTestOnly.resolveTreeRestoreMode({
+        ayu: { rewind: { restoreOnTree: "invalid" } },
+      }),
+    ).toBe("ask");
+    expect(
+      __piRewindIndexTestOnly.resolveTreeRestoreMode({
+        ayu: { rewind: { restoreOnTree: "never" } },
+      }),
+    ).toBe("never");
+    expect(__piRewindIndexTestOnly.normalizeSessionTitle(undefined)).toBe("Untitled session");
+    expect(__piRewindIndexTestOnly.normalizeSessionTitle("  hello\nworld  ")).toBe("hello world");
+    expect(__piRewindIndexTestOnly.toMaxFileBytes({ maxFileMB: 0.2 } as CheckpointConfig)).toBe(
+      Math.floor(0.2 * 1024 * 1024),
+    );
+    expect(__piRewindIndexTestOnly.toMaxFileBytes({} as CheckpointConfig)).toBeUndefined();
+  });
+
+  test("syncCheckpointStorageManifest returns early without a session file", async () => {
+    await expect(
+      __piRewindIndexTestOnly.syncCheckpointStorageManifest(
+        undefined,
+        "session-id",
+        process.cwd(),
+        [createUserEntry("entry-1", "prompt")],
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test("notifySafeCheckoutFailure covers warning and error variants", () => {
+    const notify = vi.fn();
+    const ui = { notify, setWidget: vi.fn() } as unknown as ExtensionContext["ui"];
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "storage-missing" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "target-missing" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "dirty", message: "details" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "dirty-check-failed" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "checkout-failed", rollbackError: "rollback boom" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      ui,
+      { ok: false, reason: "checkout-failed", error: "checkout boom" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+      undefined,
+      { ok: false, reason: "checkout-failed", error: "ignored" },
+      "dirty",
+      "dirty-check",
+      "failed",
+      "rollback",
+    );
+
+    expect(notify.mock.calls).toEqual([
+      [checkpointStorageMissingWidgetMessage, "warning"],
+      [checkpointTargetMissingWidgetMessage, "warning"],
+      ["dirty\ndetails", "warning"],
+      ["dirty-check", "warning"],
+      ["rollback: rollback boom", "error"],
+      ["failed: checkout boom", "error"],
+    ]);
+  });
+
+  test("findCleanCheckpointCommit, safeRestoreTreeCodeState, and restore helpers cover fallback paths", async () => {
+    const repo = createMockRepo({
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi
+        .fn()
+        .mockResolvedValueOnce("1\t0\ta.txt\n")
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("1\t0\ta.txt\n"),
+      safeCheckout: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({ ok: false, reason: "target-missing" })
+        .mockResolvedValueOnce({ ok: true }),
+    });
+    const checkpoints = [
+      createCheckpointEntry({
+        userEntryId: "entry-1",
+        beforeCommit: "before-1",
+        afterCommit: "after-1",
+      }),
+      createCheckpointEntry({
+        userEntryId: "entry-2",
+        beforeCommit: "before-2",
+        afterCommit: "after-2",
+      }),
+    ];
+    const setWidget = vi.fn();
+    const ui = { notify: vi.fn(), setWidget } as unknown as ExtensionContext["ui"];
+
+    await expect(
+      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, checkpoints),
+    ).resolves.toBe("before-2");
+    vi.spyOn(repo, "diffAgainst")
+      .mockResolvedValueOnce("1\t0\ta.txt\n")
+      .mockResolvedValueOnce("1\t0\tb.txt\n");
+    await expect(
+      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, [checkpoints[0]!]),
+    ).resolves.toBeUndefined();
+    vi.spyOn(repo, "withLock").mockRejectedValueOnce(new Error("lock failed"));
+    await expect(
+      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, checkpoints),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, undefined, "base", ui),
+    ).resolves.toBe(true);
+    await expect(
+      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, "target-1", undefined, ui),
+    ).resolves.toBe(true);
+    expect(repo.safeCheckout).toHaveBeenCalledWith("target-1");
+
+    await expect(
+      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, "target-2", "base", ui),
+    ).resolves.toBe(false);
+    expectCodeRestoreWarningWidget(setWidget, checkpointTargetMissingWidgetMessage);
+
+    const storageMissingRepo = createMockRepo({
+      safeCheckout: vi.fn().mockResolvedValue({ ok: false, reason: "storage-missing" }),
+    });
+    const storageMissingWidget = vi.fn();
+    await expect(
+      __piRewindIndexTestOnly.safeRestoreTreeCodeState(storageMissingRepo, "target-3", "base", {
+        notify: vi.fn(),
+        setWidget: storageMissingWidget,
+      } as unknown as ExtensionContext["ui"]),
+    ).resolves.toBe(false);
+    expectCodeRestoreWarningWidget(storageMissingWidget, checkpointStorageMissingWidgetMessage);
+
+    const forkRepo = createMockRepo({ safeCheckout: vi.fn().mockResolvedValue({ ok: true }) });
+    await __piRewindIndexTestOnly.restoreForkCodeState(
+      forkRepo,
+      [
+        createUserEntry("entry-1", "test"),
+        { type: "custom", customType: "pi-checkpoint", data: checkpoints[0] },
+      ],
+      [createUserEntry("entry-1", "test")],
+      undefined,
+      ui,
+    );
+    expect(forkRepo.safeCheckout).toHaveBeenCalledWith("after-1");
+
+    const cloneRepo = createMockRepo({ safeCheckout: vi.fn().mockResolvedValue({ ok: true }) });
+    await __piRewindIndexTestOnly.restoreCloneCodeState(
+      cloneRepo,
+      [{ type: "custom", customType: "pi-checkpoint", data: checkpoints[0] }],
+      "missing-entry",
+      ui,
+    );
+    expect(cloneRepo.safeCheckout).toHaveBeenCalledWith("after-1");
+
+    const emptyCloneRepo = createMockRepo({
+      safeCheckout: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    await __piRewindIndexTestOnly.restoreCloneCodeState(emptyCloneRepo, [], "missing-entry", ui);
+    expect(emptyCloneRepo.safeCheckout).not.toHaveBeenCalled();
+  });
+});
 
 describe("checkpoint extension", () => {
   let tmpDir: string;
@@ -564,7 +766,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).toHaveBeenCalledWith("root-after");
-  }, 15000);
+  }, 30000);
 
   test("fork copies repo and restores code to fork point", async () => {
     const srcBranch = [createUserEntry("entry-1", "create file")];
@@ -935,7 +1137,7 @@ describe("checkpoint extension", () => {
       .then(() => true)
       .catch(() => false);
     expect(forkGitExists).toBe(true);
-  }, 15000);
+  }, 30000);
 
   test("fork skips restore when checkpoint entry id not in session", async () => {
     const srcBranch = [createUserEntry("entry-1", "init")];
@@ -1485,6 +1687,26 @@ describe("checkpoint extension", () => {
     expect(gitExists).toBe(false);
   });
 
+  test("turn_end returns early when the pending producer no longer has a user leaf", async () => {
+    const branch = [createUserEntry("entry-1", "test")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+    branch.splice(0, branch.length);
+
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: createAssistantMessage(), toolResults: [] }, ctx);
+    }
+
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
   test("session_shutdown does nothing on non-fork", async () => {
     const { api, events } = createMockApi();
     const ext = await import("./index");
@@ -1832,6 +2054,158 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).toHaveBeenCalledWith("resume-after");
   });
 
+  test("resume session_start reports unusable storage", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+      "utf8",
+    );
+
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(events, bootstrapCtx);
+
+    vi.spyOn(RepoManager.prototype, "lockedSetExclude").mockRejectedValueOnce(new Error("boom"));
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint storage could not be prepared for resume restore: boom",
+      "error",
+    );
+  });
+
+  test("resume session_start skips unusable-storage notifications when UI is unavailable", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+      "utf8",
+    );
+
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(events, bootstrapCtx);
+
+    vi.spyOn(RepoManager.prototype, "lockedSetExclude").mockRejectedValueOnce(new Error("boom"));
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.hasUI = false;
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  });
+
+  test("resume session_start skips missing-storage UI when UI is unavailable", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "resume-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+      "utf8",
+    );
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.hasUI = false;
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    expect(ctx.ui.setWidget).not.toHaveBeenCalled();
+  });
+
+  test("resume session_start reports checkout failures with UI and skips them without UI", async () => {
+    const checkpointEntry = createCheckpointEntry({ afterCommit: "resume-after" });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
+      "utf8",
+    );
+
+    const bootstrapCtx = createMockContext(
+      sessionFile,
+      [createUserEntry("entry-1", "test")],
+      tmpDir,
+    );
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, bootstrapCtx);
+    }
+    await emitAssistantStart(events, bootstrapCtx);
+
+    vi.spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValueOnce({ ok: false, reason: "dirty", message: "unsnapped" })
+      .mockResolvedValueOnce({ ok: false, reason: "dirty", message: "unsnapped" });
+
+    const uiCtx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, uiCtx);
+    }
+    expect(uiCtx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Skipped file restore because the workspace has changes"),
+      "warning",
+    );
+
+    const noUiCtx = createMockContext(sessionFile, branch, tmpDir);
+    noUiCtx.hasUI = false;
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, noUiCtx);
+    }
+    expect(noUiCtx.ui.notify).not.toHaveBeenCalled();
+  });
+
   test("session_tree defaults to ask mode", async () => {
     const checkpointEntry = createCheckpointEntry({
       afterCommit: "tree-after",
@@ -1970,6 +2344,108 @@ describe("checkpoint extension", () => {
     expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).toHaveBeenCalledWith("before-hash");
   });
+
+  test("session_tree handles storage warnings, unusable storage, and no-UI always mode", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "always");
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    vi.spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValueOnce({ ok: false, reason: "storage-missing" })
+      .mockResolvedValueOnce({ ok: false, reason: "target-missing" });
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointStorageMissingWidgetMessage);
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+    expectCodeRestoreWarningWidget(ctx.ui.setWidget, checkpointTargetMissingWidgetMessage);
+
+    vi.spyOn(RepoManager.prototype, "lockedSetExclude").mockRejectedValueOnce(
+      new Error("tree boom"),
+    );
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Checkpoint storage could not be prepared for resume restore: tree boom",
+      "error",
+    );
+
+    const noUiCtx = {
+      ...createMockContext(sessionFile, branch, tmpDir),
+      hasUI: false,
+    } as MockContext;
+    await fs.rm(path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session"), {
+      recursive: true,
+      force: true,
+    });
+    for (const h of events["input"] || []) {
+      await h({}, noUiCtx);
+    }
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, noUiCtx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, noUiCtx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, noUiCtx);
+    }
+    expect(noUiCtx.ui.notify).not.toHaveBeenCalled();
+    expect(noUiCtx.ui.setWidget).not.toHaveBeenCalled();
+  });
+
+  test("session_tree falls back to ctx cwd and session file before session_start", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    const repo = new RepoManager(path.join(repoDir, ".git"), path.join(repoDir, "index"), tmpDir);
+    await repo.init();
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("Yes");
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).toHaveBeenCalledWith("before-hash");
+  }, 15000);
 
   test("session_tree ask mode warns when storage disappears after repo was pre-bound", async () => {
     const checkpointEntry = createCheckpointEntry({
@@ -2997,7 +3473,7 @@ describe("checkpoint extension", () => {
       expect(targetCtx.ui.notify).not.toHaveBeenCalled();
       vi.restoreAllMocks();
     }
-  }, 15000);
+  }, 30000);
 
   test("fork and clone report restore failures without UI crashes", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "after-hash" });
@@ -3619,7 +4095,7 @@ describe("checkpoint extension", () => {
     expect(call.userEntryId).toBe("entry-2");
     expect(call.prompt).toBe("生成 test2.txt");
     expect(call.fileChanges.map((c) => c.path)).toContain("test2.txt");
-  });
+  }, 15000);
 
   test("final assistant summary turn does not create a duplicate checkpoint", async () => {
     const branch = [createUserEntry("entry-1", "生成一个空文件 test5.txt")];

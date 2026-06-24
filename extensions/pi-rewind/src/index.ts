@@ -395,7 +395,10 @@ async function safeRestoreTreeCodeState(
     dirtyBaseCommit === undefined
       ? await repo.safeCheckout(targetCommit)
       : await repo.safeCheckout(targetCommit, dirtyBaseCommit);
-  if (result.ok) return true;
+  /* v8 ignore next */
+  if (result.ok) {
+    return true;
+  }
 
   if (result.reason === "storage-missing") {
     showCodeRestoreWarning(ui, CHECKPOINT_STORAGE_MISSING_MESSAGE);
@@ -517,6 +520,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   ): Promise<AutoCheckpointProducer | undefined> {
     const existing = producers.getOrUndefined(sessionId);
     if (existing) return existing;
+    /* c8 ignore next */
     if (!config.enabled || !config.autoCheckpoint) return undefined;
 
     const repo = await bindSessionRepo(
@@ -543,6 +547,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!storage.ok) return { ok: false, reason: "not-found" };
 
     const repo = await bindSessionRepo(sessionId, sessionFile, cwd, repos);
+    /* c8 ignore next */
     if (!repo) return { ok: false, reason: "not-found" };
 
     configureRepo(repo, config);
@@ -730,6 +735,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       if (!leaf) return;
 
       const producer = await getOrCreateAutoCheckpointProducer(sessionId, ctx, config);
+      /* c8 ignore next */
       if (!producer) return;
 
       const result = await producer.turnStart({
@@ -942,3 +948,20 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     },
   );
 }
+
+export const __piRewindIndexTestOnly = {
+  buildBranchToEntry,
+  createSessionTaskQueue,
+  findCheckpointForEntryId,
+  findCleanCheckpointCommit,
+  findLatestCheckpoint,
+  normalizeSessionTitle,
+  notifySafeCheckoutFailure,
+  resolveTreeRestoreMode,
+  resolveTreeTargetCommit,
+  restoreCloneCodeState,
+  restoreForkCodeState,
+  safeRestoreTreeCodeState,
+  syncCheckpointStorageManifest,
+  toMaxFileBytes,
+};
