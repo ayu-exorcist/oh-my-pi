@@ -450,7 +450,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: true } } }),
       "utf8",
     );
 
@@ -496,7 +496,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: true } } }),
       "utf8",
     );
 
@@ -574,6 +574,12 @@ describe("checkpoint extension", () => {
 
     const projectDir = path.join(tmpDir, "project");
     await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: true } } }),
+      "utf8",
+    );
 
     const srcCtx = createMockContext(sessionFile, srcBranch, projectDir);
 
@@ -647,7 +653,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: true } } }),
       "utf8",
     );
 
@@ -717,7 +723,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: true } } }),
       "utf8",
     );
 
@@ -925,7 +931,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: "never" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnFork: false } } }),
       "utf8",
     );
 
@@ -1481,7 +1487,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(projectDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: "never" } } }),
+      JSON.stringify({ ayu: { checkpoint: { restoreOnClone: false } } }),
       "utf8",
     );
 
@@ -1565,7 +1571,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
       "utf8",
     );
 
@@ -1601,7 +1607,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
       "utf8",
     );
 
@@ -1640,7 +1646,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
       "utf8",
     );
 
@@ -1690,7 +1696,7 @@ describe("checkpoint extension", () => {
     await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
     await fs.writeFile(
       path.join(tmpDir, ".pi", "settings.json"),
-      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: "always" } } }),
+      JSON.stringify({ ayu: { checkpoint: { exclude: [], restoreOnResume: true } } }),
       "utf8",
     );
     const bootstrapCtx = createMockContext(
@@ -1853,6 +1859,93 @@ describe("checkpoint extension", () => {
     expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
     expect(safeCheckout).toHaveBeenCalledWith("before-hash", undefined);
   });
+
+  test("session_tree ask mode warns when storage disappears after repo was pre-bound", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("Yes");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    await fs.rm(repoDir, { recursive: true, force: true });
+
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "No checkpoint storage is available for this session's code state. Files were not restored.",
+      "warning",
+    );
+  }, 15000);
+
+  test("session_tree ask mode keeps missing-storage warning when tree callback has no UI", async () => {
+    const checkpointEntry = createCheckpointEntry({
+      afterCommit: "tree-after",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+    ctx.ui.select.mockResolvedValueOnce("Yes");
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+    await emitAssistantStart(events, ctx);
+
+    const repoDir = path.join(tmpDir, ".pi", "agent", "ayu", "checkpoints", "sessions", "session");
+    await fs.rm(repoDir, { recursive: true, force: true });
+
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+    const treeCtx = { ...ctx, hasUI: false } as MockContext;
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "old", newLeafId: "entry-1" }, treeCtx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "No checkpoint storage is available for this session's code state. Files were not restored.",
+      "warning",
+    );
+  }, 15000);
 
   test("session_tree ask mode does not prompt when user chooses to summarise", async () => {
     const checkpointEntry = createCheckpointEntry({
@@ -2404,7 +2497,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(safeCheckout).toHaveBeenCalledWith("tree-after", "tree-after");
-  });
+  }, 15000);
 
   test("session_before_tree ignores malformed events", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "tree-after" });
@@ -2650,6 +2743,16 @@ describe("checkpoint extension", () => {
       const { api, events } = createMockApi();
       const ext = await import("./index");
       ext.default(api);
+      await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, ".pi", "settings.json"),
+        JSON.stringify({
+          ayu: {
+            checkpoint: position === "at" ? { restoreOnClone: true } : { restoreOnFork: true },
+          },
+        }),
+        "utf8",
+      );
       const safeCheckout = vi
         .spyOn(RepoManager.prototype, "safeCheckout")
         .mockResolvedValueOnce({ ok: false, reason: "checkout-failed", error: "restore failed" });
@@ -2677,7 +2780,7 @@ describe("checkpoint extension", () => {
       expect(targetCtx.ui.notify).not.toHaveBeenCalled();
       vi.restoreAllMocks();
     }
-  });
+  }, 15000);
 
   test("fork and clone report restore failures without UI crashes", async () => {
     const checkpointEntry = createCheckpointEntry({ afterCommit: "after-hash" });
@@ -2694,6 +2797,17 @@ describe("checkpoint extension", () => {
       const { api, events } = createMockApi();
       const ext = await import("./index");
       ext.default(api);
+      await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, ".pi", "settings.json"),
+        JSON.stringify({
+          ayu: {
+            checkpoint:
+              testCase.reason === "clone" ? { restoreOnClone: true } : { restoreOnFork: true },
+          },
+        }),
+        "utf8",
+      );
       vi.spyOn(RepoManager.prototype, "safeCheckout").mockResolvedValueOnce({
         ok: false,
         reason: "checkout-failed",

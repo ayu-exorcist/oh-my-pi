@@ -174,9 +174,10 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
     "checkpoint": {
       "enabled": true,
       "autoCheckpoint": true,
-      "restoreOnFork": "always",
-      "restoreOnClone": "always",
-      "restoreOnResume": "never",
+      "restoreOnFork": false,
+      "restoreOnClone": false,
+      "restoreOnResume": false,
+      "restoreOnTree": false,
       "defaultSummaryInstructions": "",
       "exclude": ["tmp/generated/**"],
       "include": ["tmp/generated/keep-me.txt"],
@@ -191,7 +192,7 @@ Via `.pi/settings.json` or `~/.pi/agent/settings.json`. Checkpoint engine settin
 
 For example, keep shared checkpoint defaults in `~/.pi/agent/settings.json` and override only the fields you need in `.pi/settings.json`.
 
-The SDK config type accepts `"always"` and `"never"` for fork, clone, and resume restore settings. `restoreOnTree` separately accepts `"always"`, `"ask"`, and `"never"`. `restoreOnResume` defaults to `"never"`; fork and clone still default to `"always"`.
+The SDK config type accepts booleans for checkpoint restore settings. `restoreOnFork`, `restoreOnClone`, `restoreOnResume`, and `restoreOnTree` all default to `false`. Product-level `/tree` policy such as `"always" | "ask" | "never"` lives in `ayu.rewind.restoreOnTree`.
 
 ### Exclude behavior
 

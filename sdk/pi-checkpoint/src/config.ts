@@ -6,28 +6,12 @@ import {
   getRecordField,
   getStringField,
   isRecord,
-  isString,
   isStringArray,
 } from "@ayulab/runtime-core";
 import type { CheckpointConfig } from "./types";
 
-/**
- * Valid values for restore-behavior settings.
- *
- * Using `as const` produces a true literal union so the compiler
- * knows every possible value at the type level (skill: const assertions).
- */
-const RESTORE_OPTIONS = ["always", "never"] as const;
-const TREE_RESTORE_OPTIONS = ["always", "ask", "never"] as const;
-type RestoreOption = (typeof RESTORE_OPTIONS)[number];
-type TreeRestoreOption = (typeof TREE_RESTORE_OPTIONS)[number];
-
-function isRestoreOption(value: unknown): value is RestoreOption {
-  return isString(value) && RESTORE_OPTIONS.some((v) => v === value);
-}
-
-function isTreeRestoreOption(value: unknown): value is TreeRestoreOption {
-  return isString(value) && TREE_RESTORE_OPTIONS.some((v) => v === value);
+function resolveRestoreFlag(record: Record<string, unknown>, key: string): boolean | undefined {
+  return getBooleanField(record, key);
 }
 
 const DEFAULT_EXCLUDE_PATTERNS = [
@@ -103,10 +87,10 @@ function resolveMaxFileMB(value: unknown): number | undefined {
 export const defaultConfig: CheckpointConfig = {
   enabled: true,
   autoCheckpoint: true,
-  restoreOnFork: "always",
-  restoreOnClone: "always",
-  restoreOnResume: "never",
-  restoreOnTree: "never",
+  restoreOnFork: false,
+  restoreOnClone: false,
+  restoreOnResume: false,
+  restoreOnTree: false,
   defaultSummaryInstructions: "",
   exclude: [...DEFAULT_EXCLUDE_PATTERNS],
   include: [],
@@ -122,25 +106,18 @@ export const defaultConfig: CheckpointConfig = {
 export function loadConfig(settings: Record<string, unknown>): CheckpointConfig {
   const ayu = getRecordField(settings, "ayu") ?? {};
   const checkpoint = getRecordField(ayu, "checkpoint") ?? {};
-  const rewind = getRecordField(ayu, "rewind") ?? {};
   const userExclude = isStringArray(checkpoint.exclude) ? checkpoint.exclude : [];
   const userInclude = isStringArray(checkpoint.include) ? checkpoint.include : [];
 
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,
     autoCheckpoint: getBooleanField(checkpoint, "autoCheckpoint") ?? defaultConfig.autoCheckpoint,
-    restoreOnFork: isRestoreOption(checkpoint.restoreOnFork)
-      ? checkpoint.restoreOnFork
-      : defaultConfig.restoreOnFork,
-    restoreOnClone: isRestoreOption(checkpoint.restoreOnClone)
-      ? checkpoint.restoreOnClone
-      : defaultConfig.restoreOnClone,
-    restoreOnResume: isRestoreOption(checkpoint.restoreOnResume)
-      ? checkpoint.restoreOnResume
-      : defaultConfig.restoreOnResume,
-    restoreOnTree: isTreeRestoreOption(rewind.restoreOnTree)
-      ? rewind.restoreOnTree
-      : defaultConfig.restoreOnTree,
+    restoreOnFork: resolveRestoreFlag(checkpoint, "restoreOnFork") ?? defaultConfig.restoreOnFork,
+    restoreOnClone:
+      resolveRestoreFlag(checkpoint, "restoreOnClone") ?? defaultConfig.restoreOnClone,
+    restoreOnResume:
+      resolveRestoreFlag(checkpoint, "restoreOnResume") ?? defaultConfig.restoreOnResume,
+    restoreOnTree: resolveRestoreFlag(checkpoint, "restoreOnTree") ?? defaultConfig.restoreOnTree,
     defaultSummaryInstructions:
       getStringField(checkpoint, "defaultSummaryInstructions") ??
       defaultConfig.defaultSummaryInstructions,

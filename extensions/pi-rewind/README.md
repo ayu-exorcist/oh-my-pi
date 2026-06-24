@@ -92,8 +92,8 @@ Select mode: 1
 Default behavior in phase 1:
 
 - `/tree` keeps Pi's native conversation-only behavior unless `ayu.rewind.restoreOnTree` is `ask` or `always`
-- `ayu.checkpoint.restoreOnResume` defaults to `"never"`, so resume does not modify files unless you opt in
-- `ayu.checkpoint.restoreOnFork` and `ayu.checkpoint.restoreOnClone` default to `"always"`
+- `ayu.checkpoint.restoreOnResume` defaults to `false`, so resume does not modify files unless you opt in
+- `ayu.checkpoint.restoreOnFork` and `ayu.checkpoint.restoreOnClone` default to `false`
 - `/rewind` restores the selected turn's `beforeCommit`
 - File restore failures are reported without silently proceeding; when conversation navigation is part of the action, it can still continue even if file restore fails, and rollback failure is surfaced explicitly
 
@@ -139,7 +139,9 @@ Supported values:
 {
   "ayu": {
     "checkpoint": {
-      "restoreOnResume": "never",
+      "restoreOnResume": false,
+      "restoreOnFork": false,
+      "restoreOnClone": false,
       "exclude": ["tmp/generated/**"],
       "include": ["tmp/generated/keep-me.txt"],
       "maxFileMB": 25

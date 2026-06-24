@@ -15,6 +15,7 @@ import {
   getCheckpointEntries,
   readCheckpointStorageManifest,
   writeCheckpointStorageManifest,
+  resolveSessionCheckpointStorage,
 } from "@ayulab/pi-checkpoint";
 import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
@@ -31,6 +32,8 @@ import {
   toTreeEntryRecords,
   type TreeEntryRecord,
 } from "./utils/tree-entry";
+
+type TreeRestoreMode = "always" | "ask" | "never";
 
 function mergeSettingsRecords(
   base: Record<string, unknown>,
@@ -62,6 +65,17 @@ async function readSettingsRecord(configDir: string): Promise<Record<string, unk
     }
     throw error;
   }
+}
+
+function resolveTreeRestoreMode(settings: Record<string, unknown>): TreeRestoreMode {
+  const ayu = settings.ayu;
+  if (!isRecord(ayu)) return "never";
+  const rewind = ayu.rewind;
+  if (!isRecord(rewind)) return "never";
+  const restoreOnTree = rewind.restoreOnTree;
+  return restoreOnTree === "always" || restoreOnTree === "ask" || restoreOnTree === "never"
+    ? restoreOnTree
+    : "never";
 }
 
 function normalizeSessionTitle(prompt: string | undefined): string {
@@ -443,7 +457,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const pendingTreeRestores = new SessionStateMap<TreeRestoreIntent>();
   const suppressedTreeRestores = new SessionStateMap<boolean>();
   const sessionHasCheckpointFileChanges = new SessionStateMap<boolean>();
+  const treeRestoreNotifiers = new SessionStateMap<ExtensionContext["ui"] | undefined>();
   const sessionConfigs = new SessionStateMap<CheckpointConfig>();
+  const sessionTreeRestoreModes = new SessionStateMap<TreeRestoreMode>();
   const sessionFiles = new SessionStateMap<string | undefined>();
   const sessionCwds = new SessionStateMap<string>();
 
@@ -451,11 +467,16 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
   }
 
+  function getSessionTreeRestoreMode(sessionId: string): TreeRestoreMode {
+    return sessionTreeRestoreModes.getOrUndefined(sessionId) ?? "never";
+  }
+
   function resetSessionRuntimeState(sessionId: string, entries: readonly unknown[]): void {
     producers.delete(sessionId);
     sessionTasks.delete(sessionId);
     lastCheckpointTurnIds.delete(sessionId);
     pendingTreeRestores.delete(sessionId);
+    treeRestoreNotifiers.delete(sessionId);
     suppressedTreeRestores.delete(sessionId);
     sessionHasCheckpointFileChanges.set(sessionId, hasCheckpointFileChanges(entries));
   }
@@ -489,6 +510,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     cwd: string,
     config: CheckpointConfig,
   ): Promise<RestoreRepoResult> {
+    const storage = await resolveSessionCheckpointStorage({ sessionFile, cwd });
+    if (!storage.ok) return { ok: false, reason: "not-found" };
+
     const repo = await bindSessionRepo(sessionId, sessionFile, cwd, repos);
     if (!repo) return { ok: false, reason: "not-found" };
 
@@ -540,8 +564,15 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     // before the checkpoint defaults are applied.
     const globalSettings = await readSettingsRecord(path.join(os.homedir(), ".pi", "agent"));
     const projectSettings = await readSettingsRecord(path.join(ctx.cwd, ".pi"));
-    const config = loadConfig(mergeSettingsRecords(globalSettings, projectSettings));
+    const mergedSettings = mergeSettingsRecords(globalSettings, projectSettings);
+    const baseConfig = loadConfig(mergedSettings);
+    const treeRestoreMode = resolveTreeRestoreMode(mergedSettings);
+    const config: CheckpointConfig = {
+      ...baseConfig,
+      restoreOnTree: treeRestoreMode !== "never",
+    };
     sessionConfigs.set(sessionId, config);
+    sessionTreeRestoreModes.set(sessionId, treeRestoreMode);
     sessionFiles.set(sessionId, sessionFile);
     sessionCwds.set(sessionId, ctx.cwd);
 
@@ -566,7 +597,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, entries);
       if (forkIntent?.position === "at") {
-        if (config.restoreOnClone === "always") {
+        if (config.restoreOnClone) {
           await restoreCloneCodeState(
             storage.repo,
             entries,
@@ -575,7 +606,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
             ctx.hasUI ? ctx.ui : undefined,
           );
         }
-      } else if (config.restoreOnFork === "always") {
+      } else if (config.restoreOnFork) {
         await restoreForkCodeState(
           storage.repo,
           entries,
@@ -590,7 +621,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const sessionEntries = ctx.sessionManager.getEntries();
     resetSessionRuntimeState(sessionId, sessionEntries);
 
-    if (event.reason === "resume" && config.restoreOnResume === "always") {
+    if (event.reason === "resume" && config.restoreOnResume) {
       const entries = ctx.sessionManager.getEntries();
       const targetCommit = resolveTreeTargetCommit(
         entries,
@@ -719,9 +750,11 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
     const sessionId = ctx.sessionManager.getSessionId();
     const config = getSessionConfig(sessionId);
+    const treeRestoreMode = getSessionTreeRestoreMode(sessionId);
     if (suppressedTreeRestores.getOrUndefined(sessionId)) return;
 
     pendingTreeRestores.set(sessionId, { targetId, mode: "Restore conversation" });
+    treeRestoreNotifiers.delete(sessionId);
 
     // Summarise or Summarize with custom prompt → behave like native /tree
     // (conversation-only navigation, no file restore).
@@ -736,29 +769,47 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       hasCheckpointFileChanges(ctx.sessionManager.getEntries());
     sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
 
-    if (config.restoreOnTree === "always") {
+    if (treeRestoreMode === "always") {
       pendingTreeRestores.set(sessionId, {
         targetId,
         mode: "Restore code and conversation",
       });
+      treeRestoreNotifiers.set(sessionId, ctx.hasUI ? ctx.ui : undefined);
       return;
     }
 
-    if (config.restoreOnTree === "ask") {
+    if (treeRestoreMode === "ask") {
       if (!ctx.hasUI || !hasKnownFileChanges) return;
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {
+        const preflightRepo = await resolveRepoForRestore(
+          sessionId,
+          sessionFiles.getOrUndefined(sessionId),
+          ctx.cwd,
+          config,
+        );
+        if (!preflightRepo.ok) {
+          if (preflightRepo.reason === "not-found") {
+            notifyMissingCodeStorage(ctx.ui);
+          } else {
+            notifyUnusableResumeStorage(ctx.ui, preflightRepo.message);
+          }
+          return;
+        }
+
         pendingTreeRestores.set(sessionId, {
           targetId,
           mode: "Restore code and conversation",
         });
+        treeRestoreNotifiers.set(sessionId, ctx.ui);
       }
       return;
     }
 
     // never — do nothing, keep mode as "Restore conversation"
     pendingTreeRestores.delete(sessionId);
+    treeRestoreNotifiers.delete(sessionId);
   });
 
   pi.on("session_tree", async (event, ctx) => {
@@ -771,9 +822,12 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
     const restoreIntent = pendingTreeRestores.getOrUndefined(sessionId);
     pendingTreeRestores.delete(sessionId);
+    const restoreUi = ctx.hasUI ? ctx.ui : treeRestoreNotifiers.getOrUndefined(sessionId);
+    treeRestoreNotifiers.delete(sessionId);
     const config = getSessionConfig(sessionId);
+    const treeRestoreMode = getSessionTreeRestoreMode(sessionId);
     if (restoreIntent?.mode === "Restore conversation") return;
-    if (!restoreIntent && config.restoreOnTree !== "always") return;
+    if (!restoreIntent && treeRestoreMode !== "always") return;
 
     const cwd = sessionCwds.getOrUndefined(sessionId);
     if (!cwd) return;
@@ -785,9 +839,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     );
     if (!restoreRepo.ok) {
       if (restoreRepo.reason === "not-found") {
-        notifyMissingCodeStorage(ctx.hasUI ? ctx.ui : undefined);
+        notifyMissingCodeStorage(restoreUi);
       } else {
-        notifyUnusableResumeStorage(ctx.hasUI ? ctx.ui : undefined, restoreRepo.message);
+        notifyUnusableResumeStorage(restoreUi, restoreRepo.message);
       }
       return;
     }
@@ -810,7 +864,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       repo,
       resolveTreeTargetCommit(entries, targetBranch, targetId),
       dirtyBaseCommit,
-      ctx.hasUI ? ctx.ui : undefined,
+      restoreUi,
     );
   });
 
