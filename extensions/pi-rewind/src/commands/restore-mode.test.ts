@@ -26,6 +26,7 @@ function createUi() {
   return {
     notify: vi.fn(),
     input: vi.fn(),
+    select: vi.fn(),
   };
 }
 
@@ -124,15 +125,20 @@ describe("Rewind Restore Mode", () => {
     });
 
     expect(ui.notify).toHaveBeenCalledWith(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before rewinding.",
       "warning",
     );
   });
 
-  test("restores conversation even when file restore fails", async () => {
+  test("offers conversation-only fallback when code restore is blocked by workspace changes", async () => {
     const ui = createUi();
+    ui.select.mockResolvedValueOnce("Restore conversation only");
     const navigateTree = vi.fn().mockResolvedValue(undefined);
-    const repo = mockRepo({ ok: false, reason: "checkout-failed", error: "git error" });
+    const repo = mockRepo({
+      ok: false,
+      reason: "dirty",
+      message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+    });
     const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
 
     await runRestoreMode({
@@ -144,9 +150,105 @@ describe("Rewind Restore Mode", () => {
       latestCp: target,
     });
 
+    expect(ui.select).toHaveBeenCalledWith(
+      "Current workspace contains changes outside the target checkpoint:\n- ttt.txt\n\nFiles cannot be restored safely.\n\nChoose one:",
+      ["Restore conversation only", "Force restore code and conversation", "Cancel"],
+    );
     expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("forces code and conversation restore after confirmation", async () => {
+    const ui = createUi();
+    ui.select.mockResolvedValueOnce("Force restore code and conversation");
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = createMockRepo({
+      safeCheckout: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          reason: "dirty",
+          message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+        })
+        .mockResolvedValueOnce({ ok: true }),
+    });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(repo.safeCheckout).toHaveBeenNthCalledWith(1, "before", "after");
+    expect(repo.safeCheckout).toHaveBeenNthCalledWith(2, "before");
+    expect(navigateTree).toHaveBeenCalledWith("entry-1", { summarize: false });
+    expect(ui.notify).toHaveBeenCalledWith("Rewind completed", "info");
+  });
+
+  test("cancels restore when user declines dirty conflict options", async () => {
+    const ui = createUi();
+    ui.select.mockResolvedValueOnce("Cancel");
+    const navigateTree = vi.fn().mockResolvedValue(undefined);
+    const repo = mockRepo({
+      ok: false,
+      reason: "dirty",
+      message: "Current workspace contains changes outside the target checkpoint:\n- ttt.txt",
+    });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code and conversation",
+      repo,
+      ui,
+      navigateTree,
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(navigateTree).not.toHaveBeenCalled();
+    expect(ui.notify).not.toHaveBeenCalled();
+  });
+
+  test("reports missing checkpoint storage", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: false, reason: "storage-missing" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: target,
+    });
+
     expect(ui.notify).toHaveBeenCalledWith(
-      "Conversation restored, but files were not restored.",
+      "Files were not restored because checkpoint storage for this session is missing. Conversation restore is still available.",
+      "warning",
+    );
+  });
+
+  test("reports missing target checkpoint", async () => {
+    const ui = createUi();
+    const repo = mockRepo({ ok: false, reason: "target-missing" });
+    const target = entry({ userEntryId: "entry-1", beforeCommit: "before", afterCommit: "after" });
+
+    await runRestoreMode({
+      mode: "Restore code",
+      repo,
+      ui,
+      navigateTree: vi.fn(),
+      targetCp: target,
+      latestCp: target,
+    });
+
+    expect(ui.notify).toHaveBeenCalledWith(
+      "Files were not restored because the selected checkpoint is not present in checkpoint storage.",
       "warning",
     );
   });

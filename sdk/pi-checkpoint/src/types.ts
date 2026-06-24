@@ -6,14 +6,14 @@ export interface CheckpointConfig {
   readonly enabled: boolean;
   /** Whether to create a checkpoint automatically on every turn. */
   readonly autoCheckpoint: boolean;
-  /** Behavior when forking a session. */
-  readonly restoreOnFork: "always" | "ask" | "never";
-  /** Behavior when cloning a session. */
-  readonly restoreOnClone: "always" | "ask" | "never";
-  /** Behavior when resuming a session. */
-  readonly restoreOnResume: "always" | "ask" | "never";
-  /** Behavior when navigating Pi's session tree. Configured via `ayu.rewind.restoreOnTree`. */
-  readonly restoreOnTree: "always" | "ask" | "never";
+  /** Whether to attempt file restore when forking a session. */
+  readonly restoreOnFork: boolean;
+  /** Whether to attempt file restore when cloning a session. */
+  readonly restoreOnClone: boolean;
+  /** Whether to attempt file restore when resuming a session. */
+  readonly restoreOnResume: boolean;
+  /** Whether checkpoint-backed tree restore is enabled at the SDK layer. */
+  readonly restoreOnTree: boolean;
   /** Default instructions for summarization during rewind. */
   readonly defaultSummaryInstructions: string;
   /** Final internal exclude patterns written to checkpoint storage. */

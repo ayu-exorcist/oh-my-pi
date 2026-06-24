@@ -93,8 +93,23 @@ export type SafeCheckoutResult =
       readonly rollbackError?: string;
     };
 
+function formatDirtyPaths(diffStdout: string): string | undefined {
+  const paths = diffStdout
+    .split(/\r?\n/)
+    .map((line) => line.split("\t").at(-1)?.trim() ?? "")
+    .filter((entry) => entry.length > 0);
+  if (paths.length === 0) return undefined;
+
+  const shown = paths.slice(0, 5).map((entry) => `- ${entry}`);
+  const remaining = paths.length - shown.length;
+  return [
+    "Changed paths:",
+    ...shown,
+    ...(remaining > 0 ? [`- ...and ${remaining} more`] : []),
+  ].join("\n");
+}
+
 /**
- * Manages a git bare repository used for file-level checkpoints.
  *
  * Each session gets its own bare repo under `~/.pi/agent/ayu/checkpoints/sessions/`.
  * The work tree points to the user's project directory so that `git add/checkout`
@@ -602,7 +617,12 @@ export class RepoManager {
             if (dirtyStdout.trim().length > 0) {
               return this.failure(
                 "dirty",
-                "Workspace has unsnapshotted checkpoint-managed changes.",
+                [
+                  "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.",
+                  formatDirtyPaths(dirtyStdout),
+                ]
+                  .filter((part): part is string => typeof part === "string")
+                  .join("\n"),
               );
             }
           } catch (error) {

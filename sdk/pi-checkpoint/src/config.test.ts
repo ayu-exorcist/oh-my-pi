@@ -6,7 +6,10 @@ describe("loadConfig", () => {
     const config = loadConfig({});
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
-    expect(config.restoreOnTree).toBe("never");
+    expect(config.restoreOnFork).toBe(false);
+    expect(config.restoreOnClone).toBe(false);
+    expect(config.restoreOnResume).toBe(false);
+    expect(config.restoreOnTree).toBe(false);
     expect(config.exclude).toContain("node_modules/");
     expect(config.exclude).toContain("**/.idea/workspace.xml");
     expect(config.exclude).not.toContain(".idea/workspace.xml");
@@ -16,34 +19,49 @@ describe("loadConfig", () => {
     expect(config.exclude).not.toContain("*.iml");
   });
 
-  test("user overrides merge with defaults", () => {
+  test("boolean checkpoint restore flags override defaults", () => {
     const config = loadConfig({
       ayu: {
         checkpoint: {
           enabled: false,
           autoCheckpoint: false,
-          restoreOnClone: "always",
-          restoreOnResume: "never",
+          restoreOnClone: true,
+          restoreOnResume: false,
+          restoreOnTree: true,
           defaultSummaryInstructions: "focus on API",
           exclude: ["custom/**"],
           include: ["custom/keep.txt"],
           maxFileMB: 25,
         },
-        rewind: {
-          restoreOnTree: "ask",
-        },
       },
     });
     expect(config.enabled).toBe(false);
     expect(config.autoCheckpoint).toBe(false);
-    expect(config.restoreOnClone).toBe("always");
-    expect(config.restoreOnResume).toBe("never");
-    expect(config.restoreOnTree).toBe("ask");
+    expect(config.restoreOnClone).toBe(true);
+    expect(config.restoreOnResume).toBe(false);
+    expect(config.restoreOnTree).toBe(true);
     expect(config.defaultSummaryInstructions).toBe("focus on API");
     expect(config.exclude).toContain("custom/**");
     expect(config.exclude).toContain("!custom/keep.txt");
     expect(config.exclude).toContain("node_modules/");
     expect(config.maxFileMB).toBe(25);
+  });
+
+  test("string restore flags fall back to defaults", () => {
+    const config = loadConfig({
+      ayu: {
+        checkpoint: {
+          restoreOnFork: "always",
+          restoreOnClone: "never",
+          restoreOnResume: "always",
+          restoreOnTree: "never",
+        },
+      },
+    });
+    expect(config.restoreOnFork).toBe(false);
+    expect(config.restoreOnClone).toBe(false);
+    expect(config.restoreOnResume).toBe(false);
+    expect(config.restoreOnTree).toBe(false);
   });
 
   test("invalid restore options and missing fields fall back to defaults", () => {
@@ -53,17 +71,15 @@ describe("loadConfig", () => {
           restoreOnFork: null,
           restoreOnClone: 123,
           restoreOnResume: undefined,
+          restoreOnTree: "ask",
           defaultSummaryInstructions: null,
-        },
-        rewind: {
-          restoreOnTree: "invalid",
         },
       },
     });
-    expect(config.restoreOnFork).toBe("always");
-    expect(config.restoreOnClone).toBe("always");
-    expect(config.restoreOnResume).toBe("never");
-    expect(config.restoreOnTree).toBe("never");
+    expect(config.restoreOnFork).toBe(false);
+    expect(config.restoreOnClone).toBe(false);
+    expect(config.restoreOnResume).toBe(false);
+    expect(config.restoreOnTree).toBe(false);
     expect(config.defaultSummaryInstructions).toBe("");
   });
 
@@ -90,7 +106,7 @@ describe("loadConfig", () => {
     });
     expect(config.enabled).toBe(true);
     expect(config.autoCheckpoint).toBe(true);
-    expect(config.restoreOnTree).toBe("never");
+    expect(config.restoreOnTree).toBe(false);
     expect(config.exclude).toEqual(defaultConfig.exclude);
   });
 

@@ -26,10 +26,8 @@ describe("loadConfig integration", () => {
         ayu: {
           checkpoint: {
             enabled: false,
-            restoreOnFork: "never",
-          },
-          rewind: {
-            restoreOnTree: "always",
+            restoreOnFork: false,
+            restoreOnTree: true,
           },
         },
       }),
@@ -40,8 +38,8 @@ describe("loadConfig integration", () => {
     const config = loadConfigFromFile(globalDir);
 
     expect(config.enabled).toBe(false);
-    expect(config.restoreOnFork).toBe("never");
-    expect(config.restoreOnTree).toBe("always");
+    expect(config.restoreOnFork).toBe(false);
+    expect(config.restoreOnTree).toBe(true);
     expect(config.autoCheckpoint).toBe(true); // default kept
   });
 

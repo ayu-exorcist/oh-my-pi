@@ -104,7 +104,8 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
               return {
                 ok: false,
                 reason: "dirty",
-                message: "Workspace has unsnapshotted checkpoint-managed changes.",
+                message:
+                  "Workspace has checkpoint-managed changes that are not captured by the selected checkpoint base.",
               };
             }
           } catch (error) {

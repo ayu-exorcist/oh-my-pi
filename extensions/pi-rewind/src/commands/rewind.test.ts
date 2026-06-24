@@ -784,13 +784,37 @@ describe("registerRewind", () => {
     );
   });
 
-  test("warns when repo is not ready", async () => {
+  test("shows checkpoint availability before resolving code storage", async () => {
     const pi = createMockPi();
     registerRewind(pi, () => undefined);
     const handler = getRegisterCall(pi);
-    const ctx = createMockCtx();
+    const ctx = createMockCtx([]);
     await handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Checkpoint extension not ready", "warning");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("No checkpoints available", "warning");
+  });
+
+  test("warns when code restore storage is missing", async () => {
+    const pi = createMockPi();
+    registerRewind(pi, () => undefined);
+    const handler = getRegisterCall(pi);
+    const entries = [
+      createEntry({
+        userEntryId: "entry-1",
+        beforeCommit: "abc",
+        afterCommit: "def",
+        fileCount: 1,
+      }),
+    ];
+    const ctx = createMockCtx(entries);
+    ctx.ui.select.mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)));
+    ctx.ui.select.mockResolvedValueOnce("Restore code");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Files were not restored because checkpoint storage for this session is missing. Conversation restore is still available.",
+      "warning",
+    );
   });
 
   test("warns when no checkpoints available", async () => {
@@ -1164,7 +1188,9 @@ describe("registerRewind", () => {
     expect(diffAgainst).toHaveBeenCalledWith("def");
     expect(checkoutCommit).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Workspace has unsnapshotted changes. Run /checkpoint first, or clean them up before rewinding.",
+      expect.stringContaining(
+        "Workspace has changes that are not captured by this session's checkpoint history. Clean them up before rewinding.",
+      ),
       "warning",
     );
   });
@@ -1212,7 +1238,7 @@ describe("registerRewind", () => {
     await handler("", ctx);
     expect(checkoutCommit).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Could not verify the workspace is clean. Run /checkpoint first, or clean them up before rewinding.",
+      "Could not verify the workspace is clean. Clean up workspace changes before rewinding.",
       "warning",
     );
   });
