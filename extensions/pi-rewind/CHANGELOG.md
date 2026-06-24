@@ -1,5 +1,13 @@
 # @ayulab/pi-rewind
 
+## 0.4.2
+
+### Patch Changes
+
+- 222ea66: Return structured checkpoint-storage delete failures instead of throwing raw filesystem errors, retry Windows removals more defensively, and keep `/checkpoint` delete failures inside the selector UI instead of crashing Pi.
+- Updated dependencies [222ea66]
+  - @ayulab/pi-checkpoint@0.6.2
+
 ## 0.4.1
 
 ### Patch Changes

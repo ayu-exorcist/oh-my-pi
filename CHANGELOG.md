@@ -1,5 +1,12 @@
 # @ayulab/oh-my-pi
 
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies [222ea66]
+  - @ayulab/pi-rewind@0.4.2
+
 ## 0.4.11
 
 ### Patch Changes
