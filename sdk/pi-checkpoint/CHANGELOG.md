@@ -1,5 +1,11 @@
 # @ayulab/pi-checkpoint
 
+## 0.6.1
+
+### Patch Changes
+
+- d20e1b0: Bump package versions past npm versions that were previously published and unpublished, so the next release can publish fresh package versions.
+
 ## 0.6.0
 
 ### Minor Changes
