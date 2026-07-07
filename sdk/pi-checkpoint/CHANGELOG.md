@@ -1,5 +1,11 @@
 # @ayulab/pi-checkpoint
 
+## 0.6.3
+
+### Patch Changes
+
+- 9c7bd2f: Fix checkpoint lock recovery so malformed stale lock paths do not busy-loop during automatic checkpoints, and add clear timeout warnings for lock waits and Git subprocesses.
+
 ## 0.6.2
 
 ### Patch Changes

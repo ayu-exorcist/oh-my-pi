@@ -1,5 +1,14 @@
 # @ayulab/pi-rewind
 
+## 0.4.3
+
+### Patch Changes
+
+- 9c7bd2f: Fix checkpoint lock recovery so malformed stale lock paths do not busy-loop during automatic checkpoints, and add clear timeout warnings for lock waits and Git subprocesses.
+- e14a93d: Skip Rewind and tree file-sync prompts when the target conversation point already matches the currently synced code checkpoint, while prompting again after code has been restored to an older checkpoint.
+- Updated dependencies [9c7bd2f]
+  - @ayulab/pi-checkpoint@0.6.3
+
 ## 0.4.2
 
 ### Patch Changes
