@@ -36,11 +36,17 @@ describe("repo provider", () => {
   });
 
   test("bindSessionRepo returns undefined when no existing storage is available", async () => {
-    const provider = createDefaultRepoProvider();
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "repo-provider-test-"));
+    try {
+      const sessionFile = path.join(tmpDir, ".pi", "agent", "sessions", "missing.jsonl");
+      const provider = createDefaultRepoProvider();
 
-    await expect(bindSessionRepo("session-1", undefined, process.cwd(), provider)).resolves.toBe(
-      undefined,
-    );
+      await expect(bindSessionRepo("session-1", sessionFile, tmpDir, provider)).resolves.toBe(
+        undefined,
+      );
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test("bindSessionRepo binds resolved checkpoint storage", async () => {
