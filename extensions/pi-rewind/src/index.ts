@@ -719,6 +719,11 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
           ctx.sessionManager.getEntries(),
           result.entry,
         );
+        return;
+      }
+
+      if (result.message && ctx.hasUI) {
+        ctx.ui.notify(result.message, "warning");
       }
     });
   }

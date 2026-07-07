@@ -82,6 +82,14 @@ describe("exec", () => {
     await expect(exec("not-a-real-command-xyz", [])).rejects.toThrow();
   });
 
+  test("rejects when command exceeds timeout", async () => {
+    await expect(
+      exec(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], undefined, undefined, {
+        timeoutMs: 10,
+      }),
+    ).rejects.toThrow(`Command timed out after 10ms: ${process.execPath}`);
+  });
+
   test("execSafe returns error Result when command exits non-zero", async () => {
     const { execSafe } = await import("./exec");
     const result = await execSafe("git", ["not-a-real-command"]);

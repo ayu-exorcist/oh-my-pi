@@ -161,6 +161,23 @@ describe("AutoCheckpointProducer", () => {
     expect(checkpoint).toHaveBeenNthCalledWith(4, "entry-2");
   });
 
+  test("finalizeRun reports a warning message when final capture fails", async () => {
+    const producer = createProducer({
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      checkpoint: vi.fn().mockResolvedValueOnce("before-1"),
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockRejectedValueOnce(new Error("diff failed")),
+    });
+
+    await producer.turnStart({ userEntryId: "entry-1", prompt: "initial" });
+    const final = await producer.finalizeRun();
+
+    expect(final).toEqual({
+      ok: false,
+      message: "Checkpoint finalization failed: diff failed",
+    });
+  });
+
   test("turnStart drops a failed previous finalize before opening the next turn", async () => {
     const checkpoint = vi.fn().mockResolvedValueOnce("before-1").mockResolvedValueOnce("before-2");
     const producer = createProducer({

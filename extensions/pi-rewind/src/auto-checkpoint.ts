@@ -10,7 +10,7 @@ export type AutoCheckpointEndResult = { readonly ok: true } | { readonly ok: fal
 
 export type AutoCheckpointFinalizeResult =
   | { readonly ok: true; readonly entry: CheckpointEntry }
-  | { readonly ok: false };
+  | { readonly ok: false; readonly message?: string };
 
 export interface AutoCheckpointProducerOptions {
   readonly repo: RepoManager;
@@ -118,8 +118,8 @@ export class AutoCheckpointProducer {
       });
 
       return { ok: true, entry };
-    } catch {
-      return { ok: false };
+    } catch (err) {
+      return { ok: false, message: `Checkpoint finalization failed: ${errorMessage(err)}` };
     } finally {
       this.beginRun();
     }

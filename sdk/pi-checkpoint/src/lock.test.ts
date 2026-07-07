@@ -130,6 +130,65 @@ describe("withRepoLock", () => {
     expect(gone).toBe(false);
   });
 
+  test("breaks stale lock files", async () => {
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    await fs.writeFile(lockPath, "not a directory", "utf8");
+
+    const past = new Date(Date.now() - 40_000);
+    await fs.utimes(lockPath, past, past);
+
+    const result = await withRepoLock(tmpDir, async () => "recovered");
+    expect(result).toBe("recovered");
+
+    const gone = await fs
+      .access(lockPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(gone).toBe(false);
+  });
+
+  test("breaks stale non-empty lock directories", async () => {
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    await fs.mkdir(lockPath);
+    await fs.writeFile(path.join(lockPath, "owner"), "stale", "utf8");
+
+    const past = new Date(Date.now() - 40_000);
+    await fs.utimes(path.join(lockPath, "owner"), past, past);
+    await fs.utimes(lockPath, past, past);
+
+    const result = await withRepoLock(tmpDir, async () => "recovered");
+    expect(result).toBe("recovered");
+
+    const gone = await fs
+      .access(lockPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(gone).toBe(false);
+  });
+
+  test("throws when stale lock cleanup fails", async () => {
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    await fs.mkdir(lockPath);
+
+    const past = new Date(Date.now() - 40_000);
+    await fs.utimes(lockPath, past, past);
+
+    const rmSpy = vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("busy"));
+
+    await expect(withRepoLock(tmpDir, async () => "ok")).rejects.toThrow("busy");
+
+    rmSpy.mockRestore();
+  });
+
+  test("times out when active lock remains held", async () => {
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    await fs.mkdir(lockPath);
+
+    await expect(withRepoLock(tmpDir, async () => "ok", { acquireTimeoutMs: 10 })).rejects.toThrow(
+      `Timed out after 10ms waiting for checkpoint lock at ${lockPath}`,
+    );
+  });
+
   test("waits for active lock when not stale", async () => {
     const order: number[] = [];
 

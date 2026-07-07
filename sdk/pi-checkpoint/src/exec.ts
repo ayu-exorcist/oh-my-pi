@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 
+const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
+const KILL_AFTER_TIMEOUT_MS = 5_000;
+
 /**
  * Git environment variables required by {@link RepoManager}.
  */
@@ -7,6 +10,14 @@ export interface ExecEnv {
   GIT_DIR: string;
   GIT_WORK_TREE: string;
   GIT_INDEX_FILE: string;
+}
+
+export interface ExecOptions {
+  readonly timeoutMs?: number;
+}
+
+function formatCommand(command: string, args: readonly string[]): string {
+  return [command, ...args].join(" ");
 }
 
 /**
@@ -47,12 +58,29 @@ export async function exec(
   args: string[],
   env?: ExecEnv,
   cwd?: string,
+  options: ExecOptions = {},
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
     });
+    const timeoutMs = options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      child.kill("SIGTERM");
+      const killTimeout = setTimeout(() => child.kill("SIGKILL"), KILL_AFTER_TIMEOUT_MS);
+      killTimeout.unref?.();
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${formatCommand(command, args)}`));
+    }, timeoutMs);
+
+    function settle<T>(fn: (value: T) => void, value: T): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn(value);
+    }
 
     let stdout = "";
     let stderr = "";
@@ -67,14 +95,14 @@ export async function exec(
 
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(stderr || `Command failed with exit code ${code}`));
+        settle(reject, new Error(stderr || `Command failed with exit code ${code}`));
       } else {
-        resolve({ stdout, stderr });
+        settle(resolve, { stdout, stderr });
       }
     });
 
     child.on("error", (spawnErr) => {
-      reject(spawnErr);
+      settle(reject, spawnErr);
     });
   });
 }
@@ -89,9 +117,10 @@ export async function execSafe(
   args: string[],
   env?: ExecEnv,
   cwd?: string,
+  options: ExecOptions = {},
 ): Promise<Result<{ stdout: string; stderr: string }>> {
   try {
-    const output = await exec(command, args, env, cwd);
+    const output = await exec(command, args, env, cwd, options);
     return ok(output);
   } catch (e) {
     return err(String(e));
