@@ -2309,6 +2309,51 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
+  test("session_tree ask mode skips sync prompt when target code state is already synced", async () => {
+    const changed = createUserEntry("changed", "change files");
+    const unchanged = { ...createUserEntry("unchanged", "discuss"), parentId: "changed" };
+    const changedCheckpoint = createCheckpointEntry({
+      userEntryId: "changed",
+      beforeCommit: "old-code",
+      afterCommit: "new-code",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+    });
+    const unchangedCheckpoint = createCheckpointEntry({
+      userEntryId: "unchanged",
+      beforeCommit: "new-code",
+      afterCommit: "new-code",
+    });
+    const branch = [
+      changed,
+      unchanged,
+      { type: "custom", customType: "pi-checkpoint", data: changedCheckpoint },
+      { type: "custom", customType: "pi-checkpoint", data: unchangedCheckpoint },
+    ];
+    const { api, events } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+    await setTreeRestoreMode(tmpDir, "ask");
+
+    const safeCheckout = vi
+      .spyOn(RepoManager.prototype, "safeCheckout")
+      .mockResolvedValue({ ok: true });
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "resume" }, ctx);
+    }
+    for (const h of events["session_before_tree"] || []) {
+      await h({ preparation: { targetId: "unchanged", userWantsSummary: false } }, ctx);
+    }
+    for (const h of events["session_tree"] || []) {
+      await h({ oldLeafId: "unchanged", newLeafId: "unchanged" }, ctx);
+    }
+
+    expect(ctx.ui.select).not.toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(safeCheckout).not.toHaveBeenCalled();
+  });
+
   test("session_tree ask mode restores files only when user confirms sync", async () => {
     const checkpointEntry = createCheckpointEntry({
       afterCommit: "tree-after",
@@ -2342,7 +2387,7 @@ describe("checkpoint extension", () => {
     }
 
     expect(ctx.ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
-    expect(safeCheckout).toHaveBeenCalledWith("before-hash");
+    expect(safeCheckout).toHaveBeenCalledWith("before-hash", expect.any(String));
   });
 
   test("session_tree handles storage warnings, unusable storage, and no-UI always mode", async () => {
@@ -3614,6 +3659,8 @@ describe("checkpoint extension", () => {
       userEntryId: "target-user",
       beforeCommit: "target-before",
       afterCommit: "target-after",
+      fileCount: 1,
+      fileChanges: [{ path: "target.ts", added: 1, removed: 0 }],
     });
     const unrelatedLatestCheckpoint = createCheckpointEntry({
       userEntryId: "unrelated-user",
@@ -3687,6 +3734,8 @@ describe("checkpoint extension", () => {
       userEntryId: "target-user",
       beforeCommit: "target-before",
       afterCommit: "target-after",
+      fileCount: 1,
+      fileChanges: [{ path: "target.ts", added: 1, removed: 0 }],
     });
     const outsideCheckpoint = createCheckpointEntry({
       userEntryId: "outside-user",
@@ -3764,6 +3813,8 @@ describe("checkpoint extension", () => {
       userEntryId: "target-user",
       beforeCommit: "target-before",
       afterCommit: "target-after",
+      fileCount: 1,
+      fileChanges: [{ path: "target.ts", added: 1, removed: 0 }],
     });
     const entries = [
       root,

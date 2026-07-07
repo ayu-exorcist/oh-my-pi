@@ -409,6 +409,8 @@ export function registerRewind(
   resolveRepo: ResolveRewindRepo,
   suppressTreeRestore: (sessionId: string) => void = () => undefined,
   clearTreeRestoreSuppression: (sessionId: string) => void = () => undefined,
+  getSyncedCodeCommit: (sessionId: string) => string | undefined = () => undefined,
+  setSyncedCodeCommit: (sessionId: string, commitHash: string) => void = () => undefined,
 ) {
   pi.registerCommand("rewind", {
     description: "Rewind files to a previous checkpoint",
@@ -423,6 +425,7 @@ export function registerRewind(
 
       const currentItem = "(current)\n";
       const items = [...cps.map((cp) => buildCheckpointItem(cp)), currentItem];
+      const sessionId = ctx.sessionManager.getSessionId();
 
       let selected: string | undefined;
       let targetCp: CheckpointEntry | undefined;
@@ -437,9 +440,12 @@ export function registerRewind(
         if (!targetCp) return;
 
         const hasFileChanges = cps.some((cp) => cp.fileCount > 0);
-        const modes = hasFileChanges
-          ? ["Restore code and conversation", "Restore conversation", "Restore code"]
-          : ["Restore conversation"];
+        const codeRestoreWouldChangeState =
+          targetCp.beforeCommit !== getSyncedCodeCommit(sessionId);
+        const modes =
+          hasFileChanges && codeRestoreWouldChangeState
+            ? ["Restore code and conversation", "Restore conversation", "Restore code"]
+            : ["Restore conversation"];
 
         mode = await ctx.ui.select("Restore mode:", modes);
       }
@@ -464,7 +470,6 @@ export function registerRewind(
         ? await findCleanDirtyBaseCommit(repo, getCheckpointEntries(entries), latest.afterCommit)
         : latest.afterCommit;
 
-      const sessionId = ctx.sessionManager.getSessionId();
       await runRestoreMode({
         mode,
         ...(repo ? { repo } : {}),
@@ -481,6 +486,7 @@ export function registerRewind(
         latestCp: latest,
         conversationEntryId: targetCp.userEntryId,
         dirtyBaseCommit,
+        onCodeRestore: (commitHash) => setSyncedCodeCommit(sessionId, commitHash),
       });
     },
   });

@@ -30,6 +30,7 @@ interface RunRestoreModeOptions {
   readonly latestCp: CheckpointEntry;
   readonly conversationEntryId?: string;
   readonly dirtyBaseCommit?: string;
+  readonly onCodeRestore?: (commitHash: string) => void;
 }
 
 function notifyCheckoutFailure(
@@ -119,6 +120,7 @@ async function restoreCodeAndConversationAfterConflict(
     options.dirtyBaseCommit ?? options.latestCp.afterCommit,
   );
   if (result.ok) {
+    options.onCodeRestore?.(options.targetCp.beforeCommit);
     const conversationRestored = await restoreConversation(
       options.ui,
       options.navigateTree,
@@ -171,6 +173,7 @@ async function restoreCodeAndConversationAfterConflict(
     return;
   }
 
+  options.onCodeRestore?.(options.targetCp.beforeCommit);
   const conversationRestored = await restoreConversation(
     options.ui,
     options.navigateTree,
@@ -224,6 +227,7 @@ export async function runRestoreMode(options: RunRestoreModeOptions): Promise<vo
       return;
     }
 
+    options.onCodeRestore?.(options.targetCp.beforeCommit);
     options.ui.notify("Rewind completed", "info");
     return;
   }

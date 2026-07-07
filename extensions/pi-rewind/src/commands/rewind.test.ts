@@ -864,6 +864,73 @@ describe("registerRewind", () => {
     ]);
   });
 
+  test("hides code restore modes when target code state is already synced", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({
+        userEntryId: "changed-entry",
+        beforeCommit: "old",
+        afterCommit: "new",
+        fileCount: 1,
+        fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({ userEntryId: "unchanged-entry", beforeCommit: "new", afterCommit: "new" }),
+    ];
+    registerRewind(
+      pi,
+      () => createMockRepo(),
+      () => undefined,
+      () => undefined,
+      () => "new",
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(entries[1] ?? firstEntry(entries)))
+      .mockResolvedValueOnce("Restore conversation");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(2, "Restore mode:", ["Restore conversation"]);
+  });
+
+  test("records synced code state after rewind restores code", async () => {
+    const pi = createMockPi();
+    const setSynced = vi.fn();
+    const entries = [
+      createEntry({
+        userEntryId: "changed-entry",
+        beforeCommit: "old",
+        afterCommit: "new",
+        fileCount: 1,
+        fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({ userEntryId: "unchanged-entry", beforeCommit: "new", afterCommit: "new" }),
+    ];
+    registerRewind(
+      pi,
+      () =>
+        createMockRepo({
+          safeCheckout: vi.fn().mockResolvedValue({ ok: true }),
+          stageAll: vi.fn().mockResolvedValue(undefined),
+          diffAgainst: vi.fn().mockResolvedValue(""),
+        }),
+      () => undefined,
+      () => undefined,
+      () => "new",
+      setSynced,
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore code");
+
+    await handler("", ctx);
+
+    expect(setSynced).toHaveBeenCalledWith("test-session", "old");
+  });
+
   test("shows checkpoints oldest first followed by current", async () => {
     const pi = createMockPi();
     const entries = [
