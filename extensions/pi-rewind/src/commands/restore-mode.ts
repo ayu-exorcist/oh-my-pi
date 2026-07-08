@@ -16,6 +16,7 @@ interface RestoreModeUi {
   notify(message: string, level: "info" | "warning" | "error"): void;
   input(message: string, initialValue: string): Promise<string | undefined>;
   select?(message: string, options: readonly string[]): Promise<string | undefined>;
+  setEditorText?(text: string): void;
 }
 
 interface RunRestoreModeOptions {
@@ -78,7 +79,8 @@ async function restoreConversation(
   entryId: string,
 ): Promise<boolean> {
   try {
-    await navigateTree(entryId, { summarize: false });
+    const result = await navigateTree(entryId, { summarize: false });
+    if (typeof result?.editorText === "string") ui.setEditorText?.(result.editorText);
     return true;
   } catch (err) {
     ui.notify(`Conversation restore failed: ${errorMessage(err)}`, "error");

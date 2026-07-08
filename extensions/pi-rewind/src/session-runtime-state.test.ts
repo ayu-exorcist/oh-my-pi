@@ -163,6 +163,7 @@ describe("RewindSessionRuntimeState", () => {
       sessionId: "session-1",
       targetId: "user-1",
       entries,
+      currentBranch: [userEntry("user-1")],
       hasUI: false,
       ui: undefined,
     });
@@ -173,6 +174,51 @@ describe("RewindSessionRuntimeState", () => {
       targetCommit: "before-1",
     });
     expect(runtime.treeRestores.consumeNotifier("session-1", undefined, undefined)).toBe(sessionUi);
+  });
+
+  test("skips ask-mode tree prompt when file changes are only in the shared branch", async () => {
+    const runtime = new RewindSessionRuntimeState();
+    const ui = { select: vi.fn() } as unknown as ExtensionContext["ui"];
+    const changed = checkpoint({
+      userEntryId: "changed",
+      beforeCommit: "c-before",
+      afterCommit: "c-after",
+    });
+    const hello = checkpoint({
+      userEntryId: "hello",
+      beforeCommit: "hello-before",
+      afterCommit: "hello-after",
+      fileCount: 0,
+      fileChanges: [],
+    });
+    const nihao = checkpoint({
+      userEntryId: "nihao",
+      beforeCommit: "nihao-before",
+      afterCommit: "nihao-after",
+      fileCount: 0,
+      fileChanges: [],
+    });
+    const currentBranch = [userEntry("changed"), userEntry("hello", "changed")];
+    const entries = [
+      ...currentBranch,
+      userEntry("nihao", "hello"),
+      checkpointEntry(changed),
+      checkpointEntry(hello),
+      checkpointEntry(nihao),
+    ];
+
+    runtime.sessionSyncedCodeCommits.set("session-1", "hello-after");
+    await runtime.planTreeCodeRestore({
+      sessionId: "session-1",
+      targetId: "nihao",
+      entries,
+      currentBranch,
+      hasUI: true,
+      ui,
+    });
+
+    expect(ui.select).not.toHaveBeenCalled();
+    expect(runtime.treeRestores.consumePending("session-1")).toBeUndefined();
   });
 
   test("plans ask-mode tree code restore only when the user agrees", async () => {
@@ -186,6 +232,7 @@ describe("RewindSessionRuntimeState", () => {
       sessionId: "session-1",
       targetId: "user-1",
       entries,
+      currentBranch: [userEntry("user-1")],
       hasUI: true,
       ui,
     });
@@ -204,6 +251,7 @@ describe("RewindSessionRuntimeState", () => {
       sessionId: "session-2",
       targetId: "user-1",
       entries,
+      currentBranch: [userEntry("user-1")],
       hasUI: true,
       ui: declineUi,
     });
@@ -221,6 +269,7 @@ describe("RewindSessionRuntimeState", () => {
       sessionId: "session-1",
       targetId: "user-1",
       entries,
+      currentBranch: [userEntry("user-1")],
       hasUI: false,
       ui: undefined,
     });

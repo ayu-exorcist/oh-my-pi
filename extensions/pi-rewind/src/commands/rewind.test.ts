@@ -10,13 +10,14 @@ import {
   findConversationEntryIdForCheckpoint,
   formatChangeLine,
   selectCheckpointItem,
+  selectCheckpointIndex,
 } from "./rewind";
 
 function createMockCtx(
   checkpointEntries: CheckpointEntry[] = [],
   branchUserEntryIds: readonly string[] = checkpointEntries.map((cp) => cp.userEntryId),
 ): {
-  ui: { notify: Mock; select: Mock; input: Mock };
+  ui: { notify: Mock; select: Mock; input: Mock; setEditorText: Mock };
   navigateTree: Mock;
   sessionManager: {
     getEntries: () => unknown[];
@@ -29,6 +30,7 @@ function createMockCtx(
       notify: vi.fn(),
       select: vi.fn(),
       input: vi.fn(),
+      setEditorText: vi.fn(),
     },
     navigateTree: vi.fn(),
     sessionManager: {
@@ -652,6 +654,45 @@ describe("selectCheckpointItem", () => {
       items[1],
     );
   });
+
+  test("custom list returns the selected index for duplicate labels", async () => {
+    const items = ["same\n", "same\n"];
+    const selected: Array<number | undefined> = [];
+    const custom = vi.fn(async (factory) => {
+      const component = factory(
+        { requestRender: vi.fn(), terminal: { rows: 10 } },
+        {
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {
+          getKeys: (keybinding: string) => {
+            if (keybinding === "tui.select.up") return ["up"];
+            if (keybinding === "tui.select.down") return ["down"];
+            if (keybinding === "tui.select.confirm") return ["enter"];
+            if (keybinding === "tui.select.cancel") return ["escape", "ctrl+c"];
+            return [];
+          },
+        },
+        (index: number | undefined) => selected.push(index),
+      ) as Component;
+      const handleInput = component.handleInput;
+      if (!handleInput) throw new Error("expected input handler");
+      handleInput("\r");
+      expect(selected).toEqual([1]);
+      return selected[0];
+    });
+
+    await expect(
+      selectCheckpointIndex(
+        { ui: { custom, select: vi.fn() } } as unknown as Parameters<
+          typeof selectCheckpointIndex
+        >[0],
+        items,
+      ),
+    ).resolves.toBe(1);
+  });
 });
 
 describe("buildCheckpointItem", () => {
@@ -747,7 +788,7 @@ describe("buildCheckpointItem", () => {
 });
 
 describe("findConversationEntryIdForCheckpoint", () => {
-  test("returns the turn end entry instead of the user entry", () => {
+  test("returns the checkpoint user entry so Pi restores the prompt into the editor", () => {
     const branch = [
       { type: "message", id: "user-1", message: { role: "user" } },
       { type: "message", id: "assistant-1", message: { role: "assistant" } },
@@ -755,22 +796,11 @@ describe("findConversationEntryIdForCheckpoint", () => {
       { type: "message", id: "user-2", message: { role: "user" } },
     ];
 
-    expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("assistant-1");
+    expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("user-1");
   });
 
   test("falls back to user entry when checkpoint user entry is not on the branch", () => {
     expect(findConversationEntryIdForCheckpoint([], "missing-user")).toBe("missing-user");
-  });
-
-  test("ignores checkpoint custom entries and stops at the next user message", () => {
-    const branch = [
-      { type: "message", id: "user-1", message: { role: "user" } },
-      { type: "custom", id: "checkpoint-1", customType: "pi-checkpoint" },
-      { type: "message", id: "user-2", message: { role: "user" } },
-      { type: "message", id: "assistant-2", message: { role: "assistant" } },
-    ];
-
-    expect(findConversationEntryIdForCheckpoint(branch, "user-1")).toBe("user-1");
   });
 });
 
@@ -970,6 +1000,29 @@ describe("registerRewind", () => {
     ]);
   });
 
+  test("restores the selected checkpoint when visible labels are identical", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "old-entry", beforeCommit: "old", prompt: "same prompt" }),
+      createEntry({ userEntryId: "new-entry", beforeCommit: "new", prompt: "same prompt" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockImplementationOnce((_message, options: readonly string[]) => options[1])
+      .mockResolvedValueOnce("Restore conversation");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(1, "Rewind to checkpoint:", [
+      `#1 ${buildCheckpointItem(firstEntry(entries))}`,
+      `#2 ${buildCheckpointItem(entries[1] ?? firstEntry(entries))}`,
+      "(current)\n",
+    ]);
+    expect(ctx.navigateTree).toHaveBeenCalledWith("new-entry", { summarize: false });
+  });
+
   test("collapses retry checkpoints for the same visible user turn", async () => {
     const pi = createMockPi();
     const entries = [
@@ -992,7 +1045,7 @@ describe("registerRewind", () => {
     expect(ctx.navigateTree).toHaveBeenCalledWith("retry-entry", { summarize: false });
   });
 
-  test("rewind restores to the turn end entry when one exists", async () => {
+  test("rewind restores to the user entry so the prompt returns to the editor", async () => {
     const pi = createMockPi();
     const entries = [createEntry({ userEntryId: "user-1", beforeCommit: "abc" })];
     registerRewind(pi, () => createMockRepo());
@@ -1005,8 +1058,9 @@ describe("registerRewind", () => {
           .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
           .mockResolvedValueOnce("Restore conversation"),
         input: vi.fn(),
+        setEditorText: vi.fn(),
       },
-      navigateTree: vi.fn(),
+      navigateTree: vi.fn().mockResolvedValue({ editorText: "test", cancelled: false }),
       sessionManager: {
         getEntries: () =>
           entries.map((data) => ({
@@ -1025,7 +1079,8 @@ describe("registerRewind", () => {
 
     await handler("", ctx);
 
-    expect(ctx.navigateTree).toHaveBeenCalledWith("assistant-1", { summarize: false });
+    expect(ctx.navigateTree).toHaveBeenCalledWith("user-1", { summarize: false });
+    expect(ctx.ui.setEditorText).toHaveBeenCalledWith("test");
   });
 
   test("returns early when user selects current", async () => {
@@ -1079,6 +1134,82 @@ describe("registerRewind", () => {
       "(current)\n",
     ]);
     expect(ctx.navigateTree).toHaveBeenCalledWith("e1", { summarize: false });
+  });
+
+  test("hides code restore modes when rewinding across only no-change checkpoints", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({
+        userEntryId: "changed-entry",
+        beforeCommit: "changed-before",
+        afterCommit: "changed-after",
+        fileCount: 1,
+        fileChanges: [{ path: "old.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({ userEntryId: "hello-entry", beforeCommit: "hello", afterCommit: "hello" }),
+      createEntry({ userEntryId: "world-entry", beforeCommit: "world", afterCommit: "world" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockImplementationOnce((_message, options: readonly string[]) => options[1])
+      .mockResolvedValueOnce(undefined);
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(2, "Restore mode:", ["Restore conversation"]);
+  });
+
+  test("shows code restore modes when selected-to-latest range includes file changes", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "hello-entry", beforeCommit: "hello", afterCommit: "hello" }),
+      createEntry({
+        userEntryId: "changed-entry",
+        beforeCommit: "changed-before",
+        afterCommit: "changed-after",
+        fileCount: 1,
+        fileChanges: [{ path: "new.ts", added: 1, removed: 0 }],
+      }),
+      createEntry({ userEntryId: "world-entry", beforeCommit: "world", afterCommit: "world" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockImplementationOnce((_message, options: readonly string[]) => options[0])
+      .mockResolvedValueOnce(undefined);
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(2, "Restore mode:", [
+      "Restore code and conversation",
+      "Restore conversation",
+      "Restore code",
+    ]);
+  });
+
+  test("uses fileChanges length as file-change evidence for rewind range menus", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "hello-entry", beforeCommit: "hello", afterCommit: "hello" }),
+      createEntry({
+        userEntryId: "changed-entry",
+        beforeCommit: "changed-before",
+        afterCommit: "changed-after",
+        fileCount: 0,
+        fileChanges: [{ path: "metadata-only.ts", added: 1, removed: 0 }],
+      }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries);
+    ctx.ui.select
+      .mockImplementationOnce((_message, options: readonly string[]) => options[0])
+      .mockResolvedValueOnce(undefined);
+    await handler("", ctx);
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(2, "Restore mode:", [
+      "Restore code and conversation",
+      "Restore conversation",
+      "Restore code",
+    ]);
   });
 
   test("hides code restore modes when checkpoints have no file changes", async () => {

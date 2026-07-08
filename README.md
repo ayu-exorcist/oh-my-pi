@@ -72,7 +72,7 @@ After installation, Pi loads the bundled extension package and the declared them
 
 ## Repository Structure
 
-```
+```plaintext
 @ayulab/oh-my-pi/
 ├── extensions/           # Pi extensions
 │   └── pi-rewind/        # @ayulab/pi-rewind — /rewind interactive rollback
@@ -140,7 +140,7 @@ Use `/checkpoint` to inspect checkpoint storage state. `Current Folder` shows cu
 
 Phase 1 keeps the nested-repository safety boundary: if you start Pi from a broad workspace, nested Git repositories are excluded from the outer checkpoint. To protect a nested repository, start Pi in that repository root.
 
-```
+```plaintext
 > /rewind
 
 Recent checkpoints:

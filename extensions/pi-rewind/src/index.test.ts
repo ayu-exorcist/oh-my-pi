@@ -2860,7 +2860,7 @@ describe("checkpoint extension", () => {
     expect(safeCheckout).not.toHaveBeenCalled();
   });
 
-  test("session_tree ask mode keeps prompting when any checkpoint in the session changed files", async () => {
+  test("session_tree ask mode prompts when the current-to-target range changed files", async () => {
     const changedCheckpoint = createCheckpointEntry({
       afterCommit: "changed-after",
       fileCount: 1,

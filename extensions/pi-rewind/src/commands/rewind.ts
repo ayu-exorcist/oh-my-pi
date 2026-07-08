@@ -12,7 +12,6 @@ import type { RepoManager, CheckpointEntry, FileChange } from "@ayulab/pi-checkp
 import { hasItems } from "@ayulab/runtime-core";
 import { getBranchCheckpointEntries } from "../utils/branch-checkpoints";
 import { runRestoreMode } from "./restore-mode";
-import { isCheckpointCustomEntry, isEntryWithId, isUserMessageEntry } from "../utils/tree-entry";
 
 async function findCleanDirtyBaseCommit(
   repo: RepoManager,
@@ -40,23 +39,10 @@ async function findCleanDirtyBaseCommit(
 }
 
 export function findConversationEntryIdForCheckpoint(
-  branch: readonly unknown[],
+  _branch: readonly unknown[],
   userEntryId: string,
 ): string {
-  const userIndex = branch.findIndex(
-    (entry) => isUserMessageEntry(entry) && entry.id === userEntryId,
-  );
-  if (userIndex < 0) return userEntryId;
-
-  let conversationEntryId = userEntryId;
-  for (const entry of branch.slice(userIndex + 1)) {
-    if (isUserMessageEntry(entry)) break;
-    if (isEntryWithId(entry) && !isCheckpointCustomEntry(entry)) {
-      conversationEntryId = entry.id;
-    }
-  }
-
-  return conversationEntryId;
+  return userEntryId;
 }
 
 /** Render a single file change with ANSI colour codes for terminal display. */
@@ -90,6 +76,18 @@ export function buildCheckpointItem(cp: CheckpointEntry): string {
   return `${header}\n   \x1b[38;5;245m${cp.fileCount} files changed  \x1b[38;5;2m+${totalAdded}\x1b[38;5;245m \x1b[38;5;1m-${totalRemoved}\x1b[0m\n`;
 }
 
+function checkpointChangedFiles(checkpoint: CheckpointEntry): boolean {
+  return checkpoint.fileCount > 0 || checkpoint.fileChanges.length > 0;
+}
+
+function rewindRangeHasFileChanges(
+  checkpoints: readonly CheckpointEntry[],
+  selectedIndex: number,
+): boolean {
+  if (selectedIndex < 0 || selectedIndex >= checkpoints.length) return false;
+  return checkpoints.slice(selectedIndex).some(checkpointChangedFiles);
+}
+
 function getMaxVisibleCheckpointLines(terminalRows: number): number {
   return Math.max(5, Math.floor(terminalRows / 2));
 }
@@ -97,7 +95,7 @@ function getMaxVisibleCheckpointLines(terminalRows: number): number {
 class CheckpointList implements Component {
   private selectedIndex: number;
 
-  public onSelect?: (item: string) => void;
+  public onSelect?: (index: number, item: string) => void;
   public onCancel?: () => void;
 
   public constructor(
@@ -110,10 +108,14 @@ class CheckpointList implements Component {
       readonly selectedText: (text: string) => string;
       readonly muted: (text: string) => string;
     },
-    initialSelectedItem?: string,
+    initialSelectedIndex?: number,
   ) {
-    const initialIndex = initialSelectedItem ? items.indexOf(initialSelectedItem) : -1;
-    this.selectedIndex = initialIndex >= 0 ? initialIndex : Math.max(0, items.length - 1);
+    this.selectedIndex =
+      initialSelectedIndex !== undefined &&
+      initialSelectedIndex >= 0 &&
+      initialSelectedIndex < items.length
+        ? initialSelectedIndex
+        : Math.max(0, items.length - 1);
   }
 
   public invalidate(): void {
@@ -241,7 +243,7 @@ class CheckpointList implements Component {
         this.selectedIndex === this.items.length - 1 ? 0 : this.selectedIndex + 1;
     } else if (keybindings.matches(keyData, "tui.select.confirm")) {
       const selected = this.items[this.selectedIndex];
-      if (selected !== undefined) this.onSelect?.(selected);
+      if (selected !== undefined) this.onSelect?.(this.selectedIndex, selected);
     } else if (keybindings.matches(keyData, "tui.select.cancel")) {
       this.onCancel?.();
     }
@@ -306,6 +308,9 @@ export async function selectCheckpointItem(
 ): Promise<string | undefined> {
   if (!ctx.ui.custom) return ctx.ui.select("Rewind to checkpoint:", [...items]);
 
+  const initialIndex = initialSelectedItem ? items.indexOf(initialSelectedItem) : -1;
+  const initialSelectedIndex = initialIndex >= 0 ? initialIndex : undefined;
+
   return ctx.ui.custom<string | undefined>((tui, theme, keybindings, done) => {
     const maxVisibleLines = getMaxVisibleCheckpointLines(tui.terminal.rows);
     const checkpointList = new CheckpointList(
@@ -318,9 +323,83 @@ export async function selectCheckpointItem(
         selectedText: (text) => theme.bold(text),
         muted: (text) => theme.fg("muted", text),
       },
-      initialSelectedItem,
+      initialSelectedIndex,
     );
-    checkpointList.onSelect = (item) => done(item);
+    checkpointList.onSelect = (_index, item) => done(item);
+    checkpointList.onCancel = () => done(undefined);
+
+    const title = new Text(theme.bold("  Rewind Checkpoints"), 1, 0);
+    const hint = new TruncatedText(
+      theme.fg(
+        "muted",
+        `  ${keyText(keybindings, "tui.select.up")}/${keyText(keybindings, "tui.select.down")}: move. ${keyText(keybindings, "tui.select.confirm")}: select. ${keyText(keybindings, "tui.select.cancel")}: cancel`,
+      ),
+      0,
+      0,
+    );
+
+    return {
+      render(width: number) {
+        return [
+          renderBorder(width, (text) => theme.fg("border", text)),
+          ...title.render(width),
+          ...hint.render(width),
+          renderBorder(width, (text) => theme.fg("border", text)),
+          "",
+          ...checkpointList.render(width),
+          "",
+          renderBorder(width, (text) => theme.fg("border", text)),
+        ];
+      },
+      handleInput(data: string) {
+        checkpointList.handleInput(data);
+      },
+      invalidate() {
+        title.invalidate();
+        checkpointList.invalidate();
+        hint.invalidate();
+      },
+    } satisfies Component;
+  });
+}
+
+function buildFallbackIndexedItems(items: readonly string[]): readonly string[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    counts.set(item, (counts.get(item) ?? 0) + 1);
+  }
+
+  return items.map((item, index) => (counts.get(item) === 1 ? item : `#${index + 1} ${item}`));
+}
+
+export async function selectCheckpointIndex(
+  ctx: Pick<ExtensionCommandContext, "ui">,
+  items: readonly string[],
+  initialSelectedIndex?: number,
+): Promise<number | undefined> {
+  if (!ctx.ui.custom) {
+    const indexedItems = buildFallbackIndexedItems(items);
+    const selected = await ctx.ui.select("Rewind to checkpoint:", [...indexedItems]);
+    if (!selected) return undefined;
+    const selectedIndex = indexedItems.indexOf(selected);
+    return selectedIndex >= 0 ? selectedIndex : undefined;
+  }
+
+  return ctx.ui.custom<number | undefined>((tui, theme, keybindings, done) => {
+    const maxVisibleLines = getMaxVisibleCheckpointLines(tui.terminal.rows);
+    const checkpointList = new CheckpointList(
+      items,
+      maxVisibleLines,
+      {
+        accent: (text) => theme.fg("accent", text),
+        selectedBg: (text) => theme.bg("selectedBg", text),
+        selectedCursor: (text) => theme.fg("accent", text),
+        selectedText: (text) => theme.bold(text),
+        muted: (text) => theme.fg("muted", text),
+      },
+      initialSelectedIndex,
+    );
+    checkpointList.onSelect = (index) => done(index);
     checkpointList.onCancel = () => done(undefined);
 
     const title = new Text(theme.bold("  Rewind Checkpoints"), 1, 0);
@@ -430,19 +509,18 @@ export function registerRewind(
       const items = [...cps.map((cp) => buildCheckpointItem(cp)), currentItem];
       const sessionId = ctx.sessionManager.getSessionId();
 
-      let selected: string | undefined;
+      let selectedIndex: number | undefined;
       let targetCp: CheckpointEntry | undefined;
       let mode: string | undefined;
 
       while (!mode) {
-        selected = await selectCheckpointItem(ctx, items, selected);
-        if (!selected) return;
+        selectedIndex = await selectCheckpointIndex(ctx, items, selectedIndex);
+        if (selectedIndex === undefined) return;
 
-        const idx = items.indexOf(selected);
-        targetCp = cps[idx];
+        targetCp = cps[selectedIndex];
         if (!targetCp) return;
 
-        const hasFileChanges = cps.some((cp) => cp.fileCount > 0);
+        const hasFileChanges = rewindRangeHasFileChanges(cps, selectedIndex);
         const codeRestoreWouldChangeState =
           targetCp.beforeCommit !== getSyncedCodeCommit(sessionId);
         const modes =

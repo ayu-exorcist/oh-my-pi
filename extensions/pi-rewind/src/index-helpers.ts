@@ -254,6 +254,38 @@ export function resolveBranchCodeCommit(
   return findLatestBranchCheckpoint(entries, branch)?.afterCommit;
 }
 
+function getBranchCodeUserIds(
+  branch: readonly TreeEntryRecord[],
+  excludeUserEntryId?: string,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of branch) {
+    if (isUserMessageEntry(entry) && entry.id !== excludeUserEntryId) ids.add(entry.id);
+  }
+  return ids;
+}
+
+export function treeNavigationRangeHasFileChanges(
+  checkpoints: readonly CheckpointEntry[],
+  currentBranch: readonly TreeEntryRecord[],
+  targetBranch: readonly TreeEntryRecord[],
+  targetId: string,
+): boolean {
+  const targetEntry = targetBranch.find((entry) => entry.id === targetId);
+  const excludedTargetUserId = isUserMessageEntry(targetEntry) ? targetId : undefined;
+  const currentUserIds = getBranchCodeUserIds(currentBranch);
+  const targetUserIds = getBranchCodeUserIds(targetBranch, excludedTargetUserId);
+
+  for (const checkpoint of checkpoints) {
+    if (!checkpointHasFileChanges(checkpoint)) continue;
+    if (currentUserIds.has(checkpoint.userEntryId) !== targetUserIds.has(checkpoint.userEntryId)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function needsCodeSync(
   currentCommit: string | undefined,
   targetCommit: string | undefined,

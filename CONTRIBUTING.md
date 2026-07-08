@@ -117,7 +117,7 @@ User-facing changes to published packages must include a changeset in the same p
 
 ### Adding an Extension
 
-```
+```plaintext
 extensions/
 └── <name>/
     ├── package.json      # Extension package config
@@ -202,7 +202,7 @@ If the extension depends on workspace runtime packages, list them in `dependenci
 
 ### Adding a Sub-package to `sdk/`
 
-```
+```plaintext
 sdk/
 └── <name>/
     ├── package.json
@@ -259,7 +259,7 @@ Use `internal/repo-tools` for shared build, Vitest, release, and repository-main
 
 Drop a `.json` file directly into `themes/`:
 
-```
+```plaintext
 themes/
 └── <name>.json
 ```
@@ -270,7 +270,7 @@ Pi auto-loads all `.json` files from `pi.themes` directories declared in `packag
 
 Create these directories only when the package needs to ship skills or prompt templates, then add the matching `pi.skills` or `pi.prompts` paths to the root manifest.
 
-```
+```plaintext
 skills/
 └── <name>/
     └── SKILL.md
@@ -366,7 +366,7 @@ npm publish
 
 **`.npmrc`** — root only, enables npm provenance (supply-chain attestation):
 
-```
+```plaintext
 provenance=true
 ```
 

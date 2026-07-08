@@ -16,6 +16,7 @@ import {
   needsCodeSync,
   resolveBranchCodeCommit,
   resolveTreeTargetCommit,
+  treeNavigationRangeHasFileChanges,
   type TreeRestoreIntent,
   type TreeRestoreMode,
 } from "./index-helpers";
@@ -91,6 +92,7 @@ interface PlanTreeCodeRestoreOptions {
   readonly sessionId: string;
   readonly targetId: string;
   readonly entries: readonly unknown[];
+  readonly currentBranch: readonly TreeEntryRecord[];
   readonly hasUI: boolean;
   readonly ui: ExtensionContext["ui"] | undefined;
 }
@@ -124,7 +126,7 @@ export class RewindSessionRuntimeState {
   }
 
   async planTreeCodeRestore(options: PlanTreeCodeRestoreOptions): Promise<void> {
-    const { sessionId, targetId, entries, hasUI, ui } = options;
+    const { sessionId, targetId, entries, currentBranch, hasUI, ui } = options;
     const treeRestoreMode = this.getSessionTreeRestoreMode(sessionId);
     const checkpoints = mergeCheckpointEntries(
       entries,
@@ -137,8 +139,15 @@ export class RewindSessionRuntimeState {
 
     const targetBranch = buildBranchToEntry(entries, targetId);
     const targetCommit = resolveTreeTargetCommit(entries, targetBranch, targetId, checkpoints);
+    const rangeHasFileChanges = treeNavigationRangeHasFileChanges(
+      checkpoints,
+      currentBranch,
+      targetBranch,
+      targetId,
+    );
     const shouldSyncCode =
       hasKnownFileChanges &&
+      rangeHasFileChanges &&
       needsCodeSync(this.sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
 
     if (treeRestoreMode === "always") {

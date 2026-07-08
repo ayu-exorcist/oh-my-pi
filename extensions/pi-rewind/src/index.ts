@@ -456,6 +456,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       sessionId,
       targetId,
       entries: ctx.sessionManager.getEntries(),
+      currentBranch: toTreeEntryRecords(ctx.sessionManager.getBranch()),
       hasUI: ctx.hasUI,
       ui: ctx.hasUI ? ctx.ui : undefined,
     });
