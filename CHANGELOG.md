@@ -4,6 +4,12 @@
 
 ### Patch Changes
 
+- 169b507: Bundle workspace dependencies into the root publish workspace before publishing.
+
+## 0.4.14
+
+### Patch Changes
+
 - 14f4e3c: Fix `/rewind` selection when multiple checkpoints render identical labels, restore conversation rewinds to the selected user prompt so Pi places it back in the editor, and show code restore modes only when the selected-to-latest rewind range includes file changes. `/tree` file sync prompts now use the current-to-target navigation range instead of session-wide file-change history.
 - c6d4e03: Keep `/rewind` aligned with visible user turns by collapsing retry-generated checkpoint duplicates, avoiding duplicate checkpoint entries for transient model retries, and restoring conversation state to the selected turn instead of jumping across later prompts.
 - 80d85d0: Guard checkpoint storage deletion with the checkpoint repo lock and report busy storage when another checkpoint operation is active.
