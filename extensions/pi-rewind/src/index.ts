@@ -8,17 +8,16 @@ import {
   safeCloneSessionCheckpointStorage,
   bindSessionRepo,
   getRepoDir,
-  getCheckpointEntries,
   resolveSessionCheckpointStorage,
 } from "@ayulab/pi-checkpoint";
-import { SessionStateMap } from "@ayulab/pi-checkpoint";
 import type { RepoProvider, CheckpointConfig, CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { errorMessage, isRecord } from "@ayulab/runtime-core";
 import { extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { registerCheckpointStorageCommand } from "./commands/checkpoint";
 import { registerRewind } from "./commands/rewind";
 import { AutoCheckpointProducer } from "./auto-checkpoint";
-import { getTreeEventRecord, toTreeEntryRecords, type TreeEntryRecord } from "./utils/tree-entry";
+import { RewindSessionRuntimeState } from "./session-runtime-state";
+import { getTreeEventRecord, toTreeEntryRecords } from "./utils/tree-entry";
 import {
   CHECKPOINT_SESSION_STORAGE_MISSING_MESSAGE,
   CHECKPOINT_STORAGE_MISSING_MESSAGE,
@@ -27,7 +26,6 @@ import {
   clearCodeRestoreWarning,
   configureRepo,
   createAutoCheckpointProducer,
-  createSessionTaskQueue,
   findCleanCheckpointCommit,
   findLatestBranchCheckpointFromList,
   hasCheckpointFileChanges,
@@ -38,7 +36,6 @@ import {
   notifyUnusableResumeStorage,
   readSettingsRecord,
   rememberCheckpointFileChanges,
-  resolveBranchCodeCommit,
   resolveTreeRestoreMode,
   resolveTreeTargetCommit,
   restoreCloneCodeState,
@@ -48,8 +45,6 @@ import {
   syncCheckpointStorageManifest,
   type ForkIntent,
   type RestoreRepoResult,
-  type TreeRestoreIntent,
-  type TreeRestoreMode,
 } from "./index-helpers";
 
 export function isForkIntentRecord(value: unknown): value is Record<string, unknown> {
@@ -106,59 +101,14 @@ export async function readForkIntent(
 export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   const repos = provider ?? createDefaultRepoProvider();
 
-  const producers = new SessionStateMap<AutoCheckpointProducer>();
-  const sessionTasks = createSessionTaskQueue();
-  const lastCheckpointTurnIds = new SessionStateMap<string>();
-  const pendingTreeRestores = new SessionStateMap<TreeRestoreIntent>();
-  const suppressedTreeRestores = new SessionStateMap<boolean>();
-  const sessionHasCheckpointFileChanges = new SessionStateMap<boolean>();
-  const treeRestoreNotifiers = new SessionStateMap<ExtensionContext["ui"] | undefined>();
-  const sessionNotifiers = new SessionStateMap<ExtensionContext["ui"] | undefined>();
-  const sessionConfigs = new SessionStateMap<CheckpointConfig>();
-  const sessionTreeRestoreModes = new SessionStateMap<TreeRestoreMode>();
-  const sessionFiles = new SessionStateMap<string | undefined>();
-  const sessionCwds = new SessionStateMap<string>();
-  const sessionSyncedCodeCommits = new SessionStateMap<string>();
-  const sessionCheckpointEntries = new SessionStateMap<readonly CheckpointEntry[]>();
-
-  function getSessionConfig(sessionId: string): CheckpointConfig {
-    return sessionConfigs.getOrUndefined(sessionId) ?? loadConfig({});
-  }
-
-  function getSessionTreeRestoreMode(sessionId: string): TreeRestoreMode {
-    return sessionTreeRestoreModes.getOrUndefined(sessionId) ?? "ask";
-  }
-
-  function resetSessionRuntimeState(
-    sessionId: string,
-    entries: readonly unknown[],
-    branch: readonly TreeEntryRecord[],
-    initializeSyncedCodeCommit: boolean,
-  ): void {
-    producers.delete(sessionId);
-    sessionTasks.delete(sessionId);
-    lastCheckpointTurnIds.delete(sessionId);
-    pendingTreeRestores.delete(sessionId);
-    treeRestoreNotifiers.delete(sessionId);
-    suppressedTreeRestores.delete(sessionId);
-    sessionHasCheckpointFileChanges.set(sessionId, hasCheckpointFileChanges(entries));
-    sessionCheckpointEntries.set(sessionId, getCheckpointEntries(entries));
-    const currentCommit = initializeSyncedCodeCommit
-      ? resolveBranchCodeCommit(entries, branch)
-      : undefined;
-    if (currentCommit) {
-      sessionSyncedCodeCommits.set(sessionId, currentCommit);
-    } else {
-      sessionSyncedCodeCommits.delete(sessionId);
-    }
-  }
+  const runtime = new RewindSessionRuntimeState();
 
   async function getOrCreateAutoCheckpointProducer(
     sessionId: string,
     ctx: ExtensionContext,
     config: CheckpointConfig,
   ): Promise<AutoCheckpointProducer | undefined> {
-    const existing = producers.getOrUndefined(sessionId);
+    const existing = runtime.producers.getOrUndefined(sessionId);
     if (existing) return existing;
     /* v8 ignore next */
     if (!config.enabled || !config.autoCheckpoint) return undefined;
@@ -173,7 +123,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     configureRepo(repo, config);
 
     const producer = createAutoCheckpointProducer(repo, config);
-    producers.set(sessionId, producer);
+    runtime.producers.set(sessionId, producer);
     return producer;
   }
 
@@ -207,12 +157,15 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     entries: readonly SessionEntry[],
     entry: CheckpointEntry,
   ): Promise<void> {
-    if (lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
-    lastCheckpointTurnIds.set(sessionId, entry.turnId);
-    rememberCheckpointFileChanges(sessionHasCheckpointFileChanges, sessionId, [entry]);
-    const checkpointEntries = sessionCheckpointEntries.get(sessionId, Array<CheckpointEntry>);
-    sessionCheckpointEntries.set(sessionId, [...checkpointEntries, entry]);
-    sessionSyncedCodeCommits.set(sessionId, entry.afterCommit);
+    if (runtime.lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
+    runtime.lastCheckpointTurnIds.set(sessionId, entry.turnId);
+    rememberCheckpointFileChanges(runtime.sessionHasCheckpointFileChanges, sessionId, [entry]);
+    const checkpointEntries = runtime.sessionCheckpointEntries.get(
+      sessionId,
+      Array<CheckpointEntry>,
+    );
+    runtime.sessionCheckpointEntries.set(sessionId, [...checkpointEntries, entry]);
+    runtime.sessionSyncedCodeCommits.set(sessionId, entry.afterCommit);
     pi.appendEntry("pi-checkpoint", entry);
     await syncCheckpointStorageManifest(sessionFile, sessionId, cwd, entries, entry.prompt);
   }
@@ -248,16 +201,16 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       ...baseConfig,
       restoreOnTree: treeRestoreMode !== "never",
     };
-    sessionConfigs.set(sessionId, config);
-    sessionTreeRestoreModes.set(sessionId, treeRestoreMode);
-    sessionFiles.set(sessionId, sessionFile);
-    sessionCwds.set(sessionId, ctx.cwd);
-    sessionNotifiers.set(sessionId, ctx.hasUI ? ctx.ui : undefined);
+    runtime.sessionConfigs.set(sessionId, config);
+    runtime.sessionTreeRestoreModes.set(sessionId, treeRestoreMode);
+    runtime.sessionFiles.set(sessionId, sessionFile);
+    runtime.sessionCwds.set(sessionId, ctx.cwd);
+    runtime.sessionNotifiers.set(sessionId, ctx.hasUI ? ctx.ui : undefined);
     clearCodeRestoreWarning(ctx.hasUI ? ctx.ui : undefined);
 
     if (event.reason === "fork") {
       const entries = ctx.sessionManager.getEntries();
-      resetSessionRuntimeState(sessionId, entries, ctx.sessionManager.getBranch(), false);
+      runtime.resetSession(sessionId, entries, ctx.sessionManager.getBranch(), false);
       const forkIntent = await readForkIntent(sessionFile);
       if (!event.previousSessionFile) return;
 
@@ -272,7 +225,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       configureRepo(storage.repo, config);
       repos.setRepo(sessionId, storage.repo);
-      producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
+      runtime.producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
 
       await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, entries);
       if (forkIntent?.position === "at") {
@@ -283,7 +236,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
             forkIntent.entryId,
             ctx.hasUI ? ctx.ui : undefined,
           );
-          if (restoredCommit) sessionSyncedCodeCommits.set(sessionId, restoredCommit);
+          if (restoredCommit) runtime.sessionSyncedCodeCommits.set(sessionId, restoredCommit);
         }
       } else if (config.restoreOnFork) {
         const restoredCommit = await restoreForkCodeState(
@@ -293,13 +246,13 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
           forkIntent?.entryId,
           ctx.hasUI ? ctx.ui : undefined,
         );
-        if (restoredCommit) sessionSyncedCodeCommits.set(sessionId, restoredCommit);
+        if (restoredCommit) runtime.sessionSyncedCodeCommits.set(sessionId, restoredCommit);
       }
       return;
     }
 
     const sessionEntries = ctx.sessionManager.getEntries();
-    resetSessionRuntimeState(
+    runtime.resetSession(
       sessionId,
       sessionEntries,
       ctx.sessionManager.getBranch(),
@@ -342,7 +295,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       const result = await restoreRepo.repo.safeCheckout(targetCommit);
       if (result.ok) {
-        sessionSyncedCodeCommits.set(sessionId, targetCommit);
+        runtime.sessionSyncedCodeCommits.set(sessionId, targetCommit);
       } else {
         notifySafeCheckoutFailure(
           ctx.hasUI ? ctx.ui : undefined,
@@ -358,8 +311,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
   async function finalizeCheckpointForSession(ctx: ExtensionContext): Promise<void> {
     const sessionId = ctx.sessionManager.getSessionId();
-    await sessionTasks.run(sessionId, async () => {
-      const producer = producers.getOrUndefined(sessionId);
+    await runtime.sessionTasks.run(sessionId, async () => {
+      const producer = runtime.producers.getOrUndefined(sessionId);
       if (!producer) return;
 
       const result = await producer.finalizeRun();
@@ -384,8 +337,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     sessionId: string,
     ctx: ExtensionContext,
   ): Promise<void> {
-    await sessionTasks.run(sessionId, async () => {
-      const config = getSessionConfig(sessionId);
+    await runtime.sessionTasks.run(sessionId, async () => {
+      const config = runtime.getSessionConfig(sessionId);
       if (!config.enabled || !config.autoCheckpoint) return;
 
       const leaf = findLastUserEntry(ctx.sessionManager.getBranch());
@@ -421,7 +374,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
   pi.on("input", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    clearCodeRestoreWarning(ctx.hasUI ? ctx.ui : sessionNotifiers.getOrUndefined(sessionId));
+    clearCodeRestoreWarning(
+      ctx.hasUI ? ctx.ui : runtime.sessionNotifiers.getOrUndefined(sessionId),
+    );
   });
 
   pi.on("message_start", async (event, ctx) => {
@@ -433,8 +388,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
   pi.on("turn_end", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    await sessionTasks.run(sessionId, async () => {
-      const producer = producers.getOrUndefined(sessionId);
+    await runtime.sessionTasks.run(sessionId, async () => {
+      const producer = runtime.producers.getOrUndefined(sessionId);
       if (!producer) return;
 
       const leaf = findLastUserEntry(ctx.sessionManager.getBranch());
@@ -457,11 +412,10 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!targetId) return;
 
     const sessionId = ctx.sessionManager.getSessionId();
-    const treeRestoreMode = getSessionTreeRestoreMode(sessionId);
-    if (suppressedTreeRestores.getOrUndefined(sessionId)) return;
+    const treeRestoreMode = runtime.getSessionTreeRestoreMode(sessionId);
+    if (runtime.treeRestores.isSuppressed(sessionId)) return;
 
-    pendingTreeRestores.set(sessionId, { targetId, mode: "Restore conversation" });
-    treeRestoreNotifiers.delete(sessionId);
+    runtime.treeRestores.setConversationPending(sessionId, targetId);
 
     // Summarise or Summarize with custom prompt → behave like native /tree
     // (conversation-only navigation, no file restore).
@@ -474,29 +428,32 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const entries = ctx.sessionManager.getEntries();
     const checkpoints = mergeCheckpointEntries(
       entries,
-      sessionCheckpointEntries.getOrUndefined(sessionId),
+      runtime.sessionCheckpointEntries.getOrUndefined(sessionId),
     );
     const hasKnownFileChanges =
-      sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
+      runtime.sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
       checkpoints.some(checkpointHasFileChanges);
-    sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
+    runtime.sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
 
     const targetBranch = buildBranchToEntry(entries, targetId);
     const targetCommit = resolveTreeTargetCommit(entries, targetBranch, targetId, checkpoints);
     const shouldSyncCode =
       hasKnownFileChanges &&
-      needsCodeSync(sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
+      needsCodeSync(runtime.sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
 
     if (treeRestoreMode === "always") {
       if (!shouldSyncCode || !targetCommit) return;
 
-      const restoreUi = ctx.hasUI ? ctx.ui : sessionNotifiers.getOrUndefined(sessionId);
-      pendingTreeRestores.set(sessionId, {
-        targetId,
-        mode: "Restore code and conversation",
-        targetCommit,
-      });
-      treeRestoreNotifiers.set(sessionId, restoreUi);
+      const restoreUi = ctx.hasUI ? ctx.ui : runtime.sessionNotifiers.getOrUndefined(sessionId);
+      runtime.treeRestores.setCodePending(
+        sessionId,
+        {
+          targetId,
+          mode: "Restore code and conversation",
+          targetCommit,
+        },
+        restoreUi,
+      );
       return;
     }
 
@@ -505,45 +462,42 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {
-        pendingTreeRestores.set(sessionId, {
-          targetId,
-          mode: "Restore code and conversation",
-          targetCommit,
-        });
-        treeRestoreNotifiers.set(sessionId, ctx.ui);
+        runtime.treeRestores.setCodePending(
+          sessionId,
+          {
+            targetId,
+            mode: "Restore code and conversation",
+            targetCommit,
+          },
+          ctx.ui,
+        );
       }
       return;
     }
 
     // never — do nothing, keep mode as "Restore conversation"
-    pendingTreeRestores.delete(sessionId);
-    treeRestoreNotifiers.delete(sessionId);
+    runtime.treeRestores.clearPending(sessionId);
   });
 
   pi.on("session_tree", async (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    if (suppressedTreeRestores.getOrUndefined(sessionId)) {
-      suppressedTreeRestores.delete(sessionId);
-      pendingTreeRestores.delete(sessionId);
-      return;
-    }
+    if (runtime.treeRestores.consumeSuppressedTree(sessionId)) return;
 
-    const restoreIntent = pendingTreeRestores.getOrUndefined(sessionId);
-    pendingTreeRestores.delete(sessionId);
-    const restoreUi = ctx.hasUI
-      ? ctx.ui
-      : (treeRestoreNotifiers.getOrUndefined(sessionId) ??
-        sessionNotifiers.getOrUndefined(sessionId));
-    treeRestoreNotifiers.delete(sessionId);
-    const config = getSessionConfig(sessionId);
-    const treeRestoreMode = getSessionTreeRestoreMode(sessionId);
+    const restoreIntent = runtime.treeRestores.consumePending(sessionId);
+    const restoreUi = runtime.treeRestores.consumeNotifier(
+      sessionId,
+      ctx.hasUI ? ctx.ui : undefined,
+      runtime.sessionNotifiers.getOrUndefined(sessionId),
+    );
+    const config = runtime.getSessionConfig(sessionId);
+    const treeRestoreMode = runtime.getSessionTreeRestoreMode(sessionId);
     if (restoreIntent?.mode === "Restore conversation") return;
     if (!restoreIntent && treeRestoreMode !== "always") return;
 
     const entries = ctx.sessionManager.getEntries();
     const checkpoints = mergeCheckpointEntries(
       entries,
-      sessionCheckpointEntries.getOrUndefined(sessionId),
+      runtime.sessionCheckpointEntries.getOrUndefined(sessionId),
     );
     const treeEvent = getTreeEventRecord(event);
     const currentBranch = toTreeEntryRecords(ctx.sessionManager.getBranch());
@@ -555,11 +509,12 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     const targetCommit =
       restoreIntent?.targetCommit ??
       resolveTreeTargetCommit(entries, targetBranch, targetId, checkpoints);
-    if (!needsCodeSync(sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit)) return;
+    if (!needsCodeSync(runtime.sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit))
+      return;
 
-    const cwd = sessionCwds.getOrUndefined(sessionId) ?? ctx.cwd;
+    const cwd = runtime.sessionCwds.getOrUndefined(sessionId) ?? ctx.cwd;
     const sessionFileForRestore =
-      sessionFiles.getOrUndefined(sessionId) ?? ctx.sessionManager.getSessionFile();
+      runtime.sessionFiles.getOrUndefined(sessionId) ?? ctx.sessionManager.getSessionFile();
     clearCodeRestoreWarning(restoreUi);
     const restoreRepo = await resolveRepoForRestore(sessionId, sessionFileForRestore, cwd, config);
     if (!restoreRepo.ok) {
@@ -580,7 +535,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
     const restored = await safeRestoreTreeCodeState(repo, targetCommit, dirtyBaseCommit, restoreUi);
     if (restored && targetCommit) {
-      sessionSyncedCodeCommits.set(sessionId, targetCommit);
+      runtime.sessionSyncedCodeCommits.set(sessionId, targetCommit);
     }
   });
 
@@ -588,9 +543,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   registerRewind(
     pi,
     async (sessionId) => {
-      const config = getSessionConfig(sessionId);
-      const sessionFileForRestore = sessionFiles.getOrUndefined(sessionId);
-      const cwd = sessionCwds.getOrUndefined(sessionId);
+      const config = runtime.getSessionConfig(sessionId);
+      const sessionFileForRestore = runtime.sessionFiles.getOrUndefined(sessionId);
+      const cwd = runtime.sessionCwds.getOrUndefined(sessionId);
       if (!cwd) {
         return {
           ok: false,
@@ -622,14 +577,14 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       };
     },
     (sessionId) => {
-      suppressedTreeRestores.set(sessionId, true);
+      runtime.treeRestores.suppress(sessionId);
     },
     (sessionId) => {
-      suppressedTreeRestores.delete(sessionId);
+      runtime.treeRestores.clearSuppression(sessionId);
     },
-    (sessionId) => sessionSyncedCodeCommits.getOrUndefined(sessionId),
+    (sessionId) => runtime.sessionSyncedCodeCommits.getOrUndefined(sessionId),
     (sessionId, commitHash) => {
-      sessionSyncedCodeCommits.set(sessionId, commitHash);
+      runtime.sessionSyncedCodeCommits.set(sessionId, commitHash);
     },
   );
 }
