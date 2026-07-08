@@ -1,5 +1,20 @@
 # @ayulab/oh-my-pi
 
+## 0.4.14
+
+### Patch Changes
+
+- 14f4e3c: Fix `/rewind` selection when multiple checkpoints render identical labels, restore conversation rewinds to the selected user prompt so Pi places it back in the editor, and show code restore modes only when the selected-to-latest rewind range includes file changes. `/tree` file sync prompts now use the current-to-target navigation range instead of session-wide file-change history.
+- c6d4e03: Keep `/rewind` aligned with visible user turns by collapsing retry-generated checkpoint duplicates, avoiding duplicate checkpoint entries for transient model retries, and restoring conversation state to the selected turn instead of jumping across later prompts.
+- 80d85d0: Guard checkpoint storage deletion with the checkpoint repo lock and report busy storage when another checkpoint operation is active.
+- f27d9d4: Harden release publishing by running commands without shell string interpolation and publishing from an isolated temporary workspace instead of rewriting the root manifest in place.
+- 478487a: Remove empty skills and prompt-template resource declarations from the root package, split test-targeted rewind helpers into regular helper modules, and deduplicate checkpoint runtime helpers.
+- Updated dependencies [14f4e3c]
+- Updated dependencies [c6d4e03]
+- Updated dependencies [80d85d0]
+- Updated dependencies [478487a]
+  - @ayulab/pi-rewind@0.4.4
+
 ## 0.4.13
 
 ### Patch Changes
