@@ -15,7 +15,7 @@ import { errorMessage, isRecord } from "@ayulab/runtime-core";
 import { extractPrompt, findLastUserEntry } from "./utils/prompt";
 import { registerCheckpointStorageCommand } from "./commands/checkpoint";
 import { registerRewind } from "./commands/rewind";
-import { AutoCheckpointProducer } from "./auto-checkpoint";
+import { AutoCheckpointProducer, type AutoCheckpointAssistantStopReason } from "./auto-checkpoint";
 import { RewindSessionRuntimeState } from "./session-runtime-state";
 import { getTreeEventRecord, toTreeEntryRecords } from "./utils/tree-entry";
 import {
@@ -87,6 +87,16 @@ export async function readForkIntent(
   } catch {
     return undefined;
   }
+}
+
+function isAssistantStopReason(value: unknown): value is AutoCheckpointAssistantStopReason {
+  return (
+    value === "stop" ||
+    value === "length" ||
+    value === "toolUse" ||
+    value === "error" ||
+    value === "aborted"
+  );
 }
 
 /**
@@ -178,7 +188,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     };
   });
 
-  pi.on("session_shutdown", async (event) => {
+  pi.on("session_shutdown", async (event, ctx) => {
+    await finalizeCheckpointForSession(ctx, { force: true });
     if (event.reason === "fork") {
       await writeForkIntent(event.targetSessionFile, pendingForkIntent);
     }
@@ -308,18 +319,25 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     }
   });
 
-  async function finalizeCheckpointForSession(ctx: ExtensionContext): Promise<void> {
+  async function finalizeCheckpointForSession(
+    ctx: ExtensionContext,
+    options?: { readonly force?: boolean },
+  ): Promise<void> {
     const sessionId = ctx.sessionManager.getSessionId();
     await runtime.sessionTasks.run(sessionId, async () => {
       const producer = runtime.producers.getOrUndefined(sessionId);
       if (!producer) return;
+      if (!options?.force && !producer.shouldFinalizeOnAgentEnd()) return;
 
       const result = await producer.finalizeRun();
       if (result.ok) {
+        const sessionFile =
+          runtime.sessionFiles.getOrUndefined(sessionId) ?? ctx.sessionManager.getSessionFile?.();
+        const cwd = runtime.sessionCwds.getOrUndefined(sessionId) ?? ctx.cwd;
         await appendCheckpoint(
           sessionId,
-          ctx.sessionManager.getSessionFile(),
-          ctx.cwd,
+          sessionFile,
+          cwd,
           ctx.sessionManager.getEntries(),
           result.entry,
         );
@@ -385,6 +403,19 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     await startCheckpointForLatestUser(sessionId, ctx);
   });
 
+  pi.on("message_end", async (event, ctx) => {
+    if (event.message.role !== "assistant") return;
+    const stopReason = "stopReason" in event.message ? event.message.stopReason : undefined;
+    if (!isAssistantStopReason(stopReason)) return;
+
+    const sessionId = ctx.sessionManager.getSessionId();
+    await runtime.sessionTasks.run(sessionId, async () => {
+      const producer = runtime.producers.getOrUndefined(sessionId);
+      if (!producer) return;
+      producer.recordAssistantStopReason(stopReason);
+    });
+  });
+
   pi.on("turn_end", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     await runtime.sessionTasks.run(sessionId, async () => {
@@ -420,7 +451,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     // settings can still apply.
     if (treeEvent.userWantsSummary === true) return;
 
-    await finalizeCheckpointForSession(ctx);
+    await finalizeCheckpointForSession(ctx, { force: true });
     await runtime.planTreeCodeRestore({
       sessionId,
       targetId,
@@ -536,6 +567,9 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     (sessionId) => runtime.sessionSyncedCodeCommits.getOrUndefined(sessionId),
     (sessionId, commitHash) => {
       runtime.sessionSyncedCodeCommits.set(sessionId, commitHash);
+    },
+    async (ctx) => {
+      await finalizeCheckpointForSession(ctx, { force: true });
     },
   );
 }

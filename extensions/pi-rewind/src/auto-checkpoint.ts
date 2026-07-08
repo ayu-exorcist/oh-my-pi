@@ -29,6 +29,8 @@ export interface AutoCheckpointTurnEndInput {
   readonly prompt: string;
 }
 
+export type AutoCheckpointAssistantStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
+
 export class AutoCheckpointProducer {
   private pendingTurnId: string | undefined;
 
@@ -38,6 +40,8 @@ export class AutoCheckpointProducer {
 
   private pendingPrompt = "";
 
+  private pendingAssistantStopReason: AutoCheckpointAssistantStopReason | undefined;
+
   constructor(private readonly options: AutoCheckpointProducerOptions) {}
 
   beginRun(): void {
@@ -45,6 +49,7 @@ export class AutoCheckpointProducer {
     this.pendingUserEntryId = undefined;
     this.pendingBeforeCommit = undefined;
     this.pendingPrompt = "";
+    this.pendingAssistantStopReason = undefined;
   }
 
   async turnStart(input: AutoCheckpointTurnStartInput): Promise<AutoCheckpointStartResult> {
@@ -52,6 +57,7 @@ export class AutoCheckpointProducer {
 
     if (this.pendingBeforeCommit) {
       if (this.pendingUserEntryId === input.userEntryId) {
+        this.pendingAssistantStopReason = undefined;
         return { ok: true, entries };
       }
 
@@ -62,6 +68,7 @@ export class AutoCheckpointProducer {
     this.pendingTurnId = this.options.createTurnId();
     this.pendingUserEntryId = input.userEntryId;
     this.pendingPrompt = input.prompt;
+    this.pendingAssistantStopReason = undefined;
 
     try {
       await this.options.repo.withLock(async () => {
@@ -84,6 +91,16 @@ export class AutoCheckpointProducer {
       this.pendingPrompt = input.prompt;
     }
     return { ok: true };
+  }
+
+  recordAssistantStopReason(stopReason: AutoCheckpointAssistantStopReason): void {
+    if (!this.pendingBeforeCommit) return;
+    this.pendingAssistantStopReason = stopReason;
+  }
+
+  shouldFinalizeOnAgentEnd(): boolean {
+    if (!this.pendingBeforeCommit) return false;
+    return this.pendingAssistantStopReason !== "error";
   }
 
   async finalizeRun(): Promise<AutoCheckpointFinalizeResult> {

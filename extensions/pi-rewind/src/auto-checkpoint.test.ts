@@ -194,4 +194,31 @@ describe("AutoCheckpointProducer", () => {
     expect(checkpoint).toHaveBeenNthCalledWith(1, "entry-1");
     expect(checkpoint).toHaveBeenNthCalledWith(2, "entry-2");
   });
+
+  test("defers agent_end finalization after an assistant error until the retry settles", async () => {
+    const checkpoint = vi
+      .fn()
+      .mockResolvedValueOnce("before-hash")
+      .mockResolvedValueOnce("after-hash");
+    const producer = createProducer({
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      checkpoint,
+      stageAll: vi.fn().mockResolvedValue(undefined),
+      diffAgainst: vi.fn().mockResolvedValue(""),
+    });
+
+    await producer.turnStart({ userEntryId: "entry-1", prompt: "retry me" });
+    producer.recordAssistantStopReason("error");
+    expect(producer.shouldFinalizeOnAgentEnd()).toBe(false);
+
+    await producer.turnStart({ userEntryId: "entry-1", prompt: "retry me" });
+    producer.recordAssistantStopReason("stop");
+    expect(producer.shouldFinalizeOnAgentEnd()).toBe(true);
+
+    const final = await producer.finalizeRun();
+    expect(final).toEqual({
+      ok: true,
+      entry: expect.objectContaining({ userEntryId: "entry-1", prompt: "retry me" }),
+    });
+  });
 });

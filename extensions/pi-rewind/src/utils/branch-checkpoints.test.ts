@@ -59,6 +59,20 @@ describe("getBranchCheckpointEntries", () => {
     expect(getBranchCheckpointEntries(entries, [createAssistantEntry("assistant-1")])).toEqual([]);
   });
 
+  it("collapses retry checkpoints for the same user entry", () => {
+    const entries = [
+      wrapCheckpoint(createCheckpoint("user-1", "commit-1")),
+      wrapCheckpoint(createCheckpoint("user-1", "commit-2")),
+      wrapCheckpoint(createCheckpoint("user-2", "commit-3")),
+    ];
+    const branch = [createUserEntry("user-1"), createUserEntry("user-2")];
+
+    expect(getBranchCheckpointEntries(entries, branch).map((entry) => entry.afterCommit)).toEqual([
+      "commit-1",
+      "commit-3",
+    ]);
+  });
+
   it("ignores branch entries without user message shape", () => {
     const entries = [wrapCheckpoint(createCheckpoint("user-1", "commit-1"))];
     const branch = [

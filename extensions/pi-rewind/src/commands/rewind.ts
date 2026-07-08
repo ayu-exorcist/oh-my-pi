@@ -411,10 +411,13 @@ export function registerRewind(
   clearTreeRestoreSuppression: (sessionId: string) => void = () => undefined,
   getSyncedCodeCommit: (sessionId: string) => string | undefined = () => undefined,
   setSyncedCodeCommit: (sessionId: string, commitHash: string) => void = () => undefined,
+  flushPendingCheckpoint: (ctx: ExtensionCommandContext) => Promise<void> = async () => undefined,
 ) {
   pi.registerCommand("rewind", {
     description: "Rewind files to a previous checkpoint",
     handler: async (_args, ctx) => {
+      await flushPendingCheckpoint(ctx);
+
       const entries = ctx.sessionManager.getEntries();
       const branch = ctx.sessionManager.getBranch();
       const cps = getBranchCheckpointEntries(entries, branch);
@@ -484,7 +487,7 @@ export function registerRewind(
         },
         targetCp,
         latestCp: latest,
-        conversationEntryId: targetCp.userEntryId,
+        conversationEntryId: findConversationEntryIdForCheckpoint(branch, targetCp.userEntryId),
         dirtyBaseCommit,
         onCodeRestore: (commitHash) => setSyncedCodeCommit(sessionId, commitHash),
       });

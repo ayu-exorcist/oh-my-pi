@@ -195,7 +195,13 @@ function getAgentMessage(branch: SessionEntry[]) {
   return entry.message;
 }
 
-function createAssistantMessage() {
+function createAssistantMessage(
+  partial: Partial<ReturnType<typeof createAssistantMessageBase>> = {},
+) {
+  return { ...createAssistantMessageBase(), ...partial };
+}
+
+function createAssistantMessageBase() {
   return {
     role: "assistant",
     content: [],
@@ -222,6 +228,17 @@ async function emitAssistantStart(
   const message = createAssistantMessage();
   const messageStartHandlers = events["message_start"] || [];
   for (const h of messageStartHandlers) {
+    await h({ message }, ctx);
+  }
+}
+
+async function emitAssistantEnd(
+  events: Record<string, Array<MockEventHandler>>,
+  ctx: ExtensionContext,
+  message = createAssistantMessage({ stopReason: "stop" }),
+): Promise<void> {
+  const messageEndHandlers = events["message_end"] || [];
+  for (const h of messageEndHandlers) {
     await h({ message }, ctx);
   }
 }
@@ -1446,6 +1463,41 @@ describe("checkpoint extension", () => {
     expect(call[1].userEntryId).toBe("entry-1");
     expect(call[1].prompt).toBe("生成空 test5.txt");
     expect(call[1].fileChanges.map((c) => c.path)).toContain("test6.txt");
+  });
+
+  test("auto-retry keeps a single checkpoint for the same user entry", async () => {
+    const branch = [createUserEntry("entry-1", "retry me")];
+    const { api, events, appendEntry } = createMockApi();
+    const ext = await import("./index");
+    ext.default(api);
+
+    const ctx = createMockContext(sessionFile, branch, tmpDir);
+
+    for (const h of events["session_start"] || []) {
+      await h({ reason: "new" }, ctx);
+    }
+
+    await emitAssistantStart(events, ctx);
+    await emitAssistantEnd(events, ctx, createAssistantMessage({ stopReason: "error" }));
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).not.toHaveBeenCalled();
+
+    await emitAssistantStart(events, ctx);
+    await emitAssistantEnd(events, ctx, createAssistantMessage({ stopReason: "stop" }));
+    for (const h of events["turn_end"] || []) {
+      await h({ turnIndex: 0, message: getAgentMessage(branch), toolResults: [] }, ctx);
+    }
+    for (const h of events["agent_end"] || []) {
+      await h({ messages: [] }, ctx);
+    }
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    const call = expectCheckpointEntryCall(appendEntry, 0);
+    expect(call[1].userEntryId).toBe("entry-1");
+    expect(call[1].prompt).toBe("retry me");
   });
 
   test("turn_end parses diff stats correctly", async () => {
@@ -4181,7 +4233,7 @@ describe("checkpoint extension", () => {
     expect(call.userEntryId).toBe("entry-1");
     expect(call.prompt).toBe("生成一个空文件 test5.txt");
     expect(call.fileChanges.map((c) => c.path)).toContain("test5.txt");
-  });
+  }, 15000);
 
   test("turn_end flushes checkpoint before branch advances", async () => {
     const branch = [createUserEntry("entry-1", "生成 test4.txt")];

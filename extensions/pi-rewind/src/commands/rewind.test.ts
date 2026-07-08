@@ -784,6 +784,27 @@ describe("registerRewind", () => {
     );
   });
 
+  test("flushes any pending checkpoint before reading the rewind list", async () => {
+    const pi = createMockPi();
+    const flushPendingCheckpoint = vi.fn().mockResolvedValue(undefined);
+    registerRewind(
+      pi,
+      () => undefined,
+      () => undefined,
+      () => undefined,
+      () => undefined,
+      () => undefined,
+      flushPendingCheckpoint,
+    );
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx([]);
+
+    await handler("", ctx);
+
+    expect(flushPendingCheckpoint).toHaveBeenCalledWith(ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("No checkpoints available", "warning");
+  });
+
   test("shows checkpoint availability before resolving code storage", async () => {
     const pi = createMockPi();
     registerRewind(pi, () => undefined);
@@ -947,6 +968,64 @@ describe("registerRewind", () => {
       buildCheckpointItem(entries[1] ?? firstEntry(entries)),
       "(current)\n",
     ]);
+  });
+
+  test("collapses retry checkpoints for the same visible user turn", async () => {
+    const pi = createMockPi();
+    const entries = [
+      createEntry({ userEntryId: "retry-entry", beforeCommit: "old-1", afterCommit: "after-1" }),
+      createEntry({ userEntryId: "retry-entry", beforeCommit: "old-2", afterCommit: "after-2" }),
+    ];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = createMockCtx(entries, ["retry-entry"]);
+    ctx.ui.select
+      .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+      .mockResolvedValueOnce("Restore conversation");
+
+    await handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenNthCalledWith(1, "Rewind to checkpoint:", [
+      buildCheckpointItem(firstEntry(entries)),
+      "(current)\n",
+    ]);
+    expect(ctx.navigateTree).toHaveBeenCalledWith("retry-entry", { summarize: false });
+  });
+
+  test("rewind restores to the turn end entry when one exists", async () => {
+    const pi = createMockPi();
+    const entries = [createEntry({ userEntryId: "user-1", beforeCommit: "abc" })];
+    registerRewind(pi, () => createMockRepo());
+    const handler = getRegisterCall(pi);
+    const ctx = {
+      ui: {
+        notify: vi.fn(),
+        select: vi
+          .fn()
+          .mockResolvedValueOnce(buildCheckpointItem(firstEntry(entries)))
+          .mockResolvedValueOnce("Restore conversation"),
+        input: vi.fn(),
+      },
+      navigateTree: vi.fn(),
+      sessionManager: {
+        getEntries: () =>
+          entries.map((data) => ({
+            type: "custom",
+            customType: "pi-checkpoint",
+            data,
+          })),
+        getBranch: () => [
+          { type: "message", id: "user-1", message: { role: "user" } },
+          { type: "message", id: "assistant-1", message: { role: "assistant" } },
+          { type: "custom", id: "checkpoint-1", customType: "pi-checkpoint" },
+        ],
+        getSessionId: () => "test-session",
+      },
+    } as unknown as ReturnType<typeof createMockCtx>;
+
+    await handler("", ctx);
+
+    expect(ctx.navigateTree).toHaveBeenCalledWith("assistant-1", { summarize: false });
   });
 
   test("returns early when user selects current", async () => {
