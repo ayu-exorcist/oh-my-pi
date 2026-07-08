@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -32,6 +33,9 @@ describe("exec", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.doUnmock("node:child_process");
+    vi.resetModules();
     await rmRetry(tmpDir);
   });
 
@@ -88,6 +92,34 @@ describe("exec", () => {
         timeoutMs: 10,
       }),
     ).rejects.toThrow(`Command timed out after 10ms: ${process.execPath}`);
+  });
+
+  test("escalates timed-out commands to SIGKILL when SIGTERM does not finish them", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const kill = vi.fn();
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      kill,
+    });
+    const spawn = vi.fn(() => child);
+    vi.doMock("node:child_process", () => ({ spawn }));
+
+    const { exec: mockedExec } = await import("./exec");
+    const result = mockedExec("git", ["status"], undefined, undefined, { timeoutMs: 10 });
+    const rejection = expect(result).rejects.toThrow("Command timed out after 10ms: git status");
+
+    await vi.advanceTimersByTimeAsync(10);
+    await rejection;
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(kill).toHaveBeenCalledWith("SIGKILL");
+    expect(spawn).toHaveBeenCalledWith("git", ["status"], {
+      cwd: undefined,
+      env: process.env,
+    });
   });
 
   test("execSafe returns error Result when command exits non-zero", async () => {

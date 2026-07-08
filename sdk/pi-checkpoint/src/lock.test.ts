@@ -20,6 +20,8 @@ describe("withRepoLock", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     await cleanup(tmpDir);
   });
 
@@ -44,6 +46,37 @@ describe("withRepoLock", () => {
       .then(() => true)
       .catch(() => false);
     expect(gone).toBe(false);
+  });
+
+  test("ignores heartbeat touch failures while preserving the held lock", async () => {
+    vi.useFakeTimers();
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    const utimesSpy = vi.spyOn(fs, "utimes").mockRejectedValueOnce(new Error("touch failed"));
+    let releaseLock: () => void = () => {};
+
+    const enteredLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const locked = withRepoLock(tmpDir, async () => {
+      releaseLock();
+      await new Promise<void>((release) => {
+        releaseLock = release;
+      });
+      return "released";
+    });
+
+    await enteredLock;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(utimesSpy).toHaveBeenCalledWith(lockPath, expect.any(Date), expect.any(Date));
+    const exists = await fs
+      .access(lockPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(exists).toBe(true);
+
+    releaseLock();
+    await expect(locked).resolves.toBe("released");
   });
 
   test("serialises concurrent callers on the same repo", async () => {
@@ -228,6 +261,17 @@ describe("withRepoLock", () => {
     expect(result).toBe("recovered");
 
     statSpy.mockRestore();
+  });
+
+  test("propagates unexpected stat errors while inspecting an existing lock", async () => {
+    const lockPath = path.join(tmpDir, ".pi-checkpoint-lock");
+    await fs.mkdir(lockPath);
+    const err = new Error("EACCES") as NodeJS.ErrnoException;
+    err.code = "EACCES";
+    const statSpy = vi.spyOn(fs, "stat").mockRejectedValueOnce(err);
+
+    await expect(withRepoLock(tmpDir, async () => "ok")).rejects.toThrow("EACCES");
+    expect(statSpy).toHaveBeenCalledWith(lockPath);
   });
 
   test("throws when mkdir fails with an unexpected error", async () => {

@@ -68,8 +68,12 @@ async function emitAssistantStart(
   }
 }
 
-function createMockContext(sessionFile: string, cwd: string, sessionId = "test-session") {
-  const branch = [createUserEntry("entry-1", "test")];
+function createMockContext(
+  sessionFile: string,
+  cwd: string,
+  sessionId = "test-session",
+  branch: readonly unknown[] = [createUserEntry("entry-1", "test")],
+) {
   return {
     sessionManager: {
       getSessionFile: () => sessionFile,
@@ -113,6 +117,8 @@ describe("rewind resolver", () => {
   test("registerRewind resolver reports not-ready, missing storage, success, and unusable storage", async () => {
     const rewindRegistrations: Array<{
       getRepo: (sessionId: string) => Promise<unknown>;
+      getSyncedCodeCommit: (sessionId: string) => string | undefined;
+      setSyncedCodeCommit: (sessionId: string, commitHash: string) => void;
     }> = [];
 
     vi.doMock("./commands/rewind", () => ({
@@ -122,8 +128,10 @@ describe("rewind resolver", () => {
           getRepo: (sessionId: string) => Promise<unknown>,
           _suppress: (sessionId: string) => void,
           _restore: (sessionId: string) => void,
+          getSyncedCodeCommit: (sessionId: string) => string | undefined,
+          setSyncedCodeCommit: (sessionId: string, commitHash: string) => void,
         ) => {
-          rewindRegistrations.push({ getRepo });
+          rewindRegistrations.push({ getRepo, getSyncedCodeCommit, setSyncedCodeCommit });
         },
       ),
     }));
@@ -163,6 +171,10 @@ describe("rewind resolver", () => {
     expect(success).toMatchObject({ ok: true });
     if (!success.ok) throw new Error("expected repo success");
 
+    expect(registration.getSyncedCodeCommit("test-session")).toBeUndefined();
+    registration.setSyncedCodeCommit("test-session", "rewind-restored-commit");
+    expect(registration.getSyncedCodeCommit("test-session")).toBe("rewind-restored-commit");
+
     vi.spyOn(success.repo, "lockedSetExclude").mockRejectedValueOnce(new Error("boom"));
     await expect(registration.getRepo("test-session")).resolves.toEqual({
       ok: false,
@@ -170,4 +182,80 @@ describe("rewind resolver", () => {
       level: "error",
     });
   }, 15000);
+
+  test("session_tree skips checkout when rewind marks the target code commit as synced", async () => {
+    const rewindRegistrations: Array<{
+      setSyncedCodeCommit: (sessionId: string, commitHash: string) => void;
+    }> = [];
+
+    vi.doMock("./commands/rewind", () => ({
+      registerRewind: vi.fn(
+        (
+          _pi: ExtensionAPI,
+          _getRepo: (sessionId: string) => Promise<unknown>,
+          _suppress: (sessionId: string) => void,
+          _restore: (sessionId: string) => void,
+          _getSyncedCodeCommit: (sessionId: string) => string | undefined,
+          setSyncedCodeCommit: (sessionId: string, commitHash: string) => void,
+        ) => {
+          rewindRegistrations.push({ setSyncedCodeCommit });
+        },
+      ),
+    }));
+    vi.doMock("./commands/checkpoint", () => ({
+      registerCheckpointStorageCommand: vi.fn(),
+    }));
+
+    await fs.mkdir(path.join(tmpDir, ".pi"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, ".pi", "settings.json"),
+      JSON.stringify({ ayu: { rewind: { restoreOnTree: "always" } } }),
+      "utf8",
+    );
+
+    const checkpointEntry = {
+      v: 2,
+      kind: "checkpoint",
+      turnId: "turn-1",
+      userEntryId: "entry-1",
+      beforeCommit: "tree-before",
+      afterCommit: "tree-after",
+      prompt: "test",
+      fileCount: 1,
+      fileChanges: [{ path: "a.ts", added: 1, removed: 0 }],
+      createdAt: "2026-01-02T03:04:05.000Z",
+    };
+    const branch = [
+      createUserEntry("entry-1", "test"),
+      { type: "custom", customType: "pi-checkpoint", data: checkpointEntry },
+    ];
+
+    const { default: activate } = await import("./index");
+    const { api, events } = createMockApi();
+    activate(api);
+    const registration = rewindRegistrations[0];
+    if (!registration) throw new Error("expected rewind registration");
+
+    const ctx = createMockContext(sessionFile, tmpDir, "test-session", branch);
+    for (const handler of events["session_start"] || []) {
+      await handler({ reason: "new" }, ctx);
+    }
+
+    registration.setSyncedCodeCommit("test-session", "stale-code");
+    for (const handler of events["session_before_tree"] || []) {
+      await handler({ preparation: { targetId: "entry-1", userWantsSummary: false } }, ctx);
+    }
+
+    registration.setSyncedCodeCommit("test-session", "tree-before");
+    vi.mocked(ctx.ui.notify).mockClear();
+    vi.mocked(ctx.ui.setWidget).mockClear();
+    const safeCheckout = vi.spyOn(RepoManager.prototype, "safeCheckout");
+    for (const handler of events["session_tree"] || []) {
+      await handler({ oldLeafId: "entry-1", newLeafId: "entry-1" }, ctx);
+    }
+
+    expect(safeCheckout).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    expect(ctx.ui.setWidget).not.toHaveBeenCalled();
+  });
 });
