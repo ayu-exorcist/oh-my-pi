@@ -1,5 +1,12 @@
 # @ayulab/pi-checkpoint
 
+## 0.6.4
+
+### Patch Changes
+
+- 80d85d0: Guard checkpoint storage deletion with the checkpoint repo lock and report busy storage when another checkpoint operation is active.
+- 478487a: Remove empty skills and prompt-template resource declarations from the root package, split test-targeted rewind helpers into regular helper modules, and deduplicate checkpoint runtime helpers.
+
 ## 0.6.3
 
 ### Patch Changes
