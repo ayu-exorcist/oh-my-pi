@@ -23,8 +23,6 @@ export function packageReleasePaths(pkg: PackageInfo, related: readonly PackageI
   ]);
 
   if (pkg.isRoot) {
-    paths.add(relative(root, resolve(root, "prompts")));
-    paths.add(relative(root, resolve(root, "skills")));
     paths.add(relative(root, resolve(root, "themes")));
   } else {
     paths.add(relative(root, resolve(pkg.path, "src")));

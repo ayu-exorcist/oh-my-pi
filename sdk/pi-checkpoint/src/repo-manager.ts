@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { errorMessage } from "@ayulab/runtime-core";
 import { exec, type ExecEnv } from "./exec";
 import { withRepoLock } from "./lock";
 
@@ -58,10 +59,6 @@ function toGitPath(workTree: string, absolutePath: string): string {
 function isPathInside(basePath: string, candidatePath: string): boolean {
   const relative = path.relative(basePath, candidatePath);
   return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export type SafeCheckoutFailureReason =

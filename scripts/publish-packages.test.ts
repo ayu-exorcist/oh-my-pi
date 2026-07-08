@@ -118,7 +118,7 @@ describe("release entry point", () => {
     expect(mockHasPathChangesSinceRef).toHaveBeenCalledWith(
       repoRoot,
       "HEAD",
-      expect.arrayContaining(["package.json", "README.md", "prompts", "skills", "themes"]),
+      expect.arrayContaining(["package.json", "README.md", "themes"]),
     );
   });
 

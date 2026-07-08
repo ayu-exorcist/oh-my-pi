@@ -9,7 +9,7 @@ This repository is a [Pi Package](https://pi.dev/docs/latest/packages) named `@a
 - `internal/` — Private workspace packages that are built/tested but not published
 - `scripts/` — Development and release automation
 - `themes/` — Packaged themes; currently `purple-dream.json`
-- `skills/` / `prompts/` — Optional Pi resource directories declared by the root manifest when resources are added
+- `skills/` / `prompts/` — Optional Pi resource directories; add manifest paths only when resources are present
 
 ## Environment Setup
 
@@ -268,7 +268,7 @@ Pi auto-loads all `.json` files from `pi.themes` directories declared in `packag
 
 ### Adding a Skill / Prompt
 
-Create these directories only when the package needs to ship skills or prompt templates. The root manifest already declares the conventional resource paths.
+Create these directories only when the package needs to ship skills or prompt templates, then add the matching `pi.skills` or `pi.prompts` paths to the root manifest.
 
 ```
 skills/
@@ -276,8 +276,7 @@ skills/
     └── SKILL.md
 
 prompts/
-└── <name>/
-    └── prompt.md
+└── <name>.md
 ```
 
 ## Code Standards

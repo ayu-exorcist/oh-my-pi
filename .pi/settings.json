@@ -6,7 +6,5 @@
   },
   "theme": "purple-dream",
   "sessionDir": ".pi/sessions",
-  "skills": ["skills"],
-  "prompts": ["prompts"],
   "extensions": ["npm:pi-web-access", "npm:pi-mcp-adapter"]
 }

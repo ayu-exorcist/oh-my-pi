@@ -387,17 +387,14 @@ describe("checkpoint command", () => {
     } satisfies CheckpointSelectorSession;
     purgeSessionCheckpointStorage.mockResolvedValueOnce({ ok: false, message: "orphan blocked" });
 
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     await expect(
-      __checkpointCommandTestOnly.deleteCheckpointStorage(
-        orphan,
-        path.join(tmpDir, "active.jsonl"),
-      ),
+      checkpointStorage.deleteCheckpointStorage(orphan, path.join(tmpDir, "active.jsonl")),
     ).resolves.toEqual({ ok: false, message: "orphan blocked" });
   });
 
   test("covers direct helper branches for checkpoint sessions", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const platformSpy = vi.spyOn(process, "platform", "get");
     platformSpy.mockReturnValue("linux");
     const cwd = path.join(tmpDir, "project");
@@ -441,24 +438,24 @@ describe("checkpoint command", () => {
       firstUserMessage: "existing",
     });
 
-    const sessions = await __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "current");
+    const sessions = await checkpointStorage.buildCheckpointSessions(cwd, "current");
     expect(sessions[1]?.parentSessionPath).toBe(path.join(tmpDir, ".repos", "parent-helper"));
     expect(writeCheckpointStorageManifest).toHaveBeenNthCalledWith(
       2,
       path.join(tmpDir, ".repos", "named"),
       expect.objectContaining({ createdAt: "2026-06-20T00:00:00.000Z" }),
     );
-    expect(__checkpointCommandTestOnly.normalizeComparablePath("A\\B")).toBe(path.resolve("A\\B"));
+    expect(checkpointStorage.normalizeComparablePath("A\\B")).toBe(path.resolve("A\\B"));
     platformSpy.mockReturnValue("win32");
-    expect(__checkpointCommandTestOnly.normalizeComparablePath("A\\B")).toBe(
+    expect(checkpointStorage.normalizeComparablePath("A\\B")).toBe(
       path.resolve("A\\B").toLowerCase(),
     );
-    expect(__checkpointCommandTestOnly.normalizeTitle(undefined)).toBe("Untitled session");
-    expect(__checkpointCommandTestOnly.toDate("bad-date") instanceof Date).toBe(true);
+    expect(checkpointStorage.normalizeTitle(undefined)).toBe("Untitled session");
+    expect(checkpointStorage.toDate("bad-date") instanceof Date).toBe(true);
   });
 
   test("skips empty untitled live sessions before syncing manifests", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const cwd = path.join(tmpDir, "project");
     sessionManagerList.mockResolvedValue([
       createSession({
@@ -471,7 +468,7 @@ describe("checkpoint command", () => {
     ]);
     listCheckpointStorageManifests.mockResolvedValue([]);
 
-    await __checkpointCommandTestOnly.syncLiveSessionManifest(
+    await checkpointStorage.syncLiveSessionManifest(
       createSession({
         id: "direct-untitled",
         path: path.join(tmpDir, "direct-untitled.jsonl"),
@@ -480,14 +477,12 @@ describe("checkpoint command", () => {
         messageCount: 0,
       }),
     );
-    await expect(
-      __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "current"),
-    ).resolves.toEqual([]);
+    await expect(checkpointStorage.buildCheckpointSessions(cwd, "current")).resolves.toEqual([]);
     expect(writeCheckpointStorageManifest).not.toHaveBeenCalled();
   });
 
   test("includes live sessions without checkpoint repos in the all-scope list", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const cwd = path.join(tmpDir, "project");
     const repoLess = createSession({
       id: "repo-less-only",
@@ -499,13 +494,13 @@ describe("checkpoint command", () => {
     sessionManagerListAll.mockResolvedValue([repoLess]);
     listCheckpointStorageManifests.mockResolvedValue([]);
 
-    const sessions = await __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "all");
+    const sessions = await checkpointStorage.buildCheckpointSessions(cwd, "all");
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.checkpointStatus).toBe("no checkpoints");
   });
 
   test("does not show repo-less sessions in the current-scope list", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const cwd = path.join(tmpDir, "project");
     sessionManagerList.mockResolvedValue([
       createSession({
@@ -517,13 +512,11 @@ describe("checkpoint command", () => {
     ]);
     listCheckpointStorageManifests.mockResolvedValue([]);
 
-    await expect(
-      __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "current"),
-    ).resolves.toEqual([]);
+    await expect(checkpointStorage.buildCheckpointSessions(cwd, "current")).resolves.toEqual([]);
   });
 
   test("skips orphan manifests that already match a live no-checkpoint session path", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const cwd = path.join(tmpDir, "project");
     const parent = createSession({
       id: "parent-no-repo",
@@ -557,7 +550,7 @@ describe("checkpoint command", () => {
       },
     ]);
 
-    const sessions = await __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "all");
+    const sessions = await checkpointStorage.buildCheckpointSessions(cwd, "all");
     expect(sessions).toHaveLength(2);
     expect(sessions[1]?.checkpointStatus).toBe("no checkpoints");
     expect(sessions[1]?.name).toBe("No Repo Session");
@@ -566,7 +559,7 @@ describe("checkpoint command", () => {
   });
 
   test("skips manifests for repo directories already represented by live sessions", async () => {
-    const { __checkpointCommandTestOnly } = await import("./checkpoint");
+    const checkpointStorage = await import("./checkpoint-storage");
     const cwd = path.join(tmpDir, "project");
     const live = createSession({
       id: "live-represented",
@@ -592,7 +585,7 @@ describe("checkpoint command", () => {
       },
     ]);
 
-    const sessions = await __checkpointCommandTestOnly.buildCheckpointSessions(cwd, "current");
+    const sessions = await checkpointStorage.buildCheckpointSessions(cwd, "current");
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.id).toBe("live-represented");
   });

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import {
-  __checkpointSelectorTestOnly,
   CheckpointSelectorComponent,
   type CheckpointSelectorKeybindings,
   type CheckpointSelectorOptions,
   type CheckpointSelectorSession,
   type CheckpointSelectorTheme,
 } from "./checkpoint-selector";
+import * as checkpointSelectorHelpers from "./checkpoint-selector-helpers";
 
 function flush(): Promise<void> {
   return Promise.resolve();
@@ -593,12 +593,12 @@ describe("checkpoint selector", () => {
   test("exposes helper functions for direct edge-case coverage", () => {
     const platformSpy = vi.spyOn(process, "platform", "get");
     platformSpy.mockReturnValue("linux");
-    expect(__checkpointSelectorTestOnly.normalizeComparablePath("A\\B")).toBe("A/B");
+    expect(checkpointSelectorHelpers.normalizeComparablePath("A\\B")).toBe("A/B");
     platformSpy.mockReturnValue("win32");
-    expect(__checkpointSelectorTestOnly.normalizeComparablePath("A\\B")).toBe("a/b");
-    expect(__checkpointSelectorTestOnly.normalizeTitle(undefined)).toBe("Untitled session");
+    expect(checkpointSelectorHelpers.normalizeComparablePath("A\\B")).toBe("a/b");
+    expect(checkpointSelectorHelpers.normalizeTitle(undefined)).toBe("Untitled session");
     expect(
-      __checkpointSelectorTestOnly.matchSession(
+      checkpointSelectorHelpers.matchSession(
         createSession({ id: "regex-empty", path: "/tmp/regex-empty.jsonl", firstMessage: "hello" }),
         { mode: "regex", tokens: [], regex: null },
       ),
@@ -606,7 +606,7 @@ describe("checkpoint selector", () => {
 
     const originalCodePointAt = String.prototype.codePointAt;
     String.prototype.codePointAt = vi.fn().mockReturnValue(undefined);
-    expect(__checkpointSelectorTestOnly.stripControlCharacters("x")).toBe(" ");
+    expect(checkpointSelectorHelpers.stripControlCharacters("x")).toBe(" ");
     String.prototype.codePointAt = originalCodePointAt;
 
     const OriginalRegExp = RegExp;
@@ -619,13 +619,13 @@ describe("checkpoint selector", () => {
         }
       },
     );
-    expect(__checkpointSelectorTestOnly.parseSearchQuery("re:boom")).toMatchObject({
+    expect(checkpointSelectorHelpers.parseSearchQuery("re:boom")).toMatchObject({
       error: "regex fail",
     });
     vi.unstubAllGlobals();
 
     const emptyPathSessions = [createSession({ id: "empty", path: "", firstMessage: "x" })];
-    expect(__checkpointSelectorTestOnly.buildSessionTree(emptyPathSessions)).toHaveLength(1);
+    expect(checkpointSelectorHelpers.buildSessionTree(emptyPathSessions)).toHaveLength(1);
 
     const originalMapGet = Map.prototype.get;
     const mapGet = vi.spyOn(Map.prototype, "get").mockImplementation(function (
@@ -636,24 +636,24 @@ describe("checkpoint selector", () => {
       return originalMapGet.call(this, key);
     });
     expect(
-      __checkpointSelectorTestOnly.buildSessionTree([
+      checkpointSelectorHelpers.buildSessionTree([
         createSession({ id: "missing-node", path: "/tmp/missing-node.jsonl" }),
       ]),
     ).toEqual([]);
     mapGet.mockRestore();
 
-    expect(__checkpointSelectorTestOnly.shortenPathForDisplay("/opt/outside")).toBe("/opt/outside");
+    expect(checkpointSelectorHelpers.shortenPathForDisplay("/opt/outside")).toBe("/opt/outside");
     expect(
-      __checkpointSelectorTestOnly.filterAndSortSessions(emptyPathSessions, "", "recent", "named"),
+      checkpointSelectorHelpers.filterAndSortSessions(emptyPathSessions, "", "recent", "named"),
     ).toEqual([]);
     expect(
-      __checkpointSelectorTestOnly.matchSession(
+      checkpointSelectorHelpers.matchSession(
         createSession({ id: "tokenless", path: "/tmp/tokenless.jsonl", firstMessage: "hello" }),
-        __checkpointSelectorTestOnly.parseSearchQuery("   "),
+        checkpointSelectorHelpers.parseSearchQuery("   "),
       ),
     ).toEqual({ matches: true, score: 0 });
 
-    const tied = __checkpointSelectorTestOnly.filterAndSortSessions(
+    const tied = checkpointSelectorHelpers.filterAndSortSessions(
       [
         createSession({
           id: "older",
@@ -674,7 +674,7 @@ describe("checkpoint selector", () => {
     );
     expect(tied[0]?.id).toBe("newer");
 
-    const ranked = __checkpointSelectorTestOnly.filterAndSortSessions(
+    const ranked = checkpointSelectorHelpers.filterAndSortSessions(
       [
         createSession({
           id: "same",
@@ -695,7 +695,7 @@ describe("checkpoint selector", () => {
     );
     expect(ranked[0]?.firstMessage).toBe("ab");
 
-    const roots = __checkpointSelectorTestOnly.buildSessionTree([
+    const roots = checkpointSelectorHelpers.buildSessionTree([
       createSession({ id: "root", path: "/tmp/root.jsonl", firstMessage: "root" }),
       createSession({
         id: "child-1",
@@ -716,7 +716,7 @@ describe("checkpoint selector", () => {
         firstMessage: "grand",
       }),
     ]);
-    const flattened = __checkpointSelectorTestOnly.flattenSessionTree(roots);
+    const flattened = checkpointSelectorHelpers.flattenSessionTree(roots);
     expect(flattened[2]?.ancestorContinues).toEqual([false, true]);
   });
 

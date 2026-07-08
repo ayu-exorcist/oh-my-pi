@@ -66,17 +66,9 @@ pnpm run setup
 pnpm run teardown
 ```
 
-`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again. These scripts are useful for active development when you want local extensions and package resources to be visible to Pi without repeated package installs.
+`pnpm run setup` adds the repository root to `~/.pi/agent/settings.json`, and `pnpm run teardown` removes it again. These scripts are useful for active development when you want local extension and theme resources to be visible to Pi without repeated package installs.
 
-After installation, Pi loads bundled extension packages from the package manifest, and automatically loads resources from declared convention directories when present. The current repository ships one theme; the root manifest also reserves the standard `skills/` and `prompts/` paths for future packaged resources.
-
-| Directory  | Content                  |
-| ---------- | ------------------------ |
-| `skills/`  | Skills (`SKILL.md`)      |
-| `prompts/` | Prompt templates (`.md`) |
-| `themes/`  | Themes (`.json`)         |
-
-Pi runs `npm install` automatically during installation to resolve `package.json` dependencies.
+After installation, Pi loads the bundled extension package and the declared theme resources from the package manifest. Pi runs `npm install` automatically during installation to resolve `package.json` dependencies.
 
 ## Repository Structure
 

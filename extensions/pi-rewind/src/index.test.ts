@@ -12,13 +12,13 @@ import { RepoManager } from "@ayulab/pi-checkpoint";
 import type { CheckpointConfig, CheckpointEntry, SafeCheckoutResult } from "@ayulab/pi-checkpoint";
 import { createMockRepo } from "@ayulab/pi-checkpoint/testing";
 import {
-  __piRewindIndexTestOnly,
   getForkIntentPath,
   isForkIntent,
   isForkIntentRecord,
   readForkIntent,
   writeForkIntent,
 } from "./index";
+import * as piRewindIndexHelpers from "./index-helpers";
 import { AutoCheckpointProducer } from "./auto-checkpoint";
 
 type MockEventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
@@ -262,40 +262,37 @@ async function enableTreeRestore(cwd: string): Promise<void> {
 
 describe("index helpers", () => {
   test("resolves tree restore mode, titles, and max file bytes", () => {
-    expect(__piRewindIndexTestOnly.resolveTreeRestoreMode({})).toBe("ask");
+    expect(piRewindIndexHelpers.resolveTreeRestoreMode({})).toBe("ask");
     expect(
-      __piRewindIndexTestOnly.resolveTreeRestoreMode({
+      piRewindIndexHelpers.resolveTreeRestoreMode({
         ayu: { rewind: { restoreOnTree: "invalid" } },
       }),
     ).toBe("ask");
     expect(
-      __piRewindIndexTestOnly.resolveTreeRestoreMode({
+      piRewindIndexHelpers.resolveTreeRestoreMode({
         ayu: { rewind: { restoreOnTree: "never" } },
       }),
     ).toBe("never");
-    expect(__piRewindIndexTestOnly.normalizeSessionTitle(undefined)).toBe("Untitled session");
-    expect(__piRewindIndexTestOnly.normalizeSessionTitle("  hello\nworld  ")).toBe("hello world");
-    expect(__piRewindIndexTestOnly.toMaxFileBytes({ maxFileMB: 0.2 } as CheckpointConfig)).toBe(
+    expect(piRewindIndexHelpers.normalizeSessionTitle(undefined)).toBe("Untitled session");
+    expect(piRewindIndexHelpers.normalizeSessionTitle("  hello\nworld  ")).toBe("hello world");
+    expect(piRewindIndexHelpers.toMaxFileBytes({ maxFileMB: 0.2 } as CheckpointConfig)).toBe(
       Math.floor(0.2 * 1024 * 1024),
     );
-    expect(__piRewindIndexTestOnly.toMaxFileBytes({} as CheckpointConfig)).toBeUndefined();
+    expect(piRewindIndexHelpers.toMaxFileBytes({} as CheckpointConfig)).toBeUndefined();
   });
 
   test("syncCheckpointStorageManifest returns early without a session file", async () => {
     await expect(
-      __piRewindIndexTestOnly.syncCheckpointStorageManifest(
-        undefined,
-        "session-id",
-        process.cwd(),
-        [createUserEntry("entry-1", "prompt")],
-      ),
+      piRewindIndexHelpers.syncCheckpointStorageManifest(undefined, "session-id", process.cwd(), [
+        createUserEntry("entry-1", "prompt"),
+      ]),
     ).resolves.toBeUndefined();
   });
 
   test("notifySafeCheckoutFailure covers warning and error variants", () => {
     const notify = vi.fn();
     const ui = { notify, setWidget: vi.fn() } as unknown as ExtensionContext["ui"];
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "storage-missing" },
       "dirty",
@@ -303,7 +300,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "target-missing" },
       "dirty",
@@ -311,7 +308,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "dirty", message: "details" },
       "dirty",
@@ -319,7 +316,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "dirty-check-failed" },
       "dirty",
@@ -327,7 +324,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "checkout-failed", rollbackError: "rollback boom" },
       "dirty",
@@ -335,7 +332,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       ui,
       { ok: false, reason: "checkout-failed", error: "checkout boom" },
       "dirty",
@@ -343,7 +340,7 @@ describe("index helpers", () => {
       "failed",
       "rollback",
     );
-    __piRewindIndexTestOnly.notifySafeCheckoutFailure(
+    piRewindIndexHelpers.notifySafeCheckoutFailure(
       undefined,
       { ok: false, reason: "checkout-failed", error: "ignored" },
       "dirty",
@@ -391,30 +388,30 @@ describe("index helpers", () => {
     const setWidget = vi.fn();
     const ui = { notify: vi.fn(), setWidget } as unknown as ExtensionContext["ui"];
 
-    await expect(
-      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, checkpoints),
-    ).resolves.toBe("before-2");
+    await expect(piRewindIndexHelpers.findCleanCheckpointCommit(repo, checkpoints)).resolves.toBe(
+      "before-2",
+    );
     vi.spyOn(repo, "diffAgainst")
       .mockResolvedValueOnce("1\t0\ta.txt\n")
       .mockResolvedValueOnce("1\t0\tb.txt\n");
     await expect(
-      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, [checkpoints[0]!]),
+      piRewindIndexHelpers.findCleanCheckpointCommit(repo, [checkpoints[0]!]),
     ).resolves.toBeUndefined();
     vi.spyOn(repo, "withLock").mockRejectedValueOnce(new Error("lock failed"));
     await expect(
-      __piRewindIndexTestOnly.findCleanCheckpointCommit(repo, checkpoints),
+      piRewindIndexHelpers.findCleanCheckpointCommit(repo, checkpoints),
     ).resolves.toBeUndefined();
 
     await expect(
-      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, undefined, "base", ui),
+      piRewindIndexHelpers.safeRestoreTreeCodeState(repo, undefined, "base", ui),
     ).resolves.toBe(true);
     await expect(
-      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, "target-1", undefined, ui),
+      piRewindIndexHelpers.safeRestoreTreeCodeState(repo, "target-1", undefined, ui),
     ).resolves.toBe(true);
     expect(repo.safeCheckout).toHaveBeenCalledWith("target-1");
 
     await expect(
-      __piRewindIndexTestOnly.safeRestoreTreeCodeState(repo, "target-2", "base", ui),
+      piRewindIndexHelpers.safeRestoreTreeCodeState(repo, "target-2", "base", ui),
     ).resolves.toBe(false);
     expectCodeRestoreWarningWidget(setWidget, checkpointTargetMissingWidgetMessage);
 
@@ -423,7 +420,7 @@ describe("index helpers", () => {
     });
     const storageMissingWidget = vi.fn();
     await expect(
-      __piRewindIndexTestOnly.safeRestoreTreeCodeState(storageMissingRepo, "target-3", "base", {
+      piRewindIndexHelpers.safeRestoreTreeCodeState(storageMissingRepo, "target-3", "base", {
         notify: vi.fn(),
         setWidget: storageMissingWidget,
       } as unknown as ExtensionContext["ui"]),
@@ -431,7 +428,7 @@ describe("index helpers", () => {
     expectCodeRestoreWarningWidget(storageMissingWidget, checkpointStorageMissingWidgetMessage);
 
     const forkRepo = createMockRepo({ safeCheckout: vi.fn().mockResolvedValue({ ok: true }) });
-    await __piRewindIndexTestOnly.restoreForkCodeState(
+    await piRewindIndexHelpers.restoreForkCodeState(
       forkRepo,
       [
         createUserEntry("entry-1", "test"),
@@ -444,7 +441,7 @@ describe("index helpers", () => {
     expect(forkRepo.safeCheckout).toHaveBeenCalledWith("after-1");
 
     const cloneRepo = createMockRepo({ safeCheckout: vi.fn().mockResolvedValue({ ok: true }) });
-    await __piRewindIndexTestOnly.restoreCloneCodeState(
+    await piRewindIndexHelpers.restoreCloneCodeState(
       cloneRepo,
       [{ type: "custom", customType: "pi-checkpoint", data: checkpoints[0] }],
       "missing-entry",
@@ -455,7 +452,7 @@ describe("index helpers", () => {
     const emptyCloneRepo = createMockRepo({
       safeCheckout: vi.fn().mockResolvedValue({ ok: true }),
     });
-    await __piRewindIndexTestOnly.restoreCloneCodeState(emptyCloneRepo, [], "missing-entry", ui);
+    await piRewindIndexHelpers.restoreCloneCodeState(emptyCloneRepo, [], "missing-entry", ui);
     expect(emptyCloneRepo.safeCheckout).not.toHaveBeenCalled();
   });
 });

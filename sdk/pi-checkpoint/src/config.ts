@@ -10,10 +10,6 @@ import {
 } from "@ayulab/runtime-core";
 import type { CheckpointConfig } from "./types";
 
-function resolveRestoreFlag(record: Record<string, unknown>, key: string): boolean | undefined {
-  return getBooleanField(record, key);
-}
-
 const DEFAULT_EXCLUDE_PATTERNS = [
   ".git",
   "node_modules/",
@@ -112,12 +108,11 @@ export function loadConfig(settings: Record<string, unknown>): CheckpointConfig 
   return {
     enabled: getBooleanField(checkpoint, "enabled") ?? defaultConfig.enabled,
     autoCheckpoint: getBooleanField(checkpoint, "autoCheckpoint") ?? defaultConfig.autoCheckpoint,
-    restoreOnFork: resolveRestoreFlag(checkpoint, "restoreOnFork") ?? defaultConfig.restoreOnFork,
-    restoreOnClone:
-      resolveRestoreFlag(checkpoint, "restoreOnClone") ?? defaultConfig.restoreOnClone,
+    restoreOnFork: getBooleanField(checkpoint, "restoreOnFork") ?? defaultConfig.restoreOnFork,
+    restoreOnClone: getBooleanField(checkpoint, "restoreOnClone") ?? defaultConfig.restoreOnClone,
     restoreOnResume:
-      resolveRestoreFlag(checkpoint, "restoreOnResume") ?? defaultConfig.restoreOnResume,
-    restoreOnTree: resolveRestoreFlag(checkpoint, "restoreOnTree") ?? defaultConfig.restoreOnTree,
+      getBooleanField(checkpoint, "restoreOnResume") ?? defaultConfig.restoreOnResume,
+    restoreOnTree: getBooleanField(checkpoint, "restoreOnTree") ?? defaultConfig.restoreOnTree,
     defaultSummaryInstructions:
       getStringField(checkpoint, "defaultSummaryInstructions") ??
       defaultConfig.defaultSummaryInstructions,
