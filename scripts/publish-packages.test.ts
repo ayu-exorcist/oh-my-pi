@@ -181,16 +181,25 @@ describe("release entry point", () => {
       scripts: { prepare: "simple-git-hooks" },
       devDependencies: { "simple-git-hooks": "^2.13.1" },
       engines: { node: ">=24.0.0" },
+      dependencies: { "@ayulab/example": "workspace:*" },
+      bundledDependencies: ["@ayulab/example"],
     });
     const extensionDir = join(root, "extensions", "example");
     mkdirSync(join(extensionDir, "dist"), { recursive: true });
     writeFileSync(join(root, "README.md"), "root readme\n");
     writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - extensions/*\n");
-    writeFileSync(join(extensionDir, "package.json"), '{"name":"example","version":"1.0.0"}\n');
+    writeFileSync(
+      join(extensionDir, "package.json"),
+      '{"name":"@ayulab/example","version":"1.0.0"}\n',
+    );
+    writeFileSync(
+      join(extensionDir, "dist", "package.json"),
+      '{"name":"@ayulab/example","version":"1.0.0"}\n',
+    );
     writeFileSync(join(extensionDir, "dist", "index.js"), "export {};\n");
 
     try {
-      const publishRoot = createPublishWorkspace(root, [pkg("example", extensionDir)]);
+      const publishRoot = createPublishWorkspace(root, [pkg("@ayulab/example", extensionDir)]);
       try {
         const rootManifest = JSON.parse(readFileSync(join(publishRoot, "package.json"), "utf8"));
         expect(rootManifest.scripts).toBeUndefined();
@@ -198,6 +207,9 @@ describe("release entry point", () => {
         expect(readFileSync(join(publishRoot, "README.md"), "utf8")).toBe("root readme\n");
         expect(
           readFileSync(join(publishRoot, "extensions", "example", "dist", "index.js"), "utf8"),
+        ).toBe("export {};\n");
+        expect(
+          readFileSync(join(publishRoot, "node_modules", "@ayulab", "example", "index.js"), "utf8"),
         ).toBe("export {};\n");
       } finally {
         rmSync(publishRoot, { recursive: true, force: true });

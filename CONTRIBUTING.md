@@ -81,7 +81,7 @@ Pi loads extensions from multiple sources simultaneously. Installing the same pa
 | `pnpm run coverage:open`     | Coverage report + serve on `http://localhost:9876`      |
 | `pnpm run typecheck`         | TypeScript `tsc --noEmit`                               |
 | `pnpm run lint` / `lint:fix` | oxlint                                                  |
-| `pnpm run fmt` / `fmt:check` | oxfmt                                                   |
+| `pnpm run fmt` / `fmt:fix`   | oxfmt                                                   |
 | `pnpm run check`             | Local full check (type + lint + fmt + test)             |
 | `pnpm run verify`            | CI gate (type + lint + fmt + test)                      |
 | `pnpm run clean`             | Remove coverage, caches, and tsbuildinfo                |

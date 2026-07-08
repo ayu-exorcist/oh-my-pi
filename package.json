@@ -1,6 +1,6 @@
 {
   "name": "@ayulab/oh-my-pi",
-  "version": "0.4.14",
+  "version": "0.4.13",
   "description": "Personal Pi toolkit: extensions and themes",
   "keywords": [
     "extensions",
@@ -38,9 +38,9 @@
     "clean": "pnpm dlx rimraf --glob coverage .oxlintcache .oxfmtcache \"*.tsbuildinfo\"",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
-    "fmt": "oxfmt .",
-    "fmt:check": "oxfmt . --check",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check && pnpm run test",
+    "fmt": "oxfmt . --check",
+    "fmt:fix": "oxfmt . --write",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run fmt && pnpm run test",
     "verify": "pnpm run check",
     "setup": "oxnode scripts/setup.ts",
     "teardown": "oxnode scripts/teardown.ts",

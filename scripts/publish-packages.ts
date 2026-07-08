@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { dirname, relative, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isRecord } from "@ayulab/runtime-core";
+import { isRecord, isStringArray } from "@ayulab/runtime-core";
 import { parseCLI } from "./lib/cli";
 import { parseReleaseRunOptions, rejectUnsupportedReleaseArgs } from "./lib/release-args";
 import { buildDepGraph, collectDependencies } from "./lib/deps";
@@ -189,6 +189,38 @@ function copyWorkspacePackageForPublish(
   copyIfExists(rootDir, publishRoot, join(packagePath, "dist"));
 }
 
+function packageNodeModulesPath(rootDir: string, packageName: string): string {
+  return join(rootDir, "node_modules", ...packageName.split("/"));
+}
+
+function hydrateRootBundledWorkspaceDependencies(
+  rootDir: string,
+  publishRoot: string,
+  workspacePackages: readonly PackageInfo[],
+): void {
+  const parsed: unknown = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+  if (!isRecord(parsed) || !isStringArray(parsed.bundledDependencies)) return;
+
+  const workspaceByName = new Map(workspacePackages.map((pkg) => [pkg.name, pkg]));
+  for (const depName of parsed.bundledDependencies) {
+    const workspacePackage = workspaceByName.get(depName);
+    if (!workspacePackage) continue;
+
+    const packagePath = relative(rootDir, workspacePackage.path);
+    const distPackageJson = join(publishRoot, packagePath, "dist", "package.json");
+    if (!existsSync(distPackageJson)) {
+      throw new Error(
+        `Cannot bundle ${depName}: missing ${relative(rootDir, resolve(workspacePackage.path, "dist", "package.json"))}. Run pnpm run build first.`,
+      );
+    }
+
+    const target = packageNodeModulesPath(publishRoot, depName);
+    rmSync(target, { recursive: true, force: true });
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(join(publishRoot, packagePath, "dist"), target, { recursive: true });
+  }
+}
+
 export function createPublishWorkspace(
   rootDir = root,
   workspacePackages: readonly PackageInfo[] = getReleaseInputWorkspacePackages(rootDir),
@@ -211,6 +243,7 @@ export function createPublishWorkspace(
   for (const pkg of workspacePackages) {
     copyWorkspacePackageForPublish(rootDir, publishRoot, pkg);
   }
+  hydrateRootBundledWorkspaceDependencies(rootDir, publishRoot, workspacePackages);
 
   return publishRoot;
 }
