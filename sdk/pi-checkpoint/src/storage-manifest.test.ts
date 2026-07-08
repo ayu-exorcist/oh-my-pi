@@ -172,6 +172,13 @@ describe("storage manifest", () => {
       },
     );
 
+    const missingRepo = path.join(getCheckpointSessionsRoot(), "missing-repo");
+    await expect(deleteSessionCheckpointStorage(missingRepo, undefined)).resolves.toEqual({
+      ok: false,
+      reason: "manifest-missing",
+      message: "Checkpoint storage manifest is missing.",
+    });
+
     const manifestMissingRepo = path.join(getCheckpointSessionsRoot(), "missing-manifest");
     await fs.mkdir(manifestMissingRepo, { recursive: true });
     await expect(deleteSessionCheckpointStorage(manifestMissingRepo, undefined)).resolves.toEqual({
@@ -192,7 +199,7 @@ describe("storage manifest", () => {
     });
   });
 
-  test("purge rejects the current active session storage", async () => {
+  test("purge rejects the current active session storage and accepts missing storage", async () => {
     const activeSessionFile = path.join(tmpDir, "active-purge.jsonl");
     const activeRepoDir = getRepoDir(activeSessionFile);
     await fs.mkdir(activeRepoDir, { recursive: true });
@@ -201,6 +208,43 @@ describe("storage manifest", () => {
       ok: false,
       reason: "active-session",
       message: "The current session's checkpoint storage cannot be deleted.",
+    });
+
+    await expect(
+      purgeSessionCheckpointStorage(
+        path.join(getCheckpointSessionsRoot(), "missing-purge"),
+        undefined,
+      ),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  test("delete and purge report busy storage when the checkpoint lock is held", async () => {
+    const repoDir = path.join(getCheckpointSessionsRoot(), "session-locked-delete");
+    await writeCheckpointStorageManifest(
+      repoDir,
+      createManifest(path.join(tmpDir, "locked-delete.jsonl"), tmpDir, "6b"),
+    );
+    await createHealthyBareRepo(repoDir);
+    await fs.mkdir(path.join(repoDir, ".pi-checkpoint-lock"));
+
+    await expect(deleteSessionCheckpointStorage(repoDir, undefined)).resolves.toMatchObject({
+      ok: false,
+      reason: "storage-busy",
+      message:
+        "Checkpoint storage is busy. Try again after the running checkpoint operation finishes.",
+    });
+
+    await fs.rm(path.join(repoDir, ".pi-checkpoint-lock"), { recursive: true, force: true });
+
+    const purgeRepoDir = path.join(getCheckpointSessionsRoot(), "session-locked-purge");
+    await fs.mkdir(purgeRepoDir, { recursive: true });
+    await fs.mkdir(path.join(purgeRepoDir, ".pi-checkpoint-lock"));
+
+    await expect(purgeSessionCheckpointStorage(purgeRepoDir, undefined)).resolves.toMatchObject({
+      ok: false,
+      reason: "storage-busy",
+      message:
+        "Checkpoint storage is busy. Try again after the running checkpoint operation finishes.",
     });
   });
 

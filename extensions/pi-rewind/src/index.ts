@@ -160,7 +160,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
   ): Promise<AutoCheckpointProducer | undefined> {
     const existing = producers.getOrUndefined(sessionId);
     if (existing) return existing;
-    /* c8 ignore next */
+    /* v8 ignore next */
     if (!config.enabled || !config.autoCheckpoint) return undefined;
 
     const repo = await bindSessionRepo(
@@ -187,7 +187,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!storage.ok) return { ok: false, reason: "not-found" };
 
     const repo = await bindSessionRepo(sessionId, sessionFile, cwd, repos);
-    /* c8 ignore next */
+    /* v8 ignore next */
     if (!repo) return { ok: false, reason: "not-found" };
 
     configureRepo(repo, config);
@@ -210,10 +210,8 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (lastCheckpointTurnIds.getOrUndefined(sessionId) === entry.turnId) return;
     lastCheckpointTurnIds.set(sessionId, entry.turnId);
     rememberCheckpointFileChanges(sessionHasCheckpointFileChanges, sessionId, [entry]);
-    sessionCheckpointEntries.set(sessionId, [
-      ...(sessionCheckpointEntries.getOrUndefined(sessionId) ?? []),
-      entry,
-    ]);
+    const checkpointEntries = sessionCheckpointEntries.get(sessionId, Array<CheckpointEntry>);
+    sessionCheckpointEntries.set(sessionId, [...checkpointEntries, entry]);
     sessionSyncedCodeCommits.set(sessionId, entry.afterCommit);
     pi.appendEntry("pi-checkpoint", entry);
     await syncCheckpointStorageManifest(sessionFile, sessionId, cwd, entries, entry.prompt);
@@ -490,27 +488,27 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
       needsCodeSync(sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
 
     if (treeRestoreMode === "always") {
-      if (!shouldSyncCode) return;
+      if (!shouldSyncCode || !targetCommit) return;
 
       const restoreUi = ctx.hasUI ? ctx.ui : sessionNotifiers.getOrUndefined(sessionId);
       pendingTreeRestores.set(sessionId, {
         targetId,
         mode: "Restore code and conversation",
-        ...(targetCommit ? { targetCommit } : {}),
+        targetCommit,
       });
       treeRestoreNotifiers.set(sessionId, restoreUi);
       return;
     }
 
     if (treeRestoreMode === "ask") {
-      if (!ctx.hasUI || !shouldSyncCode) return;
+      if (!ctx.hasUI || !shouldSyncCode || !targetCommit) return;
 
       const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
       if (syncFiles === "Yes") {
         pendingTreeRestores.set(sessionId, {
           targetId,
           mode: "Restore code and conversation",
-          ...(targetCommit ? { targetCommit } : {}),
+          targetCommit,
         });
         treeRestoreNotifiers.set(sessionId, ctx.ui);
       }

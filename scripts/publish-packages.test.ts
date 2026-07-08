@@ -49,6 +49,7 @@ import {
   buildRootPublishManifest,
   createPublishWorkspace,
   findUncommittedReleasePackages,
+  publishPackages,
 } from "./publish-packages";
 
 const mockSpawnSync = vi.mocked(mockedSpawnSync);
@@ -204,6 +205,37 @@ describe("release entry point", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("reports build spawn errors", async () => {
+    mockGetPackages.mockReturnValue([] as never);
+    mockGetReleaseInputWorkspacePackages.mockReturnValue([] as never);
+    mockBuildDepGraph.mockReturnValue({ nameMap: new Map() } as never);
+    mockSpawnSync.mockReturnValueOnce({ error: new Error("spawn failed") } as never);
+
+    await expect(publishPackages({ dryRun: true, otp: undefined })).rejects.toThrow("spawn failed");
+  });
+
+  test("reports build failures by exit code", async () => {
+    mockGetPackages.mockReturnValue([] as never);
+    mockGetReleaseInputWorkspacePackages.mockReturnValue([] as never);
+    mockBuildDepGraph.mockReturnValue({ nameMap: new Map() } as never);
+    mockSpawnSync.mockReturnValueOnce({ status: 2, signal: null } as never);
+
+    await expect(publishPackages({ dryRun: true, otp: undefined })).rejects.toThrow(
+      "pnpm run build failed with exit code 2",
+    );
+  });
+
+  test("reports build termination by signal", async () => {
+    mockGetPackages.mockReturnValue([] as never);
+    mockGetReleaseInputWorkspacePackages.mockReturnValue([] as never);
+    mockBuildDepGraph.mockReturnValue({ nameMap: new Map() } as never);
+    mockSpawnSync.mockReturnValueOnce({ status: null, signal: "SIGTERM" } as never);
+
+    await expect(publishPackages({ dryRun: true, otp: undefined })).rejects.toThrow(
+      "pnpm run build failed with signal SIGTERM",
+    );
   });
 
   test("includes private internal workspace dependencies in release input paths", () => {

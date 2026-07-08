@@ -4,12 +4,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { errorMessage, getStringField, isRecord } from "@ayulab/runtime-core";
 import { getCheckpointSessionsRoot, getRepoDir } from "./resolver";
+import { withRepoLock } from "./lock";
 
 const STORAGE_COMPONENT_PATTERN = /^[A-Za-z0-9._-]+$/;
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EBUSY", "EPERM"]);
 const WINDOWS_REMOVE_RETRY_CODES = new Set(["EBUSY", "EPERM", "ENOTEMPTY", "EFAULT"]);
 const REMOVE_RETRY_DELAY_MS = 75;
 const REMOVE_ATTEMPTS = 4;
+const DELETE_LOCK_TIMEOUT_MS = 500;
 
 export interface CheckpointStorageManifest {
   readonly version: 1;
@@ -36,6 +38,7 @@ export type DeleteSessionCheckpointStorageResult =
         | "manifest-missing"
         | "storage-corrupt"
         | "active-session"
+        | "storage-busy"
         | "delete-failed";
       readonly message: string;
       readonly error?: string;
@@ -99,6 +102,13 @@ function isSafeStorageComponent(name: string): boolean {
   return STORAGE_COMPONENT_PATTERN.test(name);
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  return fs
+    .access(targetPath)
+    .then(() => true)
+    .catch(() => false);
+}
+
 function isCheckpointStorageManifest(value: unknown): value is CheckpointStorageManifest {
   return (
     isRecord(value) &&
@@ -150,6 +160,27 @@ function toDeleteFailure(error: unknown): DeleteSessionCheckpointStorageResult {
     message: `Failed to delete checkpoint storage: ${errorMessage(error)}`,
     error: errorMessage(error),
   };
+}
+
+function toStorageBusy(error: unknown): DeleteSessionCheckpointStorageResult {
+  return {
+    ok: false,
+    reason: "storage-busy",
+    message:
+      "Checkpoint storage is busy. Try again after the running checkpoint operation finishes.",
+    error: errorMessage(error),
+  };
+}
+
+async function withStorageDeleteLock(
+  repoDir: string,
+  operation: () => Promise<DeleteSessionCheckpointStorageResult>,
+): Promise<DeleteSessionCheckpointStorageResult> {
+  try {
+    return await withRepoLock(repoDir, operation, { acquireTimeoutMs: DELETE_LOCK_TIMEOUT_MS });
+  } catch (error) {
+    return toStorageBusy(error);
+  }
 }
 
 async function removeDirectoryWithRetry(
@@ -251,8 +282,7 @@ export async function deleteSessionCheckpointStorage(
   if (!validation.ok || !("resolvedRepoDir" in validation)) return validation;
 
   const { resolvedRepoDir } = validation;
-  const manifest = await readCheckpointStorageManifest(resolvedRepoDir);
-  if (!manifest) {
+  if (!(await pathExists(resolvedRepoDir))) {
     return {
       ok: false,
       reason: "manifest-missing",
@@ -260,17 +290,28 @@ export async function deleteSessionCheckpointStorage(
     };
   }
 
-  const gitDir = path.join(resolvedRepoDir, ".git");
-  const hasHealthyGitDir = await hasHealthyBareGitDir(gitDir);
-  if (!hasHealthyGitDir) {
-    return {
-      ok: false,
-      reason: "storage-corrupt",
-      message: "Checkpoint storage is missing required bare git files.",
-    };
-  }
+  return withStorageDeleteLock(resolvedRepoDir, async () => {
+    const manifest = await readCheckpointStorageManifest(resolvedRepoDir);
+    if (!manifest) {
+      return {
+        ok: false,
+        reason: "manifest-missing",
+        message: "Checkpoint storage manifest is missing.",
+      };
+    }
 
-  return removeDirectoryWithRetry(resolvedRepoDir, false);
+    const gitDir = path.join(resolvedRepoDir, ".git");
+    const hasHealthyGitDir = await hasHealthyBareGitDir(gitDir);
+    if (!hasHealthyGitDir) {
+      return {
+        ok: false,
+        reason: "storage-corrupt",
+        message: "Checkpoint storage is missing required bare git files.",
+      };
+    }
+
+    return removeDirectoryWithRetry(resolvedRepoDir, false);
+  });
 }
 
 export async function purgeSessionCheckpointStorage(
@@ -280,5 +321,11 @@ export async function purgeSessionCheckpointStorage(
   const validation = validateCheckpointStoragePath(repoDir, activeSessionFile);
   if (!validation.ok || !("resolvedRepoDir" in validation)) return validation;
 
-  return removeDirectoryWithRetry(validation.resolvedRepoDir, true);
+  if (!(await pathExists(validation.resolvedRepoDir))) {
+    return removeDirectoryWithRetry(validation.resolvedRepoDir, true);
+  }
+
+  return withStorageDeleteLock(validation.resolvedRepoDir, async () =>
+    removeDirectoryWithRetry(validation.resolvedRepoDir, true),
+  );
 }
