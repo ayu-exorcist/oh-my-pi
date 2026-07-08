@@ -8,6 +8,7 @@ import {
   type CheckpointSelectorTheme,
 } from "./checkpoint-selector";
 import * as checkpointSelectorHelpers from "./checkpoint-selector-helpers";
+import { buildTreePrefix, renderSessionLine } from "./checkpoint-selector-render";
 
 function flush(): Promise<void> {
   return Promise.resolve();
@@ -191,13 +192,8 @@ describe("checkpoint selector", () => {
     ).toEqual(["child"]);
   });
 
-  test("renders session lines with age buckets, paths, current markers, and control stripping", async () => {
-    const component = new CheckpointSelectorComponent(createOptions());
-    const renderSessionLine = (component as any).renderSessionLine.bind(component) as (
-      node: unknown,
-      isSelected: boolean,
-      width: number,
-    ) => string;
+  test("renders session lines with age buckets, paths, current markers, and control stripping", () => {
+    const theme = createTheme();
     const node = (session: CheckpointSelectorSession) => ({
       session,
       depth: session.parentSessionPath ? 1 : 0,
@@ -205,9 +201,14 @@ describe("checkpoint selector", () => {
       ancestorContinues: [],
     });
 
-    (component as any).scope = "current";
-    (component as any).showPath = false;
-    (component as any).options.currentSessionPath = "/tmp/current.jsonl";
+    expect(
+      buildTreePrefix({
+        session: createSession(),
+        depth: 2,
+        isLast: false,
+        ancestorContinues: [false, true],
+      }),
+    ).toBe("   │  ├─ ");
 
     const ages = [
       [new Date("2026-06-22T11:59:45.000Z"), "now"],
@@ -220,8 +221,8 @@ describe("checkpoint selector", () => {
     ] as const;
 
     for (const [modified, label] of ages) {
-      const line = renderSessionLine(
-        node(
+      const line = renderSessionLine({
+        node: node(
           createSession({
             path: "/tmp/current.jsonl",
             firstMessage: "Message\nwith\tcontrols",
@@ -229,17 +230,20 @@ describe("checkpoint selector", () => {
             modified,
           }),
         ),
-        false,
-        200,
-      );
+        isSelected: false,
+        width: 200,
+        scope: "current",
+        showPath: false,
+        currentSessionPath: "/tmp/current.jsonl",
+        confirmingDeletePath: null,
+        theme,
+      });
       expect(line).toContain(label);
       expect(line).toContain("Message with controls");
     }
 
-    (component as any).scope = "all";
-    (component as any).showPath = true;
-    const pathLine = renderSessionLine(
-      node(
+    const pathLine = renderSessionLine({
+      node: node(
         createSession({
           path: "/home/tester/project/current.jsonl",
           checkpointRepoDir: "/home/tester/project/current.jsonl",
@@ -249,15 +253,36 @@ describe("checkpoint selector", () => {
           modified: new Date("2026-06-22T11:00:00.000Z"),
         }),
       ),
-      false,
-      200,
-    );
+      isSelected: false,
+      width: 200,
+      scope: "all",
+      showPath: true,
+      confirmingDeletePath: null,
+      theme,
+    });
     expect(pathLine).toContain("~/project/current.jsonl");
+
+    const cwdLine = renderSessionLine({
+      node: node(
+        createSession({
+          path: "/home/tester/project/current.jsonl",
+          cwd: "/home/tester/project",
+          modified: new Date("2026-06-22T11:00:00.000Z"),
+        }),
+      ),
+      isSelected: false,
+      width: 200,
+      scope: "all",
+      showPath: false,
+      confirmingDeletePath: null,
+      theme,
+    });
+    expect(cwdLine).toContain("~/project");
 
     delete process.env.HOME;
     delete process.env.USERPROFILE;
-    const plainPathLine = renderSessionLine(
-      node(
+    const plainPathLine = renderSessionLine({
+      node: node(
         createSession({
           path: "/opt/project/session.jsonl",
           cwd: "/opt/project",
@@ -265,9 +290,13 @@ describe("checkpoint selector", () => {
           modified: new Date("2026-06-22T11:00:00.000Z"),
         }),
       ),
-      false,
-      120,
-    );
+      isSelected: false,
+      width: 120,
+      scope: "all",
+      showPath: true,
+      confirmingDeletePath: null,
+      theme,
+    });
     expect(plainPathLine).toContain("/opt/project/session.jsonl");
   });
 

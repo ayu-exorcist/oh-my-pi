@@ -12,14 +12,12 @@ import {
   buildSessionTree,
   filterAndSortSessions,
   flattenSessionTree,
-  formatSessionAge,
   hasSessionName,
   normalizeComparablePath,
   normalizeTitle,
-  shortenPathForDisplay,
-  stripControlCharacters,
   type FlattenedSessionNode,
 } from "./checkpoint-selector-helpers";
+import { renderSessionLine } from "./checkpoint-selector-render";
 
 export type SessionListProgress = (loaded: number, total: number) => void;
 export type CheckpointStatus = "no checkpoints" | "no session";
@@ -385,64 +383,16 @@ export class CheckpointSelectorComponent implements Component, Focusable {
     isSelected: boolean,
     width: number,
   ): string {
-    const session = node.session;
-    const isCurrent =
-      !!this.options.currentSessionPath &&
-      normalizeComparablePath(session.path) ===
-        normalizeComparablePath(this.options.currentSessionPath);
-    const isConfirmingDelete = session.path === this.confirmingDeletePath;
-
-    const prefix = this.buildTreePrefix(node);
-    const displayText = session.name ?? session.firstMessage;
-    const normalizedMessage = stripControlCharacters(displayText).trim();
-    const age = formatSessionAge(session.modified);
-    const msgCount = String(session.messageCount);
-    const statusLabel = session.checkpointStatus ? `[${session.checkpointStatus}]` : "";
-
-    let rightPart = [statusLabel, msgCount, age].filter((part) => part.length > 0).join(" ");
-    if (this.scope === "all" && session.cwd) {
-      rightPart = [statusLabel, shortenPathForDisplay(session.cwd), msgCount, age]
-        .filter((part) => part.length > 0)
-        .join(" ");
-    }
-    if (this.showPath) {
-      rightPart = [statusLabel, shortenPathForDisplay(session.path), msgCount, age]
-        .filter((part) => part.length > 0)
-        .join(" ");
-    }
-
-    const cursor = isSelected ? this.options.theme.fg("accent", "› ") : "  ";
-    const prefixWidth = visibleWidth(prefix);
-    const rightWidth = visibleWidth(rightPart) + 2;
-    const availableForMsg = width - 2 - prefixWidth - rightWidth;
-    const truncatedMsg = truncateToWidth(normalizedMessage, Math.max(10, availableForMsg), "…");
-
-    let messageColor: "error" | "accent" | "warning" | null = null;
-    if (isConfirmingDelete) messageColor = "error";
-    else if (isCurrent) messageColor = "accent";
-    else if (session.name) messageColor = "warning";
-
-    let styledMsg = messageColor ? this.options.theme.fg(messageColor, truncatedMsg) : truncatedMsg;
-    if (isSelected) {
-      styledMsg = this.options.theme.bold(styledMsg);
-    }
-
-    const leftPart = cursor + this.options.theme.fg("dim", prefix) + styledMsg;
-    const leftWidth = visibleWidth(leftPart);
-    const spacing = Math.max(1, width - leftWidth - visibleWidth(rightPart));
-    const styledRight = this.options.theme.fg(isConfirmingDelete ? "error" : "dim", rightPart);
-    let line = leftPart + " ".repeat(spacing) + styledRight;
-    if (isSelected) {
-      line = this.options.theme.bg("selectedBg", line);
-    }
-    return truncateToWidth(line, width);
-  }
-
-  private buildTreePrefix(node: FlattenedSessionNode): string {
-    if (node.depth === 0) return "";
-    const parts = node.ancestorContinues.map((continues) => (continues ? "│  " : "   "));
-    const branch = node.isLast ? "└─ " : "├─ ";
-    return parts.join("") + branch;
+    return renderSessionLine({
+      node,
+      isSelected,
+      width,
+      scope: this.scope,
+      showPath: this.showPath,
+      currentSessionPath: this.options.currentSessionPath,
+      confirmingDeletePath: this.confirmingDeletePath,
+      theme: this.options.theme,
+    });
   }
 
   private startDeleteConfirmation(): void {
