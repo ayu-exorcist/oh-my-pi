@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CheckpointEntry } from "@ayulab/pi-checkpoint";
 import { RewindSessionRuntimeState, TreeRestoreCoordinator } from "./session-runtime-state";
@@ -134,5 +134,97 @@ describe("RewindSessionRuntimeState", () => {
 
     expect(runtime.sessionHasCheckpointFileChanges.getOrUndefined("session-1")).toBe(false);
     expect(runtime.sessionSyncedCodeCommits.getOrUndefined("session-1")).toBeUndefined();
+  });
+
+  test("starts tree navigation unless tree restore is suppressed", () => {
+    const runtime = new RewindSessionRuntimeState();
+
+    expect(runtime.startTreeNavigation("session-1", "target-1")).toBe(true);
+    expect(runtime.treeRestores.consumePending("session-1")).toEqual({
+      targetId: "target-1",
+      mode: "Restore conversation",
+    });
+
+    runtime.treeRestores.suppress("session-1");
+    expect(runtime.startTreeNavigation("session-1", "target-2")).toBe(false);
+  });
+
+  test("plans always-mode tree code restore with stored session ui", async () => {
+    const runtime = new RewindSessionRuntimeState();
+    const sessionUi = { notify() {} } as unknown as ExtensionContext["ui"];
+    const entry = checkpoint();
+    const entries = [userEntry("user-1"), checkpointEntry(entry)];
+
+    runtime.sessionTreeRestoreModes.set("session-1", "always");
+    runtime.sessionSyncedCodeCommits.set("session-1", "after-1");
+    runtime.sessionNotifiers.set("session-1", sessionUi);
+
+    await runtime.planTreeCodeRestore({
+      sessionId: "session-1",
+      targetId: "user-1",
+      entries,
+      hasUI: false,
+      ui: undefined,
+    });
+
+    expect(runtime.treeRestores.consumePending("session-1")).toEqual({
+      targetId: "user-1",
+      mode: "Restore code and conversation",
+      targetCommit: "before-1",
+    });
+    expect(runtime.treeRestores.consumeNotifier("session-1", undefined, undefined)).toBe(sessionUi);
+  });
+
+  test("plans ask-mode tree code restore only when the user agrees", async () => {
+    const runtime = new RewindSessionRuntimeState();
+    const ui = { select: vi.fn().mockResolvedValue("Yes") } as unknown as ExtensionContext["ui"];
+    const entry = checkpoint();
+    const entries = [userEntry("user-1"), checkpointEntry(entry)];
+
+    runtime.sessionSyncedCodeCommits.set("session-1", "after-1");
+    await runtime.planTreeCodeRestore({
+      sessionId: "session-1",
+      targetId: "user-1",
+      entries,
+      hasUI: true,
+      ui,
+    });
+
+    expect(ui.select).toHaveBeenCalledWith("Sync files?", ["Yes", "No"]);
+    expect(runtime.treeRestores.consumePending("session-1")).toEqual({
+      targetId: "user-1",
+      mode: "Restore code and conversation",
+      targetCommit: "before-1",
+    });
+
+    const declineUi = {
+      select: vi.fn().mockResolvedValue("No"),
+    } as unknown as ExtensionContext["ui"];
+    await runtime.planTreeCodeRestore({
+      sessionId: "session-2",
+      targetId: "user-1",
+      entries,
+      hasUI: true,
+      ui: declineUi,
+    });
+    expect(runtime.treeRestores.consumePending("session-2")).toBeUndefined();
+  });
+
+  test("clears pending tree restore in never mode", async () => {
+    const runtime = new RewindSessionRuntimeState();
+    const entries = [userEntry("user-1"), checkpointEntry(checkpoint())];
+
+    runtime.sessionTreeRestoreModes.set("session-1", "never");
+    runtime.treeRestores.setConversationPending("session-1", "user-1");
+
+    await runtime.planTreeCodeRestore({
+      sessionId: "session-1",
+      targetId: "user-1",
+      entries,
+      hasUI: false,
+      ui: undefined,
+    });
+
+    expect(runtime.treeRestores.consumePending("session-1")).toBeUndefined();
   });
 });

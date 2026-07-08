@@ -22,7 +22,6 @@ import {
   CHECKPOINT_SESSION_STORAGE_MISSING_MESSAGE,
   CHECKPOINT_STORAGE_MISSING_MESSAGE,
   buildBranchToEntry,
-  checkpointHasFileChanges,
   clearCodeRestoreWarning,
   configureRepo,
   createAutoCheckpointProducer,
@@ -412,10 +411,7 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (!targetId) return;
 
     const sessionId = ctx.sessionManager.getSessionId();
-    const treeRestoreMode = runtime.getSessionTreeRestoreMode(sessionId);
-    if (runtime.treeRestores.isSuppressed(sessionId)) return;
-
-    runtime.treeRestores.setConversationPending(sessionId, targetId);
+    if (!runtime.startTreeNavigation(sessionId, targetId)) return;
 
     // Summarise or Summarize with custom prompt → behave like native /tree
     // (conversation-only navigation, no file restore).
@@ -425,58 +421,13 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     if (treeEvent.userWantsSummary === true) return;
 
     await finalizeCheckpointForSession(ctx);
-    const entries = ctx.sessionManager.getEntries();
-    const checkpoints = mergeCheckpointEntries(
-      entries,
-      runtime.sessionCheckpointEntries.getOrUndefined(sessionId),
-    );
-    const hasKnownFileChanges =
-      runtime.sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
-      checkpoints.some(checkpointHasFileChanges);
-    runtime.sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
-
-    const targetBranch = buildBranchToEntry(entries, targetId);
-    const targetCommit = resolveTreeTargetCommit(entries, targetBranch, targetId, checkpoints);
-    const shouldSyncCode =
-      hasKnownFileChanges &&
-      needsCodeSync(runtime.sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
-
-    if (treeRestoreMode === "always") {
-      if (!shouldSyncCode || !targetCommit) return;
-
-      const restoreUi = ctx.hasUI ? ctx.ui : runtime.sessionNotifiers.getOrUndefined(sessionId);
-      runtime.treeRestores.setCodePending(
-        sessionId,
-        {
-          targetId,
-          mode: "Restore code and conversation",
-          targetCommit,
-        },
-        restoreUi,
-      );
-      return;
-    }
-
-    if (treeRestoreMode === "ask") {
-      if (!ctx.hasUI || !shouldSyncCode || !targetCommit) return;
-
-      const syncFiles = await ctx.ui.select("Sync files?", ["Yes", "No"]);
-      if (syncFiles === "Yes") {
-        runtime.treeRestores.setCodePending(
-          sessionId,
-          {
-            targetId,
-            mode: "Restore code and conversation",
-            targetCommit,
-          },
-          ctx.ui,
-        );
-      }
-      return;
-    }
-
-    // never — do nothing, keep mode as "Restore conversation"
-    runtime.treeRestores.clearPending(sessionId);
+    await runtime.planTreeCodeRestore({
+      sessionId,
+      targetId,
+      entries: ctx.sessionManager.getEntries(),
+      hasUI: ctx.hasUI,
+      ui: ctx.hasUI ? ctx.ui : undefined,
+    });
   });
 
   pi.on("session_tree", async (event, ctx) => {

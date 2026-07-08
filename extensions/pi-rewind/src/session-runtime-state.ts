@@ -8,9 +8,14 @@ import {
 } from "@ayulab/pi-checkpoint";
 import type { AutoCheckpointProducer } from "./auto-checkpoint";
 import {
+  buildBranchToEntry,
+  checkpointHasFileChanges,
   createSessionTaskQueue,
   hasCheckpointFileChanges,
+  mergeCheckpointEntries,
+  needsCodeSync,
   resolveBranchCodeCommit,
+  resolveTreeTargetCommit,
   type TreeRestoreIntent,
   type TreeRestoreMode,
 } from "./index-helpers";
@@ -82,6 +87,14 @@ export class TreeRestoreCoordinator {
   }
 }
 
+interface PlanTreeCodeRestoreOptions {
+  readonly sessionId: string;
+  readonly targetId: string;
+  readonly entries: readonly unknown[];
+  readonly hasUI: boolean;
+  readonly ui: ExtensionContext["ui"] | undefined;
+}
+
 export class RewindSessionRuntimeState {
   readonly producers = new SessionStateMap<AutoCheckpointProducer>();
   readonly sessionTasks = createSessionTaskQueue();
@@ -102,6 +115,67 @@ export class RewindSessionRuntimeState {
 
   getSessionTreeRestoreMode(sessionId: string): TreeRestoreMode {
     return this.sessionTreeRestoreModes.getOrUndefined(sessionId) ?? "ask";
+  }
+
+  startTreeNavigation(sessionId: string, targetId: string): boolean {
+    if (this.treeRestores.isSuppressed(sessionId)) return false;
+    this.treeRestores.setConversationPending(sessionId, targetId);
+    return true;
+  }
+
+  async planTreeCodeRestore(options: PlanTreeCodeRestoreOptions): Promise<void> {
+    const { sessionId, targetId, entries, hasUI, ui } = options;
+    const treeRestoreMode = this.getSessionTreeRestoreMode(sessionId);
+    const checkpoints = mergeCheckpointEntries(
+      entries,
+      this.sessionCheckpointEntries.getOrUndefined(sessionId),
+    );
+    const hasKnownFileChanges =
+      this.sessionHasCheckpointFileChanges.getOrUndefined(sessionId) === true ||
+      checkpoints.some(checkpointHasFileChanges);
+    this.sessionHasCheckpointFileChanges.set(sessionId, hasKnownFileChanges);
+
+    const targetBranch = buildBranchToEntry(entries, targetId);
+    const targetCommit = resolveTreeTargetCommit(entries, targetBranch, targetId, checkpoints);
+    const shouldSyncCode =
+      hasKnownFileChanges &&
+      needsCodeSync(this.sessionSyncedCodeCommits.getOrUndefined(sessionId), targetCommit);
+
+    if (treeRestoreMode === "always") {
+      if (!shouldSyncCode || !targetCommit) return;
+
+      const restoreUi = hasUI ? ui : this.sessionNotifiers.getOrUndefined(sessionId);
+      this.treeRestores.setCodePending(
+        sessionId,
+        {
+          targetId,
+          mode: "Restore code and conversation",
+          targetCommit,
+        },
+        restoreUi,
+      );
+      return;
+    }
+
+    if (treeRestoreMode === "ask") {
+      if (!hasUI || !ui || !shouldSyncCode || !targetCommit) return;
+
+      const syncFiles = await ui.select("Sync files?", ["Yes", "No"]);
+      if (syncFiles === "Yes") {
+        this.treeRestores.setCodePending(
+          sessionId,
+          {
+            targetId,
+            mode: "Restore code and conversation",
+            targetCommit,
+          },
+          ui,
+        );
+      }
+      return;
+    }
+
+    this.treeRestores.clearPending(sessionId);
   }
 
   resetSession(
