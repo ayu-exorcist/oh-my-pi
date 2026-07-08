@@ -1,7 +1,16 @@
 #!/usr/bin/env oxnode
-import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { relative, resolve, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, relative, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isRecord } from "@ayulab/runtime-core";
@@ -15,6 +24,11 @@ import type { PackageInfo, ValidationError } from "./lib/types";
 
 /** Repository root absolute path. */
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+const changesetCliPath = resolve(
+  dirname(require.resolve("@changesets/cli/package.json")),
+  "bin.js",
+);
 
 export function packageReleasePaths(pkg: PackageInfo, related: readonly PackageInfo[]): string[] {
   const paths = new Set<string>([
@@ -114,11 +128,7 @@ function ensureReleaseValidation(packages: readonly PackageInfo[]): boolean {
   process.exit(1);
 }
 
-export function stripRootManifestForPublish(rootDir = root): () => void {
-  const packageJsonPath = join(rootDir, "package.json");
-  const original = readFileSync(packageJsonPath, "utf8");
-  const parsed: unknown = JSON.parse(original);
-
+export function buildRootPublishManifest(parsed: unknown): Record<string, unknown> {
   if (!isRecord(parsed)) {
     throw new Error("package.json must be an object");
   }
@@ -137,18 +147,83 @@ export function stripRootManifestForPublish(rootDir = root): () => void {
     manifest.publishConfig = cleanedPublishConfig;
   }
 
-  writeFileSync(packageJsonPath, `${JSON.stringify(manifest, null, 2)}\n`);
-
-  return () => writeFileSync(packageJsonPath, original);
+  return manifest;
 }
 
-function runChangesetsPublish(otp: string | undefined): void {
-  const otpFlag = otp ? ` --otp ${otp}` : "";
-  const restoreRootManifest = stripRootManifestForPublish();
+function runCommand(command: string, args: readonly string[], cwd: string): void {
+  const result = spawnSync(command, [...args], { cwd, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status === 0) return;
+
+  const detail = result.signal ? `signal ${result.signal}` : `exit code ${String(result.status)}`;
+  throw new Error(`${command} ${args.join(" ")} failed with ${detail}`);
+}
+
+function runChangeset(args: readonly string[], cwd: string): void {
+  runCommand(process.execPath, [changesetCliPath, ...args], cwd);
+}
+
+function copyIfExists(sourceRoot: string, targetRoot: string, relativePath: string): void {
+  const source = join(sourceRoot, relativePath);
+  if (!existsSync(source)) return;
+
+  const target = join(targetRoot, relativePath);
+  mkdirSync(dirname(target), { recursive: true });
+  cpSync(source, target, { recursive: true });
+}
+
+function writeRootPublishManifest(rootDir: string, publishRoot: string): void {
+  const parsed: unknown = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+  const manifest = buildRootPublishManifest(parsed);
+  writeFileSync(join(publishRoot, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function copyWorkspacePackageForPublish(
+  rootDir: string,
+  publishRoot: string,
+  pkg: PackageInfo,
+): void {
+  const packagePath = relative(rootDir, pkg.path);
+  copyIfExists(rootDir, publishRoot, join(packagePath, "package.json"));
+  copyIfExists(rootDir, publishRoot, join(packagePath, "README.md"));
+  copyIfExists(rootDir, publishRoot, join(packagePath, "dist"));
+}
+
+export function createPublishWorkspace(
+  rootDir = root,
+  workspacePackages: readonly PackageInfo[] = getReleaseInputWorkspacePackages(rootDir),
+): string {
+  const cacheDir = join(rootDir, "node_modules", ".cache");
+  mkdirSync(cacheDir, { recursive: true });
+  const publishRoot = mkdtempSync(join(cacheDir, "oh-my-pi-publish-"));
+
+  writeRootPublishManifest(rootDir, publishRoot);
+  for (const path of [
+    "README.md",
+    "LICENSE",
+    "pnpm-workspace.yaml",
+    ".npmrc",
+    ".changeset",
+    "themes",
+  ]) {
+    copyIfExists(rootDir, publishRoot, path);
+  }
+  for (const pkg of workspacePackages) {
+    copyWorkspacePackageForPublish(rootDir, publishRoot, pkg);
+  }
+
+  return publishRoot;
+}
+
+function runChangesetsPublish(
+  otp: string | undefined,
+  workspacePackages: readonly PackageInfo[],
+): void {
+  const publishRoot = createPublishWorkspace(root, workspacePackages);
   try {
-    execSync(`pnpm changeset publish${otpFlag}`, { cwd: root, stdio: "inherit" });
+    runChangeset(["publish", ...(otp ? ["--otp", otp] : [])], publishRoot);
   } finally {
-    restoreRootManifest();
+    rmSync(publishRoot, { recursive: true, force: true });
   }
 }
 
@@ -169,16 +244,16 @@ export async function publishPackages(options: {
   if (!ensureReleaseValidation(packages)) return;
 
   console.log("🔨 Building packages...");
-  execSync("pnpm run build", { cwd: root, stdio: "inherit" });
+  runCommand("pnpm", ["run", "build"], root);
   console.log("");
 
   if (dryRun) {
-    execSync("pnpm changeset status --verbose", { cwd: root, stdio: "inherit" });
+    runChangeset(["status", "--verbose"], root);
     console.log("\n🏃 Dry run mode. No packages were published and no tags were created.");
     return;
   }
 
-  runChangesetsPublish(otp);
+  runChangesetsPublish(otp, releaseInputPackages);
   console.log("🎉 Changesets publish completed successfully!");
 }
 

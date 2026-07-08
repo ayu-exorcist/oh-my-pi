@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  spawnSync: vi.fn(() => ({ status: 0, signal: null })),
 }));
 
 vi.mock("./lib/packages", () => ({
@@ -30,7 +30,7 @@ vi.mock("./lib/cli", () => ({
   parseCLI: vi.fn(() => ({ flags: new Map(), positionals: [] })),
 }));
 
-import { execSync as mockedExecSync } from "node:child_process";
+import { spawnSync as mockedSpawnSync } from "node:child_process";
 import {
   buildDepGraph as mockedBuildDepGraph,
   collectDependencies as mockedCollectDependencies,
@@ -45,9 +45,13 @@ import {
   validatePackage as mockedValidatePackage,
   validateRootConsistency as mockedValidateRootConsistency,
 } from "./lib/validate";
-import { findUncommittedReleasePackages, stripRootManifestForPublish } from "./publish-packages";
+import {
+  buildRootPublishManifest,
+  createPublishWorkspace,
+  findUncommittedReleasePackages,
+} from "./publish-packages";
 
-const mockExecSync = vi.mocked(mockedExecSync);
+const mockSpawnSync = vi.mocked(mockedSpawnSync);
 const mockBuildDepGraph = vi.mocked(mockedBuildDepGraph);
 const mockCollectDependencies = vi.mocked(mockedCollectDependencies);
 const mockHasPathChangesSinceRef = vi.mocked(mockedHasPathChangesSinceRef);
@@ -87,7 +91,8 @@ describe("release entry point", () => {
 
   beforeEach(() => {
     originalArgv1 = process.argv[1];
-    mockExecSync.mockReset();
+    mockSpawnSync.mockReset();
+    mockSpawnSync.mockReturnValue({ status: 0, signal: null } as never);
     mockBuildDepGraph.mockReset();
     mockCollectDependencies.mockReset();
     mockHasPathChangesSinceRef.mockReset();
@@ -130,8 +135,8 @@ describe("release entry point", () => {
     expect(findUncommittedReleasePackages([rootPkg], nameMap)).toEqual([]);
   });
 
-  test("strips root development hooks while publishing and restores them afterward", () => {
-    const root = createPublishFixture({
+  test("builds a stripped root publish manifest without mutating package.json", () => {
+    const manifest = {
       name: "@ayulab/oh-my-pi",
       version: "0.4.1",
       scripts: { prepare: "simple-git-hooks" },
@@ -139,39 +144,25 @@ describe("release entry point", () => {
       engines: { node: ">=24.0.0" },
       publishConfig: { access: "public", scripts: { build: "noop" } },
       "simple-git-hooks": { "pre-commit": "pnpm run check" },
-    });
-    const original = readFileSync(join(root, "package.json"), "utf8");
+    };
 
-    try {
-      const restore = stripRootManifestForPublish(root);
-      const stripped = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    const stripped = buildRootPublishManifest(manifest);
 
-      expect(stripped.scripts).toBeUndefined();
-      expect(stripped.devDependencies).toBeUndefined();
-      expect(stripped.engines).toBeUndefined();
-      expect(stripped["simple-git-hooks"]).toBeUndefined();
-      expect(stripped.publishConfig).toEqual({ access: "public" });
-      expect((stripped.publishConfig as Record<string, unknown>).scripts).toBeUndefined();
-
-      restore();
-      expect(readFileSync(join(root, "package.json"), "utf8")).toBe(original);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(stripped.scripts).toBeUndefined();
+    expect(stripped.devDependencies).toBeUndefined();
+    expect(stripped.engines).toBeUndefined();
+    expect(stripped["simple-git-hooks"]).toBeUndefined();
+    expect(stripped.publishConfig).toEqual({ access: "public" });
+    expect((stripped.publishConfig as Record<string, unknown>).scripts).toBeUndefined();
+    expect(manifest.scripts).toEqual({ prepare: "simple-git-hooks" });
   });
 
   test("rejects non-object root manifests", () => {
-    const root = createPublishFixture("null" as never);
-
-    try {
-      expect(() => stripRootManifestForPublish(root)).toThrow("package.json must be an object");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(() => buildRootPublishManifest(null)).toThrow("package.json must be an object");
   });
 
-  test("restores root manifests without publishConfig", () => {
-    const root = createPublishFixture({
+  test("keeps missing publishConfig missing", () => {
+    const stripped = buildRootPublishManifest({
       name: "@ayulab/oh-my-pi",
       version: "0.4.1",
       scripts: { prepare: "simple-git-hooks" },
@@ -179,12 +170,37 @@ describe("release entry point", () => {
       engines: { node: ">=24.0.0" },
     });
 
+    expect(stripped.publishConfig).toBeUndefined();
+  });
+
+  test("creates an isolated publish workspace with stripped root manifest and package dist", () => {
+    const root = createPublishFixture({
+      name: "@ayulab/oh-my-pi",
+      version: "0.4.1",
+      scripts: { prepare: "simple-git-hooks" },
+      devDependencies: { "simple-git-hooks": "^2.13.1" },
+      engines: { node: ">=24.0.0" },
+    });
+    const extensionDir = join(root, "extensions", "example");
+    mkdirSync(join(extensionDir, "dist"), { recursive: true });
+    writeFileSync(join(root, "README.md"), "root readme\n");
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - extensions/*\n");
+    writeFileSync(join(extensionDir, "package.json"), '{"name":"example","version":"1.0.0"}\n');
+    writeFileSync(join(extensionDir, "dist", "index.js"), "export {};\n");
+
     try {
-      const restore = stripRootManifestForPublish(root);
-      expect(
-        JSON.parse(readFileSync(join(root, "package.json"), "utf8")).publishConfig,
-      ).toBeUndefined();
-      restore();
+      const publishRoot = createPublishWorkspace(root, [pkg("example", extensionDir)]);
+      try {
+        const rootManifest = JSON.parse(readFileSync(join(publishRoot, "package.json"), "utf8"));
+        expect(rootManifest.scripts).toBeUndefined();
+        expect(readFileSync(join(root, "package.json"), "utf8")).toContain("simple-git-hooks");
+        expect(readFileSync(join(publishRoot, "README.md"), "utf8")).toBe("root readme\n");
+        expect(
+          readFileSync(join(publishRoot, "extensions", "example", "dist", "index.js"), "utf8"),
+        ).toBe("export {};\n");
+      } finally {
+        rmSync(publishRoot, { recursive: true, force: true });
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -27,7 +27,7 @@ vi.mock("node:url", async () => {
 });
 
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  spawnSync: vi.fn(() => ({ status: 0, signal: null })),
 }));
 
 vi.mock("./lib/packages", () => ({
@@ -53,7 +53,7 @@ vi.mock("./lib/cli", () => ({
   parseCLI: vi.fn(() => ({ flags: new Map(), positionals: [] })),
 }));
 
-import { execSync as mockedExecSync } from "node:child_process";
+import { spawnSync as mockedSpawnSync } from "node:child_process";
 import { buildDepGraph as mockedBuildDepGraph } from "./lib/deps";
 import { hasPathChangesSinceRef as mockedHasPathChangesSinceRef } from "./lib/git";
 import {
@@ -66,7 +66,7 @@ import {
   validateRootConsistency as mockedValidateRootConsistency,
 } from "./lib/validate";
 
-const mockExecSync = vi.mocked(mockedExecSync);
+const mockSpawnSync = vi.mocked(mockedSpawnSync);
 const mockBuildDepGraph = vi.mocked(mockedBuildDepGraph);
 const mockHasPathChangesSinceRef = vi.mocked(mockedHasPathChangesSinceRef);
 const mockGetPackages = vi.mocked(mockedGetPackages);
@@ -119,7 +119,8 @@ describe("publish entrypoint", () => {
 
   beforeEach(() => {
     writeFileSync(rootPackagePath, workspaceManifest, "utf8");
-    mockExecSync.mockReset();
+    mockSpawnSync.mockReset();
+    mockSpawnSync.mockReturnValue({ status: 0, signal: null } as never);
     mockBuildDepGraph.mockReset();
     mockHasPathChangesSinceRef.mockReset();
     mockGetPackages.mockReset();
@@ -151,7 +152,7 @@ describe("publish entrypoint", () => {
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockGetPackages).not.toHaveBeenCalled();
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   test("aborts on unsupported positionals", async () => {
@@ -161,7 +162,7 @@ describe("publish entrypoint", () => {
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockGetPackages).not.toHaveBeenCalled();
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   test("aborts on validation failures", async () => {
@@ -173,7 +174,7 @@ describe("publish entrypoint", () => {
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   test("skips root consistency checks when no root package is present", async () => {
@@ -204,23 +205,28 @@ describe("publish entrypoint", () => {
     await expect(runEntrypoint()).resolves.toBeUndefined();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockValidatePackage).not.toHaveBeenCalled();
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   test("runs the dry-run flow", async () => {
     prepareRelease(new Map([["dry-run", true]]));
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm run build", {
+    expect(mockSpawnSync).toHaveBeenCalledWith("pnpm", ["run", "build"], {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset status --verbose", {
-      cwd: fixtureRoot,
-      stdio: "inherit",
-    });
-    expect(mockExecSync).not.toHaveBeenCalledWith(
-      expect.stringContaining("pnpm changeset publish"),
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringContaining("@changesets"), "status", "--verbose"],
+      {
+        cwd: fixtureRoot,
+        stdio: "inherit",
+      },
+    );
+    expect(mockSpawnSync).not.toHaveBeenCalledWith(
+      process.execPath,
+      expect.arrayContaining(["publish"]),
       expect.anything(),
     );
   });
@@ -229,10 +235,11 @@ describe("publish entrypoint", () => {
     prepareRelease();
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish", {
-      cwd: fixtureRoot,
-      stdio: "inherit",
-    });
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringContaining("@changesets"), "publish"],
+      expect.objectContaining({ stdio: "inherit" }),
+    );
   });
 
   test("runs the publish flow and restores the manifest", async () => {
@@ -240,14 +247,15 @@ describe("publish entrypoint", () => {
     prepareRelease(new Map([["otp", "123456"]]));
 
     await expect(runEntrypoint()).resolves.toBeUndefined();
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm run build", {
+    expect(mockSpawnSync).toHaveBeenCalledWith("pnpm", ["run", "build"], {
       cwd: fixtureRoot,
       stdio: "inherit",
     });
-    expect(mockExecSync).toHaveBeenCalledWith("pnpm changeset publish --otp 123456", {
-      cwd: fixtureRoot,
-      stdio: "inherit",
-    });
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringContaining("@changesets"), "publish", "--otp", "123456"],
+      expect.objectContaining({ stdio: "inherit" }),
+    );
     expect(readFileSync(rootPackagePath, "utf8")).toBe(originalManifest);
   });
 
@@ -261,7 +269,7 @@ describe("publish entrypoint", () => {
       process.argv[1] = previousArgv1;
     }
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   test("reports uncaught entrypoint errors through the catch handler", async () => {

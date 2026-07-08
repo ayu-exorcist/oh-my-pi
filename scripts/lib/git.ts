@@ -1,12 +1,4 @@
-import { execSync } from "node:child_process";
-
-function quote(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
-}
-
-function pathArgs(paths: readonly string[]): string {
-  return paths.length > 0 ? ` -- ${paths.map(quote).join(" ")}` : "";
-}
+import { execFileSync } from "node:child_process";
 
 /**
  * Detect whether files under `paths` changed since `ref` or remain dirty in the
@@ -17,10 +9,10 @@ export function hasPathChangesSinceRef(
   ref: string,
   paths: readonly string[],
 ): boolean {
-  const scoped = pathArgs(paths);
+  const scopedArgs = paths.length > 0 ? ["--", ...paths] : [];
 
   try {
-    const committed = execSync(`git diff --name-only ${ref}..HEAD${scoped}`, {
+    const committed = execFileSync("git", ["diff", "--name-only", `${ref}..HEAD`, ...scopedArgs], {
       cwd: root,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -31,11 +23,15 @@ export function hasPathChangesSinceRef(
   }
 
   try {
-    const dirty = execSync(`git status --porcelain --untracked-files=all${scoped}`, {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const dirty = execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=all", ...scopedArgs],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
     return dirty.trim().length > 0;
   } catch {
     return true;

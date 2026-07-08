@@ -1,36 +1,38 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 import { hasPathChangesSinceRef } from "./git";
 
-const mockExecSync = vi.mocked(execSync);
+const mockExecFileSync = vi.mocked(execFileSync);
 
 describe("git helpers", () => {
   beforeEach(() => {
-    mockExecSync.mockReset();
+    mockExecFileSync.mockReset();
   });
 
   test("detects committed path changes", () => {
-    mockExecSync.mockReturnValueOnce("changed.ts\n" as never);
+    mockExecFileSync.mockReturnValueOnce("changed.ts\n" as never);
 
     expect(hasPathChangesSinceRef("/repo", "tag", ["src", 'quote"path'])).toBe(true);
-    expect(mockExecSync).toHaveBeenCalledWith(
-      'git diff --name-only tag..HEAD -- "src" "quote\\"path"',
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "git",
+      ["diff", "--name-only", "tag..HEAD", "--", "src", 'quote"path'],
       { cwd: "/repo", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     );
   });
 
   test("falls back to dirty status when committed diff is empty", () => {
-    mockExecSync.mockReturnValueOnce("\n" as never).mockReturnValueOnce("?? file\n" as never);
+    mockExecFileSync.mockReturnValueOnce("\n" as never).mockReturnValueOnce("?? file\n" as never);
 
     expect(hasPathChangesSinceRef("/repo", "tag", [])).toBe(true);
-    expect(mockExecSync).toHaveBeenNthCalledWith(
+    expect(mockExecFileSync).toHaveBeenNthCalledWith(
       2,
-      "git status --porcelain --untracked-files=all",
+      "git",
+      ["status", "--porcelain", "--untracked-files=all"],
       {
         cwd: "/repo",
         encoding: "utf8",
@@ -40,13 +42,13 @@ describe("git helpers", () => {
   });
 
   test("returns false when committed and dirty checks are empty", () => {
-    mockExecSync.mockReturnValueOnce("\n" as never).mockReturnValueOnce("\n" as never);
+    mockExecFileSync.mockReturnValueOnce("\n" as never).mockReturnValueOnce("\n" as never);
 
     expect(hasPathChangesSinceRef("/repo", "tag", ["src"])).toBe(false);
   });
 
   test("falls back to dirty status when the ref diff fails", () => {
-    mockExecSync
+    mockExecFileSync
       .mockImplementationOnce(() => {
         throw new Error("bad ref");
       })
@@ -56,7 +58,7 @@ describe("git helpers", () => {
   });
 
   test("treats status failures as changed", () => {
-    mockExecSync.mockReturnValueOnce("\n" as never).mockImplementationOnce(() => {
+    mockExecFileSync.mockReturnValueOnce("\n" as never).mockImplementationOnce(() => {
       throw new Error("status failed");
     });
 
