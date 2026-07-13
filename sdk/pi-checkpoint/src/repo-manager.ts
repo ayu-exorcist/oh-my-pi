@@ -28,6 +28,69 @@ const AUTO_EXCLUDE_SCAN_CONFIGURED_PRUNE_DIRS = new Set([
   ".serverless",
   ".aws-sam",
 ]);
+const WINDOWS_RESERVED_DEVICE_NAMES = [
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  "COM1",
+  "COM2",
+  "COM3",
+  "COM4",
+  "COM5",
+  "COM6",
+  "COM7",
+  "COM8",
+  "COM9",
+  "LPT1",
+  "LPT2",
+  "LPT3",
+  "LPT4",
+  "LPT5",
+  "LPT6",
+  "LPT7",
+  "LPT8",
+  "LPT9",
+  "COM¹",
+  "COM²",
+  "COM³",
+  "LPT¹",
+  "LPT²",
+  "LPT³",
+] as const;
+const WINDOWS_RESERVED_DEVICE_NAME_SET = new Set<string>(WINDOWS_RESERVED_DEVICE_NAMES);
+
+function getWindowsReservedPathExcludePatterns(): readonly string[] {
+  return WINDOWS_RESERVED_DEVICE_NAMES.flatMap((name) => [name, `${name}.*`, `${name}[. ]*`]);
+}
+
+function getWindowsReservedPathspecExcludes(): readonly string[] {
+  return WINDOWS_RESERVED_DEVICE_NAMES.flatMap((name) => [
+    `:(exclude,icase,glob)**/${name}`,
+    `:(exclude,icase,glob)**/${name}.*`,
+    `:(exclude,icase,glob)**/${name}[. ]*`,
+  ]);
+}
+
+function usesWindowsReservedPathProtection(): boolean {
+  return process.platform === "win32";
+}
+
+/**
+ * Whether any component of a Git-style path resolves to a Windows reserved device name.
+ *
+ * Windows treats device names case-insensitively, including when followed by an extension
+ * or trailing dots/spaces. This helper is platform-independent so its normalization rules
+ * can be tested directly; callers decide when Windows protection applies.
+ */
+export function isWindowsReservedDevicePath(filePath: string): boolean {
+  return filePath.split(/[\\/]+/).some((component) => {
+    const trimmed = component.replace(/[ .]+$/u, "");
+    const extensionIndex = trimmed.indexOf(".");
+    const baseName = extensionIndex === -1 ? trimmed : trimmed.slice(0, extensionIndex);
+    return WINDOWS_RESERVED_DEVICE_NAME_SET.has(baseName.toUpperCase());
+  });
+}
 
 function getDirectoryExcludePatterns(dirName: string): Set<string> {
   return new Set([
@@ -238,6 +301,9 @@ export class RepoManager {
 
       for (const entry of entries) {
         if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        if (usesWindowsReservedPathProtection() && isWindowsReservedDevicePath(entry.name)) {
+          continue;
+        }
         if (shouldPruneAutoExcludeScanDir(entry.name, patterns)) continue;
         stack.push(path.join(current, entry.name));
       }
@@ -252,7 +318,15 @@ export class RepoManager {
     const internalStorageExcludes = isPathInside(this.workTree, this.repoDir)
       ? Array.from(getDirectoryExcludePatterns(toGitPath(this.workTree, this.repoDir)))
       : [];
-    const allPatterns = [...patterns, ...internalStorageExcludes, ...autoExcludes];
+    const windowsReservedExcludes = usesWindowsReservedPathProtection()
+      ? getWindowsReservedPathExcludePatterns()
+      : [];
+    const allPatterns = [
+      ...patterns,
+      ...internalStorageExcludes,
+      ...autoExcludes,
+      ...windowsReservedExcludes,
+    ];
     await mkdir(path.dirname(excludePath), { recursive: true });
     await writeFile(excludePath, allPatterns.join("\n") + "\n", "utf8");
   }
@@ -307,7 +381,15 @@ export class RepoManager {
   /** Hard-reset the work tree to `commitHash` and remove untracked files. */
   async checkoutCommit(commitHash: string): Promise<void> {
     await exec("git", [...this.gitArgs(), "reset", "--hard", commitHash], this.env, this.workTree);
-    await exec("git", [...this.gitArgs(), "clean", "-fd"], this.env, this.workTree);
+    const cleanExcludes = usesWindowsReservedPathProtection()
+      ? getWindowsReservedPathExcludePatterns().flatMap((pattern) => ["-e", pattern])
+      : [];
+    await exec(
+      "git",
+      [...this.gitArgs(), "clean", "-fd", ...cleanExcludes],
+      this.env,
+      this.workTree,
+    );
   }
 
   /** Check out a commit while holding the repo lock. */
@@ -409,6 +491,31 @@ export class RepoManager {
     const paths = stdout.split("\0").filter((entry) => entry.length > 0);
     if (paths.length === 0) return;
 
+    await this.removePathsFromIndex(paths);
+  }
+
+  private async removeWindowsReservedPathsFromIndex(): Promise<void> {
+    if (!usesWindowsReservedPathProtection()) return;
+
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "ls-files", "-z"],
+      this.env,
+      this.workTree,
+    );
+    const paths = Array.from(
+      new Set(
+        stdout
+          .split("\0")
+          .filter((entry) => entry.length > 0 && isWindowsReservedDevicePath(entry)),
+      ),
+    );
+    await this.removePathsFromIndex(paths);
+  }
+
+  private async removePathsFromIndex(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return;
+
     const chunkSize = 100;
     for (let index = 0; index < paths.length; index += chunkSize) {
       const chunk = paths.slice(index, index + chunkSize);
@@ -424,9 +531,22 @@ export class RepoManager {
   private async findLargeChangedPaths(): Promise<readonly string[]> {
     if (!this.maxFileBytes) return [];
 
+    const pathspecExcludes = usesWindowsReservedPathProtection()
+      ? getWindowsReservedPathspecExcludes()
+      : [];
     const { stdout } = await exec(
       "git",
-      [...this.gitArgs(), "ls-files", "-m", "-o", "--exclude-standard", "-z"],
+      [
+        ...this.gitArgs(),
+        "ls-files",
+        "-m",
+        "-o",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ".",
+        ...pathspecExcludes,
+      ],
       this.env,
       this.workTree,
     );
@@ -450,9 +570,13 @@ export class RepoManager {
   }
 
   private async stageAllAfterRefresh(): Promise<void> {
+    await this.removeWindowsReservedPathsFromIndex();
     await this.removeIgnoredFromIndex();
     const oversizedPaths = await this.findLargeChangedPaths();
-    const addArgs = [...this.gitArgs(), "add", "-A"];
+    const pathspecExcludes = usesWindowsReservedPathProtection()
+      ? getWindowsReservedPathspecExcludes()
+      : [];
+    const addArgs = [...this.gitArgs(), "add", "-A", "--", ".", ...pathspecExcludes];
     if (oversizedPaths.length === 0) {
       await exec("git", addArgs, this.env, this.workTree);
       return;
@@ -460,7 +584,7 @@ export class RepoManager {
 
     await exec(
       "git",
-      [...addArgs, "--", ".", ...oversizedPaths.map((candidate) => `:(exclude)${candidate}`)],
+      [...addArgs, ...oversizedPaths.map((candidate) => `:(exclude)${candidate}`)],
       this.env,
       this.workTree,
     );

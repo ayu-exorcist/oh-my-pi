@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { RepoManager } from "./repo-manager";
+import { isWindowsReservedDevicePath, RepoManager } from "./repo-manager";
 import { exec } from "./exec";
 
 async function createTmpDir(): Promise<string> {
@@ -25,6 +25,30 @@ async function cleanup(dir: string): Promise<void> {
     }
   }
 }
+
+const windowsTest = process.platform === "win32" ? test : test.skip;
+
+describe("isWindowsReservedDevicePath", () => {
+  test.each([
+    "CON",
+    "nul",
+    "NUL.txt",
+    "AUX. ",
+    "nested/COM1.log",
+    "nested\\LPT9",
+    "COM¹",
+    "LPT³.txt",
+  ])("recognizes %s", (filePath) => {
+    expect(isWindowsReservedDevicePath(filePath)).toBe(true);
+  });
+
+  test.each(["NULL", "NUL-safe", "COM0", "COM10", "LPT0", "LPT10", "file.txt"])(
+    "does not match %s",
+    (filePath) => {
+      expect(isWindowsReservedDevicePath(filePath)).toBe(false);
+    },
+  );
+});
 
 describe("RepoManager", () => {
   let tmpDir: string;
@@ -172,7 +196,74 @@ describe("RepoManager", () => {
 
     const excludePath = path.join(gitDir, "info", "exclude");
     const exclude = await fs.readFile(excludePath, "utf8");
-    expect(exclude.trim()).toBe("");
+    expect(exclude).not.toContain("project/");
+    if (process.platform === "win32") {
+      expect(exclude).toContain("NUL\n");
+    } else {
+      expect(exclude.trim()).toBe("");
+    }
+  });
+
+  windowsTest("Windows device exclusions override user include rules", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude(["!NUL", "!nested/COM1.log"]);
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    for (const candidate of ["NUL", "nul.txt", "nested/COM1.log", "LPT9. "]) {
+      await expect(
+        exec("git", ["check-ignore", "--no-index", "-q", "--", candidate], env, workTree),
+      ).resolves.toBeDefined();
+    }
+    await expect(
+      exec("git", ["check-ignore", "--no-index", "-q", "--", "NUL-safe"], env, workTree),
+    ).rejects.toThrow();
+  });
+
+  windowsTest("checkpoint clears Windows device names left in the checkpoint index", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude(["!NUL"]);
+    await fs.writeFile(path.join(workTree, "seed.txt"), "seed", "utf8");
+    await fs.writeFile(path.join(workTree, "normal.txt"), "normal", "utf8");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout: blobHash } = await exec(
+      "git",
+      ["hash-object", "-w", "seed.txt"],
+      env,
+      workTree,
+    );
+    for (const reservedPath of ["NUL", "nested/COM1.log", "nul.txt"]) {
+      await exec(
+        "git",
+        [
+          "-c",
+          "core.protectNTFS=false",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `100644,${blobHash.trim()},${reservedPath}`,
+        ],
+        env,
+        workTree,
+      );
+    }
+
+    const hash = await repo.checkpoint("entry-device-index");
+    const { stdout: files } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(files).toContain("normal.txt");
+    expect(files).not.toMatch(/(?:^|\n)(?:NUL|nul\.txt|nested\/COM1\.log)(?:\n|$)/);
   });
 
   test("setExclude scans node_modules when node_modules is not excluded", async () => {
