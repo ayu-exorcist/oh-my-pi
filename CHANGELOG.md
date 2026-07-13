@@ -1,5 +1,11 @@
 # @ayulab/oh-my-pi
 
+## 0.4.16
+
+### Patch Changes
+
+- 45ce7ea: Fix root package publishing when bundling the pi-rewind workspace dependency.
+
 ## 0.4.15
 
 ### Patch Changes
