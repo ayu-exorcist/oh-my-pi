@@ -1,5 +1,12 @@
 # @ayulab/pi-checkpoint
 
+## 0.6.5
+
+### Patch Changes
+
+- db27ef6: Prevent Windows reserved device-name paths such as `NUL` from breaking checkpoint staging, while preserving existing checkpoint history.
+- 992e9be: Reuse unchanged active-branch checkpoints between turns to avoid redundant empty Git commits while preserving file recovery and per-turn conversation history.
+
 ## 0.6.4
 
 ### Patch Changes
