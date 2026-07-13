@@ -1,5 +1,14 @@
 # @ayulab/pi-rewind
 
+## 0.4.5
+
+### Patch Changes
+
+- 992e9be: Reuse unchanged active-branch checkpoints between turns to avoid redundant empty Git commits while preserving file recovery and per-turn conversation history.
+- Updated dependencies [db27ef6]
+- Updated dependencies [992e9be]
+  - @ayulab/pi-checkpoint@0.6.5
+
 ## 0.4.4
 
 ### Patch Changes
