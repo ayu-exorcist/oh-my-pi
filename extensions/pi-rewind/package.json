@@ -49,8 +49,8 @@
   "devDependencies": {
     "@ayulab/repo-tools": "workspace:*",
     "@types/node": "^24.0.0",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
