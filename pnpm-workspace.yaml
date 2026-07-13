@@ -3,10 +3,7 @@ packages:
   - extensions/*
   - sdk/*
   - internal/*
-nodeLinker: hoisted
 allowBuilds:
   "@google/genai": true
-  koffi: true
   protobufjs: true
   simple-git-hooks: true
-  tree-sitter-bash: true

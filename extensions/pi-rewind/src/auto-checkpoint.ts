@@ -17,6 +17,8 @@ export interface AutoCheckpointProducerOptions {
   readonly exclude: readonly string[];
   readonly createTurnId: () => string;
   readonly now: () => Date;
+  /** Latest active-branch file state, if the session already has one. */
+  readonly initialCommit?: string;
 }
 
 export interface AutoCheckpointTurnStartInput {
@@ -42,7 +44,11 @@ export class AutoCheckpointProducer {
 
   private pendingAssistantStopReason: AutoCheckpointAssistantStopReason | undefined;
 
-  constructor(private readonly options: AutoCheckpointProducerOptions) {}
+  private latestCommit: string | undefined;
+
+  constructor(private readonly options: AutoCheckpointProducerOptions) {
+    this.latestCommit = options.initialCommit;
+  }
 
   beginRun(): void {
     this.pendingTurnId = undefined;
@@ -73,7 +79,10 @@ export class AutoCheckpointProducer {
     try {
       await this.options.repo.withLock(async () => {
         await this.options.repo.ensureReady(this.options.exclude);
-        this.pendingBeforeCommit = await this.options.repo.checkpoint(input.userEntryId);
+        this.pendingBeforeCommit =
+          this.latestCommit === undefined
+            ? await this.options.repo.checkpoint(input.userEntryId)
+            : await this.options.repo.checkpointIfChanged(input.userEntryId, this.latestCommit);
       });
       return { ok: true, entries };
     } catch (err) {
@@ -118,7 +127,7 @@ export class AutoCheckpointProducer {
         const stdout = await this.options.repo.diffAgainst(beforeCommit);
         const parsed = parseDiffStats(stdout);
         const afterCommit =
-          parsed.length > 0 ? await this.options.repo.checkpoint(userEntryId) : beforeCommit;
+          parsed.length > 0 ? await this.options.repo.checkpointStaged(userEntryId) : beforeCommit;
 
         return {
           v: 2,
@@ -134,6 +143,7 @@ export class AutoCheckpointProducer {
         };
       });
 
+      this.latestCommit = entry.afterCommit;
       return { ok: true, entry };
     } catch (err) {
       return { ok: false, message: `Checkpoint finalization failed: ${errorMessage(err)}` };

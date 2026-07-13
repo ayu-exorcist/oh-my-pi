@@ -186,6 +186,9 @@ export class RepoManager {
 
   private maxFileBytes: number | undefined;
 
+  /** `setExclude` has already scanned nested repositories for the next stage operation. */
+  private excludeIsFresh = false;
+
   constructor(
     /** Absolute path to the bare `.git` directory. */
     private gitDir: string,
@@ -334,6 +337,7 @@ export class RepoManager {
   private async refreshExclude(): Promise<void> {
     if (!this.excludePatterns) return;
     await this.writeExclude(this.excludePatterns);
+    this.excludeIsFresh = true;
   }
 
   /** Write exclude patterns to `info/exclude` inside the bare repo. */
@@ -341,6 +345,7 @@ export class RepoManager {
     const explicitPatterns = [...patterns];
     this.excludePatterns = explicitPatterns;
     await this.writeExclude(explicitPatterns);
+    this.excludeIsFresh = true;
   }
 
   /** Write exclude patterns while holding the repo lock. */
@@ -350,17 +355,11 @@ export class RepoManager {
     });
   }
 
-  /**
-   * Stage all files and create a checkpoint commit.
-   *
-   * @param entryId - Session entry id to embed in the commit message.
-   * @returns The 40-character commit hash.
-   */
-  async checkpoint(entryId: string): Promise<string> {
-    await this.stageAll();
+  private async commitStagedCheckpoint(entryId: string, allowEmpty: boolean): Promise<string> {
+    const allowEmptyArgs = allowEmpty ? ["--allow-empty"] : [];
     await exec(
       "git",
-      [...this.gitArgs(), "commit", "-m", `[pi] entry:${entryId}`, "--allow-empty"],
+      [...this.gitArgs(), "commit", "-m", `[pi] entry:${entryId}`, ...allowEmptyArgs],
       this.env,
       this.workTree,
     );
@@ -371,6 +370,43 @@ export class RepoManager {
       this.workTree,
     );
     return stdout.trim();
+  }
+
+  /**
+   * Stage all files and create a checkpoint commit.
+   *
+   * @param entryId - Session entry id to embed in the commit message.
+   * @returns The 40-character commit hash.
+   */
+  async checkpoint(entryId: string): Promise<string> {
+    await this.stageAll();
+    return this.commitStagedCheckpoint(entryId, true);
+  }
+
+  /**
+   * Create a checkpoint from the already staged index.
+   *
+   * Callers must only use this after staging changes relative to the intended base.
+   */
+  async checkpointStaged(entryId: string): Promise<string> {
+    return this.commitStagedCheckpoint(entryId, false);
+  }
+
+  /**
+   * Stage all files and create a checkpoint only when they differ from `baseCommit`.
+   *
+   * If the base commit is no longer available, creates a complete checkpoint instead
+   * of risking an unprotected Turn boundary.
+   */
+  async checkpointIfChanged(entryId: string, baseCommit: string): Promise<string> {
+    await this.stageAll();
+    try {
+      const diff = await this.diffAgainst(baseCommit);
+      if (diff.length === 0) return baseCommit;
+      return this.checkpointStaged(entryId);
+    } catch {
+      return this.commitStagedCheckpoint(entryId, true);
+    }
   }
 
   /** Create a checkpoint while holding the repo lock. */
@@ -592,8 +628,12 @@ export class RepoManager {
 
   /** Stage all changes in the working tree. */
   async stageAll(): Promise<void> {
-    await this.refreshExclude();
-    await this.stageAllAfterRefresh();
+    if (!this.excludeIsFresh) await this.refreshExclude();
+    try {
+      await this.stageAllAfterRefresh();
+    } finally {
+      this.excludeIsFresh = false;
+    }
   }
 
   /** Stage all changes while holding the repo lock. */

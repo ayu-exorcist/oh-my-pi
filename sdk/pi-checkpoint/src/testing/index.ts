@@ -11,6 +11,8 @@ type RepoMockMethodName =
   | "setExclude"
   | "lockedSetExclude"
   | "checkpoint"
+  | "checkpointStaged"
+  | "checkpointIfChanged"
   | "lockedCheckpoint"
   | "checkoutCommit"
   | "lockedCheckoutCommit"
@@ -57,6 +59,31 @@ export function createMockRepo(partial: RepoMock = {}): RepoManager {
     withLock: vi.fn((fn: () => Promise<unknown>) => fn()),
   };
   const repo = { ...defaults, ...partial } as unknown as RepoManager & Record<string, unknown>;
+
+  if (!asMock(repo.checkpointStaged)) {
+    repo.checkpointStaged = vi.fn(async (entryId: string) => {
+      const checkpoint = asMock(repo.checkpoint);
+      if (!checkpoint) throw new Error("checkpoint not mocked");
+      const result = await checkpoint(entryId);
+      return typeof result === "string" ? result : String(result);
+    });
+  }
+
+  if (!asMock(repo.checkpointIfChanged)) {
+    repo.checkpointIfChanged = vi.fn(async (entryId: string, baseCommit: string) => {
+      const stageAll = asMock(repo.stageAll);
+      if (stageAll) await stageAll();
+
+      const diffAgainst = asMock(repo.diffAgainst);
+      const diff = diffAgainst ? await diffAgainst(baseCommit) : "";
+      if (typeof diff !== "string" || diff.length === 0) return baseCommit;
+
+      const checkpointStaged = asMock(repo.checkpointStaged);
+      if (!checkpointStaged) return baseCommit;
+      const result = await checkpointStaged(entryId);
+      return typeof result === "string" ? result : String(result);
+    });
+  }
 
   repo.lockedInit = vi.fn(async () => repo.withLock(async () => repo.init()));
   repo.lockedEnsureReady = vi.fn(async (excludePatterns?: readonly string[]) =>

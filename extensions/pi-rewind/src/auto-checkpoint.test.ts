@@ -5,16 +5,19 @@ import { AutoCheckpointProducer } from "./auto-checkpoint";
 interface MockRepoOptions {
   readonly ensureReady?: (...args: unknown[]) => unknown;
   readonly checkpoint?: (...args: unknown[]) => unknown;
+  readonly checkpointStaged?: (...args: unknown[]) => unknown;
+  readonly checkpointIfChanged?: (...args: unknown[]) => unknown;
   readonly stageAll?: (...args: unknown[]) => unknown;
   readonly diffAgainst?: (...args: unknown[]) => unknown;
 }
 
-function createProducer(options: MockRepoOptions) {
+function createProducer(options: MockRepoOptions, initialCommit?: string) {
   return new AutoCheckpointProducer({
     repo: createMockRepo(options),
     exclude: ["node_modules/**"],
     createTurnId: () => "turn-1",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
+    ...(initialCommit === undefined ? {} : { initialCommit }),
   });
 }
 
@@ -59,15 +62,73 @@ describe("AutoCheckpointProducer", () => {
     });
   });
 
+  test("reuses an unchanged active-branch commit without creating a start checkpoint", async () => {
+    const checkpoint = vi.fn();
+    const checkpointIfChanged = vi.fn().mockResolvedValue("active-branch-hash");
+    const producer = createProducer(
+      {
+        ensureReady: vi.fn().mockResolvedValue(undefined),
+        checkpoint,
+        checkpointIfChanged,
+        stageAll: vi.fn().mockResolvedValue(undefined),
+        diffAgainst: vi.fn().mockResolvedValue(""),
+      },
+      "active-branch-hash",
+    );
+
+    await producer.turnStart({ userEntryId: "entry-2", prompt: "no changes" });
+    const final = await producer.finalizeRun();
+
+    expect(checkpointIfChanged).toHaveBeenCalledWith("entry-2", "active-branch-hash");
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(final).toEqual({
+      ok: true,
+      entry: expect.objectContaining({
+        beforeCommit: "active-branch-hash",
+        afterCommit: "active-branch-hash",
+        fileCount: 0,
+      }),
+    });
+  });
+
+  test("captures user changes made after the active-branch commit before the agent starts", async () => {
+    const checkpointIfChanged = vi.fn().mockResolvedValue("pre-turn-hash");
+    const producer = createProducer(
+      {
+        ensureReady: vi.fn().mockResolvedValue(undefined),
+        checkpointIfChanged,
+        stageAll: vi.fn().mockResolvedValue(undefined),
+        diffAgainst: vi.fn().mockResolvedValue(""),
+      },
+      "active-branch-hash",
+    );
+
+    await producer.turnStart({ userEntryId: "entry-2", prompt: "preserve manual change" });
+    const final = await producer.finalizeRun();
+
+    expect(checkpointIfChanged).toHaveBeenCalledWith("entry-2", "active-branch-hash");
+    expect(final).toEqual({
+      ok: true,
+      entry: expect.objectContaining({
+        beforeCommit: "pre-turn-hash",
+        afterCommit: "pre-turn-hash",
+      }),
+    });
+  });
+
   test("captures a CheckpointEntry around an agent run with File Change Stats", async () => {
     const ensureReady = vi.fn().mockResolvedValue(undefined);
-    const checkpoint = vi
-      .fn()
-      .mockResolvedValueOnce("before-hash")
-      .mockResolvedValueOnce("after-hash");
+    const checkpoint = vi.fn().mockResolvedValue("before-hash");
+    const checkpointStaged = vi.fn().mockResolvedValue("after-hash");
     const stageAll = vi.fn().mockResolvedValue(undefined);
     const diffAgainst = vi.fn().mockResolvedValue("2\t1\tsrc/app.ts\n");
-    const producer = createProducer({ ensureReady, checkpoint, stageAll, diffAgainst });
+    const producer = createProducer({
+      ensureReady,
+      checkpoint,
+      checkpointStaged,
+      stageAll,
+      diffAgainst,
+    });
 
     const start = await producer.turnStart({
       userEntryId: "entry-1",
@@ -83,7 +144,8 @@ describe("AutoCheckpointProducer", () => {
     expect(end).toEqual({ ok: true });
     expect(ensureReady).toHaveBeenCalledWith(["node_modules/**"]);
     expect(checkpoint).toHaveBeenCalledWith("entry-1");
-    expect(stageAll).toHaveBeenCalled();
+    expect(checkpointStaged).toHaveBeenCalledWith("entry-1");
+    expect(stageAll).toHaveBeenCalledTimes(1);
     expect(diffAgainst).toHaveBeenCalledWith("before-hash");
     expect(final).toEqual({
       ok: true,

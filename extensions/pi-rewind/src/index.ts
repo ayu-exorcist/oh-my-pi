@@ -35,6 +35,7 @@ import {
   notifyUnusableResumeStorage,
   readSettingsRecord,
   rememberCheckpointFileChanges,
+  resolveBranchCodeCommit,
   resolveTreeRestoreMode,
   resolveTreeTargetCommit,
   restoreCloneCodeState,
@@ -131,7 +132,14 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
     );
     configureRepo(repo, config);
 
-    const producer = createAutoCheckpointProducer(repo, config);
+    const producer = createAutoCheckpointProducer(
+      repo,
+      config,
+      resolveBranchCodeCommit(
+        ctx.sessionManager.getEntries(),
+        toTreeEntryRecords(ctx.sessionManager.getBranch()),
+      ),
+    );
     runtime.producers.set(sessionId, producer);
     return producer;
   }
@@ -235,7 +243,14 @@ export default function (pi: ExtensionAPI, provider?: RepoProvider) {
 
       configureRepo(storage.repo, config);
       repos.setRepo(sessionId, storage.repo);
-      runtime.producers.set(sessionId, createAutoCheckpointProducer(storage.repo, config));
+      runtime.producers.set(
+        sessionId,
+        createAutoCheckpointProducer(
+          storage.repo,
+          config,
+          resolveBranchCodeCommit(entries, toTreeEntryRecords(ctx.sessionManager.getBranch())),
+        ),
+      );
 
       await syncCheckpointStorageManifest(sessionFile, sessionId, ctx.cwd, entries);
       if (forkIntent?.position === "at") {

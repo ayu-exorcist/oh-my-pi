@@ -108,12 +108,14 @@ export function configureRepo(repo: RepoManager, config: CheckpointConfig): void
 export function createAutoCheckpointProducer(
   repo: RepoManager,
   config: CheckpointConfig,
+  initialCommit?: string,
 ): AutoCheckpointProducer {
   return new AutoCheckpointProducer({
     repo,
     exclude: config.exclude,
     createTurnId: randomUUID,
     now: () => new Date(),
+    ...(initialCommit === undefined ? {} : { initialCommit }),
   });
 }
 

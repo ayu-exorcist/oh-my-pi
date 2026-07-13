@@ -107,6 +107,47 @@ describe("RepoManager", () => {
     expect(files.trim()).toBe("hello.txt");
   });
 
+  test("reuses an unchanged baseline without creating an empty checkpoint commit", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await fs.writeFile(path.join(workTree, "hello.txt"), "world", "utf8");
+    const baseline = await repo.checkpoint("entry-1");
+    const stageAll = vi.spyOn(repo, "stageAll");
+
+    const checkpoint = await repo.checkpointIfChanged("entry-2", baseline);
+
+    expect(checkpoint).toBe(baseline);
+    expect(stageAll).toHaveBeenCalledTimes(1);
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["rev-list", "--count", "HEAD"], env);
+    expect(stdout.trim()).toBe("1");
+  });
+
+  test("captures changes made after a baseline checkpoint", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    await fs.mkdir(workTree, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    const filePath = path.join(workTree, "hello.txt");
+    await fs.writeFile(filePath, "before", "utf8");
+    const baseline = await repo.checkpoint("entry-1");
+    await fs.writeFile(filePath, "manual change", "utf8");
+
+    const checkpoint = await repo.checkpointIfChanged("entry-2", baseline);
+
+    expect(checkpoint).not.toBe(baseline);
+    await repo.checkoutCommit(checkpoint);
+    await expect(fs.readFile(filePath, "utf8")).resolves.toBe("manual change");
+  });
+
   test("checkpoint excludes nested git repositories", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");

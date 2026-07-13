@@ -41,7 +41,7 @@ pi install npm:@ayulab/pi-rewind
 
 ## Usage
 
-The extension registers automatically after Pi starts, and captures checkpoints around each turn.
+The extension registers automatically after Pi starts, and captures checkpoints around each turn. Each Turn remains selectable even when it changes no files, so conversation restore behavior is preserved. After an initial file baseline exists, an unchanged workspace reuses that active-branch commit instead of creating an empty Git commit; changes made before the agent starts are still captured before the Turn runs.
 
 Use `/rewind` to jump back to any earlier turn and choose the exact restore scope you want:
 
