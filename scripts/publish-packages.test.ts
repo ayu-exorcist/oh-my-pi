@@ -187,7 +187,11 @@ describe("release entry point", () => {
     const extensionDir = join(root, "extensions", "example");
     mkdirSync(join(extensionDir, "dist"), { recursive: true });
     writeFileSync(join(root, "README.md"), "root readme\n");
-    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - extensions/*\n");
+    writeFileSync(
+      join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - extensions/*\nnodeLinker: isolated\n",
+    );
+    writeFileSync(join(root, ".npmrc"), "provenance=true\n");
     writeFileSync(
       join(extensionDir, "package.json"),
       '{"name":"@ayulab/example","version":"1.0.0"}\n',
@@ -205,6 +209,10 @@ describe("release entry point", () => {
         expect(rootManifest.scripts).toBeUndefined();
         expect(readFileSync(join(root, "package.json"), "utf8")).toContain("simple-git-hooks");
         expect(readFileSync(join(publishRoot, "README.md"), "utf8")).toBe("root readme\n");
+        expect(readFileSync(join(publishRoot, ".npmrc"), "utf8")).toBe("provenance=true\n");
+        expect(readFileSync(join(publishRoot, "pnpm-workspace.yaml"), "utf8")).toBe(
+          "packages:\n  - extensions/*\nnodeLinker: hoisted\n",
+        );
         expect(
           readFileSync(join(publishRoot, "extensions", "example", "dist", "index.js"), "utf8"),
         ).toBe("export {};\n");

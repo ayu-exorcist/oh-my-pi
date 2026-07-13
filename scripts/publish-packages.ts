@@ -172,6 +172,14 @@ function copyIfExists(sourceRoot: string, targetRoot: string, relativePath: stri
   cpSync(source, target, { recursive: true });
 }
 
+function configurePublishWorkspace(publishRoot: string): void {
+  const workspacePath = join(publishRoot, "pnpm-workspace.yaml");
+  const existing = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
+  const withoutNodeLinker = existing.replace(/^nodeLinker:[^\r\n]*(?:\r?\n)?/m, "");
+  const separator = withoutNodeLinker.length === 0 || withoutNodeLinker.endsWith("\n") ? "" : "\n";
+  writeFileSync(workspacePath, `${withoutNodeLinker}${separator}nodeLinker: hoisted\n`);
+}
+
 function writeRootPublishManifest(rootDir: string, publishRoot: string): void {
   const parsed: unknown = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
   const manifest = buildRootPublishManifest(parsed);
@@ -240,6 +248,7 @@ export function createPublishWorkspace(
   ]) {
     copyIfExists(rootDir, publishRoot, path);
   }
+  configurePublishWorkspace(publishRoot);
   for (const pkg of workspacePackages) {
     copyWorkspacePackageForPublish(rootDir, publishRoot, pkg);
   }
