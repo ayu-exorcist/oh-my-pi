@@ -196,7 +196,7 @@ The SDK config type accepts booleans for checkpoint restore settings. `restoreOn
 
 ### Exclude behavior
 
-Checkpoint staging respects Git ignore rules from the work tree, including root and nested `.gitignore` files. Checkpoint Storage also writes its own internal excludes to the bare repo's `info/exclude` before staging; these rules are not written to the user's project `.git`.
+When the work tree is inside a Git repository, Checkpoint staging respects its Git ignore rules, including root and nested `.gitignore` files. Outside a Git repository, `.gitignore` is treated as an ordinary file, so its matching files and directories are checkpoint-managed. Checkpoint Storage also writes its own internal excludes to the bare repo's `info/exclude` before staging; these rules are not written to the user's project `.git`.
 
 The internal excludes cover high-cost or unsafe paths such as `node_modules`, generated build output, common cache directories, personal IDE state, operating-system metadata files, and auto-detected nested Git repository roots. Built-in excludes run first, `ayu.checkpoint.exclude` appends more excludes, and `ayu.checkpoint.include` re-includes explicit paths afterward. `.pi/`, `.vscode/`, `vendor/`, `*.iml`, and `*.d.ts` are not excluded by default; only high-confidence personal IDE files such as `.idea/workspace.xml`, `.idea/tasks.xml`, `.idea/caches/`, `.idea/shelf/`, `.idea/localHistory/`, `.idea/compile-server/`, plus operating-system metadata such as `.DS_Store`, `Thumbs.db`, `Desktop.ini`, `*.iws`, `*.swp`, and `*.swo` are excluded automatically, including when those files appear inside nested project directories.
 

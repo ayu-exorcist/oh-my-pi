@@ -107,6 +107,47 @@ describe("RepoManager", () => {
     expect(files.trim()).toBe("hello.txt");
   });
 
+  test("checkpoint treats .gitignore as an ordinary file outside a git repository", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const ignoredDir = path.join(workTree, "ignored");
+    await fs.mkdir(ignoredDir, { recursive: true });
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await repo.setExclude(["*.log"]);
+    await fs.writeFile(path.join(workTree, ".gitignore"), "ignored/\n", "utf8");
+    await fs.writeFile(path.join(ignoredDir, "captured.txt"), "captured", "utf8");
+    await fs.writeFile(path.join(workTree, "excluded.log"), "excluded", "utf8");
+
+    const hash = await repo.checkpoint("entry-1");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout.split("\n").filter(Boolean)).toEqual([".gitignore", "ignored/captured.txt"]);
+  });
+
+  test("checkpoint respects .gitignore inside a git repository", async () => {
+    const gitDir = path.join(tmpDir, ".git");
+    const indexFile = path.join(tmpDir, "index");
+    const workTree = path.join(tmpDir, "project");
+    const ignoredDir = path.join(workTree, "ignored");
+    await fs.mkdir(ignoredDir, { recursive: true });
+    await exec("git", ["init"], undefined, workTree);
+
+    const repo = new RepoManager(gitDir, indexFile, workTree);
+    await repo.init();
+    await fs.writeFile(path.join(workTree, ".gitignore"), "ignored/\n", "utf8");
+    await fs.writeFile(path.join(ignoredDir, "ignored.txt"), "ignored", "utf8");
+
+    const hash = await repo.checkpoint("entry-1");
+
+    const env = { GIT_DIR: gitDir, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: indexFile };
+    const { stdout } = await exec("git", ["ls-tree", "-r", "--name-only", hash], env);
+    expect(stdout.split("\n").filter(Boolean)).toEqual([".gitignore"]);
+  });
+
   test("reuses an unchanged baseline without creating an empty checkpoint commit", async () => {
     const gitDir = path.join(tmpDir, ".git");
     const indexFile = path.join(tmpDir, "index");

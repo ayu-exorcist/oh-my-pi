@@ -14,6 +14,7 @@ export interface ExecEnv {
 
 export interface ExecOptions {
   readonly timeoutMs?: number;
+  readonly input?: string;
 }
 
 function formatCommand(command: string, args: readonly string[]): string {
@@ -65,6 +66,7 @@ export async function exec(
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
     });
+    if (options.input !== undefined) child.stdin.end(options.input);
     const timeoutMs = options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
     let settled = false;
     const timeout = setTimeout(() => {

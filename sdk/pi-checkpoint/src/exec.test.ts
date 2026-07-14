@@ -78,6 +78,18 @@ describe("exec", () => {
     expect(stdout.trim()).toBe("hello world.txt");
   });
 
+  test("passes input to the command", async () => {
+    const { stdout } = await exec(
+      process.execPath,
+      ["-e", "process.stdin.on('data', (data) => process.stdout.write(data))"],
+      undefined,
+      undefined,
+      { input: "checkpoint input" },
+    );
+
+    expect(stdout).toBe("checkpoint input");
+  });
+
   test("throws when command exits with non-zero code", async () => {
     await expect(exec("git", ["not-a-real-command"])).rejects.toThrow();
   });

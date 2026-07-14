@@ -517,6 +517,53 @@ export class RepoManager {
     return stdout;
   }
 
+  private async workTreeIsGitWorkTree(): Promise<boolean> {
+    try {
+      const { stdout } = await exec("git", [
+        "-C",
+        this.workTree,
+        "rev-parse",
+        "--is-inside-work-tree",
+      ]);
+      return stdout.trim() === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  private async findGitignoreIgnoredPaths(): Promise<readonly string[]> {
+    const { stdout } = await exec(
+      "git",
+      [...this.gitArgs(), "ls-files", "-z", "-o", "-i", "--exclude-standard"],
+      this.env,
+      this.workTree,
+    );
+    const candidates = stdout.split("\0").filter((entry) => entry.length > 0);
+    if (candidates.length === 0) return [];
+
+    const { stdout: ignoredDetails } = await exec(
+      "git",
+      [...this.gitArgs(), "check-ignore", "--no-index", "-z", "-v", "--stdin"],
+      this.env,
+      this.workTree,
+      { input: candidates.join("\0") + "\0" },
+    );
+    const fields = ignoredDetails.split("\0");
+    const paths: string[] = [];
+    for (let index = 0; index + 3 < fields.length; index += 4) {
+      const source = fields[index];
+      const ignoredPath = fields[index + 3];
+      if (
+        source !== undefined &&
+        ignoredPath !== undefined &&
+        path.basename(source) === ".gitignore"
+      ) {
+        paths.push(ignoredPath);
+      }
+    }
+    return paths;
+  }
+
   private async removeIgnoredFromIndex(): Promise<void> {
     const { stdout } = await exec(
       "git",
@@ -564,7 +611,9 @@ export class RepoManager {
     }
   }
 
-  private async findLargeChangedPaths(): Promise<readonly string[]> {
+  private async findLargeChangedPaths(
+    additionalCandidates: readonly string[] = [],
+  ): Promise<readonly string[]> {
     if (!this.maxFileBytes) return [];
 
     const pathspecExcludes = usesWindowsReservedPathProtection()
@@ -586,7 +635,9 @@ export class RepoManager {
       this.env,
       this.workTree,
     );
-    const candidates = stdout.split("\0").filter((entry) => entry.length > 0);
+    const candidates = Array.from(
+      new Set([...stdout.split("\0").filter((entry) => entry.length > 0), ...additionalCandidates]),
+    );
     const oversized: string[] = [];
 
     for (const candidate of candidates) {
@@ -605,24 +656,38 @@ export class RepoManager {
     return oversized;
   }
 
+  private async stageGitignoreIgnoredPaths(paths: readonly string[]): Promise<void> {
+    const chunkSize = 100;
+    for (let index = 0; index < paths.length; index += chunkSize) {
+      await exec(
+        "git",
+        [...this.gitArgs(), "add", "-f", "--", ...paths.slice(index, index + chunkSize)],
+        this.env,
+        this.workTree,
+      );
+    }
+  }
+
   private async stageAllAfterRefresh(): Promise<void> {
     await this.removeWindowsReservedPathsFromIndex();
     await this.removeIgnoredFromIndex();
-    const oversizedPaths = await this.findLargeChangedPaths();
+    const gitignoreIgnoredPaths = (await this.workTreeIsGitWorkTree())
+      ? []
+      : await this.findGitignoreIgnoredPaths();
+    const oversizedPaths = await this.findLargeChangedPaths(gitignoreIgnoredPaths);
+    const oversizedPathSet = new Set(oversizedPaths);
     const pathspecExcludes = usesWindowsReservedPathProtection()
       ? getWindowsReservedPathspecExcludes()
       : [];
     const addArgs = [...this.gitArgs(), "add", "-A", "--", ".", ...pathspecExcludes];
-    if (oversizedPaths.length === 0) {
-      await exec("git", addArgs, this.env, this.workTree);
-      return;
-    }
-
     await exec(
       "git",
       [...addArgs, ...oversizedPaths.map((candidate) => `:(exclude)${candidate}`)],
       this.env,
       this.workTree,
+    );
+    await this.stageGitignoreIgnoredPaths(
+      gitignoreIgnoredPaths.filter((candidate) => !oversizedPathSet.has(candidate)),
     );
   }
 
