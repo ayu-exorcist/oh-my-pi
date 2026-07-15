@@ -1,5 +1,11 @@
 # @ayulab/pi-checkpoint
 
+## 0.6.6
+
+### Patch Changes
+
+- f6838d3: Treat `.gitignore` as an ordinary file when checkpointing a work tree outside a Git repository.
+
 ## 0.6.5
 
 ### Patch Changes
