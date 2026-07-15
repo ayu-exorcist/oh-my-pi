@@ -1,5 +1,11 @@
 # @ayulab/oh-my-pi
 
+## 0.4.17
+
+### Patch Changes
+
+- @ayulab/pi-rewind@0.4.6
+
 ## 0.4.16
 
 ### Patch Changes
